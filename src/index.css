@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* Tailwind v4 resuelve `dark:` con prefers-color-scheme por defecto.
+   Esto lo cambia a modo por clase: el variante se activa cuando <html>
+   (o un ancestro) tiene la clase `dark`, que es lo que alterna el Header. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-mm-cream: #F3F2EE;
+  --color-mm-navy: #0B1B2C;
+  --color-mm-gold: #D4AF37;
+}
+
+body {
+  @apply bg-mm-cream text-mm-navy font-sans antialiased;
+}
+
+/* Modo oscuro: gris neutro profundo, sin subtono azul */
+.dark body {
+  @apply bg-zinc-900 text-zinc-100;
+}
+
+/* Desvanecido del carrusel de proyectos destacados.
+   La tarjeta se remonta al cambiar de slide (cambia su `key`), así que una
+   transición no alcanzaría a animar: hace falta una animación por keyframes,
+   que sí se ejecuta al montar el elemento. */
+@keyframes fadeInCarrusel {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeInCarrusel 500ms ease-out both;
+}
+
+/* Respeta a quien configuró menos movimiento en su sistema */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn { animation: none; }
+}
+
+@media (max-width: 1400px) {
+  html {
+    /* Set 1rem to 12.8px (80% of 16px) for perfectly scaled-down layouts on small laptops */
+    font-size: 12.8px !important;
+  }
+}
+
+@media (min-width: 1401px) {
+  html {
+    /* Default 1rem to 16px for large screens */
+    font-size: 16px !important;
+  }
+}

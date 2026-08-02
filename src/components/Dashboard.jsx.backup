@@ -1,0 +1,583 @@
+[445]           </div>
+[446]           <div className="text-[11px] leading-relaxed text-white/70 px-1 flex-shrink-0">
+[447]             Equipo de Administración
+[448]           </div>
+[449]           
+[450]           <div className="flex-1 overflow-y-auto mt-2 mb-2 px-1 flex flex-col justify-end gap-2 no-scrollbar">
+[451]             <div className="bg-white/10 rounded-lg p-2 text-[10px] text-white/80 self-start max-w-[95%]">
+[452]               ¿Ya se revisó el presupuesto de Chalchuapa?
+[453]             </div>
+[454]             <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-2 text-[10px] text-white/90 self-end max-w-[95%]">
+[455]               Sí, está aprobado ✅
+[456]             </div>
+[457]           </div>
+[458] 
+[459]           <div className="relative flex-shrink-0">
+[460]             <input 
+[461]               type="text" 
+[462]               placeholder="Enviar mensaje..." 
+[463]               className="w-full bg-[#050D15] border border-white/10 rounded-lg py-2 pl-3 pr-8 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors"
+[464]             />
+[465]             <button className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors">
+[466]               <Send size={12} />
+[467]             </button>
+[468]           </div>
+[469]         </div>
+[470] 
+[471]         {/* Profile */}
+[472]         <div className="pt-4 flex flex-col gap-2 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+[473]           <div className="flex flex-col gap-3">
+[474]             <div className="flex items-center gap-3">
+[475]               <div className="w-10 h-10 rounded-full bg-slate-800 border border-[#C5A059] flex items-center justify-center flex-shrink-0">
+[476]                 <span className="text-white text-sm font-bold tracking-wider">LP</span>
+[477]               </div>
+[478]               <div className="flex flex-col overflow-hidden">
+[479]                 <span className="text-white text-[13px] font-bold truncate">Ing. Luis Panameño</span>
+[480]                 <span className="text-[#C5A059] text-[10px] font-semibold truncate">Socio Administrador</span>
+[481]               </div>
+[482]             </div>
+[483]             
+[484]             <button
+[485]               onClick={onLogout}
+[486]               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-colors text-xs font-semibold mt-1"
+[487]             >
+[488]               <LogOut size={14} />
+[489]               Cerrar Sesión
+[490]             </button>
+[491]           </div>
+[492]         </div>
+[493]       </aside>
+[494] 
+[495]       {/* ── Main area ── */}
+[496]       {currentView === 'project-details' && activeProject ? (
+[497]         <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} isEditMode={isEditMode} />
+[498]       ) : currentView === 'vault' ? (
+[499]         <VaultView userRole={rol} onBack={handleBack} />
+[500]       ) : currentView === 'chat' ? (
+[501]         <ChatView onBack={handleBack} />
+[502]       ) : currentView === 'new-project' ? (
+[503]         <NewProjectView onBack={handleBack} />
+[504]       ) : currentView === 'all-projects' ? (
+[505]         <AllProjectsView projects={PROJECTS} onCardClick={handleCardClick} onBack={handleBack} isEditMode={isEditMode} />
+[506]       ) : currentView === 'profile' ? (
+[507]         <ProfileView user={user} onLogout={onLogout} onBack={handleBack} />
+[508]       ) : (
+[509]         /* Portfolio view */
+[510]         <main className="flex-1 flex flex-col overflow-hidden bg-[#F5F6F8]">
+[511] 
+[512]           {/* ── Mobile Top Nav (Visible only on small screens) ── */}
+[513]           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#0B1B2C] text-white border-b border-white/5">
+[514]             <div className="flex items-center gap-1.5">
+[515]               {/* Logo matching the provided image size */}
+[516]               <div className="h-12 flex items-center justify-center">
+[517]                 <img
+[518]                   src="/logo1.png"
+[519]                   alt="MM Capital"
+[520]                   className="h-full w-auto object-contain"
+[521]                   style={{ filter: 'brightness(0) invert(1)' }}
+[522]                 />
+[523]               </div>
+[524]               <div className="flex flex-col justify-center">
+[525]                 <span className="text-[13px] font-bold leading-none tracking-wide text-white">Panel de Socios</span>
+[526]                 <span className="text-[9px] text-white/60 font-medium leading-none mt-[2px]">Gestión Inmobiliaria</span>
+[527]               </div>
+[528]             </div>
+[529]             <div className="flex items-center gap-4">
+[530]               <div className="relative">
+[531]                 <Bell size={20} className="text-white" />
+[532]                 <span className="absolute top-0 right-0 w-2 h-2 bg-amber-500 rounded-full border border-[#0B1B2C]"></span>
+[533]               </div>
+[534]               <div className="w-10 h-10 rounded-full border border-mm-gold flex items-center justify-center bg-transparent">
+[535]                 <span className="text-[13px] font-bold text-mm-gold tracking-wider">LP</span>
+[536]               </div>
+[537]             </div>
+[538]           </div>
+[539] 
+[540]           <div className="flex-1 overflow-y-auto custom-scrollbar w-full pb-20 bg-[#F8FAFC]">
+[541]             {/* Header (Mobile Only) */}
+[542]             <header className="md:hidden px-4 pt-6 pb-4 flex flex-row justify-between items-start w-full">
+[543]             <div className="text-left">
+[544]               <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+[545]                 Buenas noches,<br />
+[546]                 <span className="text-mm-gold">Ing. Luis Panameño</span>
+[547]               </h1>
+[548]               <p className="text-slate-500 text-sm mt-1.5 font-medium">
+[549]                 Panel ejecutivo • Acceso exclusivo
+[550]               </p>
+[551]             </div>
+[552]             
+[553]             <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-slate-700 bg-white px-3 py-2 rounded-xl border border-gray-100 shadow-sm uppercase">
+[554]               <span>ES | EN</span>
+[555]               <ChevronDown size={14} className="text-slate-400" />
+[556]             </div>
+[557]           </header>
+[558] 
+[559] 
+[560] 
+[561]           {/* KPI Cards (Mobile: Unified Dark, Desktop: 4 White Cards) */}
+[562]           <section className="px-4 md:px-8 py-2 md:py-4 w-full">
+[563]             
+[564]             {/* Mobile View: Dark Block */}
+[565]             <div className="md:hidden bg-[#0B1B2C] rounded-[20px] p-4 text-white shadow-xl">
+[566]               <div className="flex items-center justify-between mb-3">
+[567]                 <div className="flex items-center gap-2">
+[568]                   <div className="w-7 h-7 rounded-lg bg-mm-gold flex items-center justify-center">
+[569]                     <Activity size={16} className="text-[#0B1B2C]" />
+[570]                   </div>
+[571]                   <div>
+[572]                     <h2 className="text-sm font-bold">Resumen Ejecutivo</h2>
+[573]                     <p className="text-[9px] text-white/50">Estado actual del portafolio</p>
+[574]                   </div>
+[575]                 </div>
+[576]                 <div className="flex items-center gap-1.5">
+[577]                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+[578]                   <span className="text-[9px] text-white/60">Actualizado hoy, 7:10 PM</span>
+[579]                 </div>
+[580]               </div>
+[581]               
+[582]               <div className="grid grid-cols-4 gap-1.5 pb-1 mt-2">
+[583]                 {/* Card 1 */}
+[584]                 <div className="bg-[#16273B] rounded-xl p-2 flex flex-col items-center justify-center text-center border border-white/5">
+[585]                   <div className="w-5 h-5 rounded-full border border-mm-gold/30 flex items-center justify-center mb-1.5">
+[586]                     <Building2 size={10} className="text-mm-gold" />
+[587]                   </div>
+[588]                   <p className="text-sm font-bold mb-0.5">3</p>
+[589]                   <p className="text-[7px] text-white/60 mb-1 leading-tight">Proyectos activos</p>
+[590]                   <span className="text-[7px] text-emerald-400 flex items-center gap-0.5 font-medium"><ArrowUp size={6}/> 6%</span>
+[591]                 </div>
+[592]                 {/* Card 2 */}
+[593]                 <div className="bg-[#16273B] rounded-xl p-2 flex flex-col items-center justify-center text-center border border-white/5">
+[594]                   <div className="w-5 h-5 rounded-full border border-mm-gold/30 flex items-center justify-center mb-1.5">
+[595]                     <DollarSign size={10} className="text-mm-gold" />
+[596]                   </div>
+[597]                   <p className="text-sm font-bold mb-0.5">$14.8M</p>
+[598]                   <p className="text-[7px] text-white/60 mb-1 leading-tight">Capital invertido</p>
+[599]                   <span className="text-[7px] text-emerald-400 flex items-center gap-0.5 font-medium"><ArrowUp size={6}/> 8.6%</span>
+[600]                 </div>
+[601]                 {/* Card 3 */}
+[602]                 <div className="bg-[#16273B] rounded-xl p-2 flex flex-col items-center justify-center text-center border border-white/5">
+[603]                   <div className="w-5 h-5 rounded-full border border-mm-gold/30 flex items-center justify-center mb-1.5">
+[604]                     <PieChart size={10} className="text-mm-gold" />
+[605]                   </div>
+[606]                   <p className="text-sm font-bold mb-0.5">84%</p>
+[607]                   <p className="text-[7px] text-white/60 mb-1 leading-tight">Avance promedio</p>
+[608]                   <span className="text-[7px] text-emerald-400 flex items-center gap-0.5 font-medium"><ArrowUp size={6}/> 5%</span>
+[609]                 </div>
+[610]                 {/* Card 4 */}
+[611]                 <div className="bg-[#16273B] rounded-xl p-2 flex flex-col items-center justify-center text-center border border-white/5">
+[612]                   <div className="w-5 h-5 rounded-full border border-mm-gold/30 flex items-center justify-center mb-1.5">
+[613]                     <Wallet size={10} className="text-mm-gold" />
+[614]                   </div>
+[615]                   <p className="text-sm font-bold mb-0.5">$245K</p>
+[616]                   <p className="text-[7px] text-white/60 mb-1 leading-tight">Flujo mensual</p>
+[617]                   <span className="text-[7px] text-red-400 flex items-center gap-0.5 font-medium">↓ 12%</span>
+[618]                 </div>
+[619]               </div>
+[620]             </div>
+[621] 
+[622]             {/* Action Buttons (Mobile Only) - Moved here below carousel */}
+[623]             <div className="md:hidden px-4 mt-4 grid grid-cols-2 gap-3">
+[624]               <button className="flex items-center justify-center gap-1.5 bg-[#0B1B2C] text-white rounded-lg py-2.5 text-xs font-semibold shadow-md active:scale-95 transition-transform">
+[625]                 <Plus size={14} className="text-[#9A7B4F]" /> Nuevo Proyecto
+[626]               </button>
+[627]               <button 
+[628]                 onClick={() => setCurrentView('all-projects')}
+[629]                 className="flex items-center justify-center gap-1.5 bg-white text-slate-700 border border-gray-200 rounded-lg py-2.5 text-xs font-semibold shadow-sm active:scale-95 transition-transform"
+[630]               >
+[631]                 <Layers size={14} className="text-slate-400" /> Todos los proyectos
+[632]               </button>
+[633]             </div>
+[634] 
+[635]             {/* --- DESKTOP TOP NAV & KPIS --- */}
+[636]             <div className="hidden md:flex flex-col w-full">
+[637]               
+[638]               {/* Top Nav */}
+[639]               <div className="flex items-center justify-between px-8 pt-5 pb-4 border-b border-gray-200">
+[640]                 <div className="flex items-center gap-6 lg:gap-8">
+[641]                   <button onClick={() => setCurrentView('portfolio')} className={`text-[13px] ${currentView === 'portfolio' || currentView === 'project-details' ? 'font-bold text-mm-gold border-b-2 border-mm-gold pb-1' : 'font-semibold text-slate-500 hover:text-slate-800'} transition-colors`}>Dashboard</button>
+[642]                   <button onClick={() => setCurrentView('all-projects')} className={`text-[13px] ${currentView === 'all-projects' ? 'font-bold text-mm-gold border-b-2 border-mm-gold pb-1' : 'font-semibold text-slate-500 hover:text-slate-800'} transition-colors`}>Proyectos</button>
+[643]                   <button onClick={() => setCurrentView('vault')} className={`text-[13px] ${currentView === 'vault' ? 'font-bold text-mm-gold border-b-2 border-mm-gold pb-1' : 'font-semibold text-slate-500 hover:text-slate-800'} transition-colors`}>Bóveda</button>
+[644]                   <button onClick={() => setCurrentView('chat')} className={`text-[13px] ${currentView === 'chat' ? 'font-bold text-mm-gold border-b-2 border-mm-gold pb-1' : 'font-semibold text-slate-500 hover:text-slate-800'} transition-colors`}>Chat</button>
+[645]                   <button onClick={() => setCurrentView('profile')} className={`text-[13px] ${currentView === 'profile' ? 'font-bold text-mm-gold border-b-2 border-mm-gold pb-1' : 'font-semibold text-slate-500 hover:text-slate-800'} transition-colors`}>Perfil</button>
+[646]                 </div>
+[647]                 <div className="flex items-center gap-4">
+[648]                   {isAdmin && (
+[649]                     <button 
+[650]                       onClick={() => setIsEditMode(!isEditMode)}
+[651]                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all shadow-sm border ${isEditMode ? 'bg-mm-gold text-white border-mm-gold' : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50'}`}
+[652]                     >
+[653]                       <Edit2 size={14} />
+[654]                       {isEditMode ? 'EDICIÓN ACTIVA' : 'MODO EDICIÓN'}
+[655]                     </button>
+[656]                   )}
+[657]                   <div className="relative">
+[658]                     <button 
+[659]                       onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); }}
+[660]                       className="text-slate-500 hover:text-slate-800 transition-colors relative"
+[661]                     >
+[662]                       <Bell size={20} />
+[663]                       {notificaciones && notificaciones.length > 0 && <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></div>}
+[664]                     </button>
+[665]                     {showNotifications && (
+[666]                       <div className="absolute top-10 right-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+[667]                         <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+[668]                           <span className="text-xs font-bold text-slate-800">Notificaciones</span>
+[669]                           <span className="text-[10px] text-mm-gold font-semibold cursor-pointer">Marcar leídas</span>
+[670]                         </div>
+[671]                         <div className="max-h-60 overflow-y-auto">
+[672]     {notificaciones && notificaciones.length > 0 ? notificaciones.map(n => (
+[673]                           <div key={n.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
+[674]                             <p className="text-[11px] font-bold text-red-500 flex items-center gap-1.5"><AlertTriangle size={12}/> Vencimiento Crítico</p>
+[675]                             <p className="text-[10px] text-slate-500 mt-0.5">{n.tarea} - Proyecto {n.proyecto_id}</p>
+[676]                             <p className="text-[9px] text-slate-400 mt-1">Vence: {n.fecha_vencimiento}</p>
+[677]                           </div>
+[678]                         )) : (
+[679]                           <div className="px-4 py-3 border-b border-gray-50 text-center text-xs text-slate-500">No hay notificaciones</div>
+[680]                         )}
+[681]   </div>
+[682]   <div className="px-4 py-2 border-t border-gray-100 text-center bg-gray-50">
+[683]                           <span className="text-[10px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer">Ver todas</span>
+[684]                         </div>
+[685]                       </div>
+[686]                     )}
+[687]                   </div>
+[688]                   
+[689]                   <div className="relative">
+[690]                     <button 
+[691]                       onClick={() => { setShowSettings(!showSettings); setShowNotifications(false); }}
+[692]                       className="text-slate-500 hover:text-slate-800 transition-colors"
+[693]                     >
+[694]                       <Settings size={20} />
+[695]                     </button>
+[696]                     {showSettings && (
+[697]                       <div className="absolute top-10 right-0 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+[698]                         <div className="py-2">
+[699]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[700]                             <Users size={14} className="text-slate-400"/> Gestión de Accesos (Socios)
+[701]                           </button>
+[702]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[703]                             <Settings size={14} className="text-slate-400"/> Preferencias del Sistema
+[704]                           </button>
+[705]                           <div className="h-px bg-gray-100 my-1"></div>
+[706]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[707]                             <FileText size={14} className="text-slate-400"/> Exportar Reporte Global (PDF)
+[708]                           </button>
+[709]                         </div>
+[710]                       </div>
+[711]                     )}
+[712]                   </div>
+[713] 
+[714]                   <button onClick={onLogout} className="flex items-center gap-2 hover:bg-gray-50 px-2 py-1 rounded-lg transition-colors ml-2">
+[715]                     <div className="w-11 h-11 bg-[#0B1B2C] rounded-full flex items-center justify-center border border-gray-200 shadow-sm">
+[716]                       <span className="text-[13px] font-bold text-white tracking-widest">LP</span>
+[717]                     </div>
+[718]                     <ChevronDown size={14} className="text-slate-400" />
+[719]                   </button>
+[720]                 </div>
+[721]               </div>
+[722] 
+[723]               {/* Header & KPIs */}
+[724]               <div className="px-8 mt-8 mb-8">
+[725]                 <div className="flex justify-between items-end mb-8">
+[726]                   <div>
+[727]                     <h1 className="text-[32px] lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+[728]                       Buenas noches, <span className="text-[#C5A059]">Ing. Luis Panameño</span>
+[729]                     </h1>
+[730]                     <p className="text-slate-500 text-sm mt-1 font-medium flex items-center gap-2">
+[731]                       martes, 28 de julio <span className="text-slate-300">•</span> Última sincronización: 7:34 PM
+[732]                     </p>
+[733]                   </div>
+[734]                   <div className="flex items-center gap-3 text-[10px] font-bold tracking-widest text-slate-500 bg-white px-4 py-2.5 rounded-full border border-gray-200 shadow-sm uppercase">
+[735]                     <span>sv <span className="text-slate-900">7:34 PM CST</span></span>
+[736]                     <span className="text-gray-300">|</span>
+[737]                     <span>us <span className="text-slate-900">6:34 PM PDT</span></span>
+[738]                   </div>
+[739]                 </div>
+[740] 
+[741]                 {/* KPI Cards */}
+[742]                 <div className="grid grid-cols-4 gap-5 lg:gap-6">
+[743]                   {/* KPI 1 */}
+[744]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[745]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[746]                       <Building2 size={18} className="text-[#C5A059]" />
+[747]                     </div>
+[748]                     <div>
+[749]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Proyectos Activos</p>
+[750]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">3</p>
+[751]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[752]                         <ArrowUp size={10} /> +2 <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[753]                       </p>
+[754]                     </div>
+[755]                   </div>
+[756]                   {/* KPI 2 */}
+[757]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[758]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[759]                       <DollarSign size={18} className="text-[#C5A059]" />
+[760]                     </div>
+[761]                     <div>
+[762]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Capital Invertido</p>
+[763]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">$14.8M</p>
+[764]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[765]                         <ArrowUp size={10} /> 8.6% <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[766]                       </p>
+[767]                     </div>
+[768]                   </div>
+[769]                   {/* KPI 3 */}
+[770]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[771]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[772]                       <TrendingUp size={18} className="text-[#C5A059]" />
+[773]                     </div>
+[774]                     <div>
+[775]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Avance Promedio</p>
+[776]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">62%</p>
+[777]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[778]                         <ArrowUp size={10} /> 5% <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[779]                       </p>
+[780]                     </div>
+[781]                   </div>
+[782]   <div className="px-4 py-2 border-t border-gray-100 text-center bg-gray-50">
+[783]                           <span className="text-[10px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer">Ver todas</span>
+[784]                         </div>
+[785]                       </div>
+[786]                     )}
+[787]                   </div>
+[788]                   
+[789]                   <div className="relative">
+[790]                     <button 
+[791]                       onClick={() => { setShowSettings(!showSettings); setShowNotifications(false); }}
+[792]                       className="text-slate-500 hover:text-slate-800 transition-colors"
+[793]                     >
+[794]                       <Settings size={20} />
+[795]                     </button>
+[796]                     {showSettings && (
+[797]                       <div className="absolute top-10 right-0 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+[798]                         <div className="py-2">
+[799]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[800]                             <Users size={14} className="text-slate-400"/> Gestión de Accesos (Socios)
+[801]                           </button>
+[802]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[803]                             <Settings size={14} className="text-slate-400"/> Preferencias del Sistema
+[804]                           </button>
+[805]                           <div className="h-px bg-gray-100 my-1"></div>
+[806]                           <button className="w-full px-4 py-2.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-gray-50 hover:text-mm-gold transition-colors flex items-center gap-2">
+[807]                             <FileText size={14} className="text-slate-400"/> Exportar Reporte Global (PDF)
+[808]                           </button>
+[809]                         </div>
+[810]                       </div>
+[811]                     )}
+[812]                   </div>
+[813] 
+[814]                   <button onClick={onLogout} className="flex items-center gap-2 hover:bg-gray-50 px-2 py-1 rounded-lg transition-colors ml-2">
+[815]                     <div className="w-11 h-11 bg-[#0B1B2C] rounded-full flex items-center justify-center border border-gray-200 shadow-sm">
+[816]                       <span className="text-[13px] font-bold text-white tracking-widest">LP</span>
+[817]                     </div>
+[818]                     <ChevronDown size={14} className="text-slate-400" />
+[819]                   </button>
+[820]                 </div>
+[821]               </div>
+[822] 
+[823]               {/* Header & KPIs */}
+[824]               <div className="px-8 mt-8 mb-8">
+[825]                 <div className="flex justify-between items-end mb-8">
+[826]                   <div>
+[827]                     <h1 className="text-[32px] lg:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
+[828]                       Buenas noches, <span className="text-[#C5A059]">Ing. Luis Panameño</span>
+[829]                     </h1>
+[830]                     <p className="text-slate-500 text-sm mt-1 font-medium flex items-center gap-2">
+[831]                       martes, 28 de julio <span className="text-slate-300">•</span> Última sincronización: 7:34 PM
+[832]                     </p>
+[833]                   </div>
+[834]                   <div className="flex items-center gap-3 text-[10px] font-bold tracking-widest text-slate-500 bg-white px-4 py-2.5 rounded-full border border-gray-200 shadow-sm uppercase">
+[835]                     <span>sv <span className="text-slate-900">7:34 PM CST</span></span>
+[836]                     <span className="text-gray-300">|</span>
+[837]                     <span>us <span className="text-slate-900">6:34 PM PDT</span></span>
+[838]                   </div>
+[839]                 </div>
+[840] 
+[841]                 {/* KPI Cards */}
+[842]                 <div className="grid grid-cols-4 gap-5 lg:gap-6">
+[843]                   {/* KPI 1 */}
+[844]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[845]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[846]                       <Building2 size={18} className="text-[#C5A059]" />
+[847]                     </div>
+[848]                     <div>
+[849]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Proyectos Activos</p>
+[850]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">3</p>
+[851]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[852]                         <ArrowUp size={10} /> +2 <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[853]                       </p>
+[854]                     </div>
+[855]                   </div>
+[856]                   {/* KPI 2 */}
+[857]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[858]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[859]                       <DollarSign size={18} className="text-[#C5A059]" />
+[860]                     </div>
+[861]                     <div>
+[862]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Capital Invertido</p>
+[863]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">$14.8M</p>
+[864]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[865]                         <ArrowUp size={10} /> 8.6% <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[866]                       </p>
+[867]                     </div>
+[868]                   </div>
+[869]                   {/* KPI 3 */}
+[870]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[871]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[872]                       <TrendingUp size={18} className="text-[#C5A059]" />
+[873]                     </div>
+[874]                     <div>
+[875]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Avance Promedio</p>
+[876]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">62%</p>
+[877]                       <p className="text-emerald-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[878]                         <ArrowUp size={10} /> 5% <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[879]                       </p>
+[880]                     </div>
+[881]                   </div>
+[882]                   {/* KPI 4 */}
+[883]                   <div className="bg-white rounded-[20px] p-6 lg:p-8 border border-gray-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.09)] flex items-center gap-4 hover:shadow-[0_8px_32px_rgba(0,0,0,0.13)] transition-shadow">
+[884]                     <div className="w-[44px] h-[44px] rounded-full bg-[#0B1B2C] flex items-center justify-center flex-shrink-0">
+[885]                       <Wallet size={18} className="text-[#C5A059]" />
+[886]                     </div>
+[887]                     <div>
+[888]                       <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Flujo del Mes</p>
+[889]                       <p className="text-2xl lg:text-[28px] font-bold text-slate-900 mb-0.5 leading-none">$245,000</p>
+[890]                       <p className="text-red-500 text-[10px] font-bold flex items-center gap-1 mt-1.5">
+[891]                         ↓ 12% <span className="text-slate-400 font-medium">vs. mes anterior</span>
+[892]                       </p>
+[893]                     </div>
+[894]                   </div>
+[895]                 </div>
+[896]               </div>
+[897]               {/* --- DESKTOP CENTRAL LAYOUT (2 COLUMNS) --- */}
+[898]               <div className="px-8 grid grid-cols-[1.2fr_1fr] lg:grid-cols-[1.5fr_1fr] gap-7 mb-7">
+[899]                 
+[900]                 {/* Proyecto Destacado — CAROUSEL */}
+[901]                 {(() => {
+[902]                   if (!PROJECTS || PROJECTS.length === 0) return <div className="p-6 text-slate-500 text-sm">Cargando proyecto destacado...</div>;
+[903]                     : 'bg-blue-50 text-blue-600 border-blue-100';
+[904]                   return (
+[905]                     <div className="bg-white rounded-[20px] shadow-[0_1px_8px_rgba(0,0,0,0.05)] border border-gray-100/80 flex flex-col p-5 lg:p-6">
+[906]                       
+[907]                       {/* Header con flechas */}
+[908]                       <div className="flex justify-between items-center mb-5">
+[909]                         <div className="flex items-center gap-2">
+[910]                           <Building2 size={16} className="text-[#C5A059]" />
+[911]                           <h2 className="text-[11px] font-bold text-slate-900 tracking-[0.12em] uppercase">Proyectos Registrados</h2>
+[912]                         </div>
+[913]                         {/* Nav flechas + indicador */}
+[914]                         <div className="flex items-center gap-2">
+[915]                           <span className="text-[10px] text-slate-400 font-medium mr-2">
+[916]                             {featuredIndex + 1} de {PROJECTS.length}
+[917]                           </span>
+[918]                           <button
+[919]                             onClick={() => setFeaturedIndex((featuredIndex - 1 + PROJECTS.length) % PROJECTS.length)}
+[920]                             className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-slate-500 hover:bg-gray-50 hover:border-gray-300 hover:text-slate-800 transition-all active:scale-95"
+[921]                           >
+[922]                             <ChevronLeft size={14} />
+[923]                           </button>
+[924]                           <button
+[925]                             onClick={() => setFeaturedIndex((featuredIndex + 1) % PROJECTS.length)}
+[926]                             className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-slate-500 hover:bg-gray-50 hover:border-gray-300 hover:text-slate-800 transition-all active:scale-95"
+[927]                           >
+[928]                             <ChevronRight size={14} />
+[929]                           </button>
+[930]                         </div>
+[931]                       </div>
+[932] 
+[933]                       {/* Imagen + Texto lado a lado */}
+[934]                       <div className="flex gap-5 lg:gap-6 mb-4 lg:mb-5">
+[935]                         {/* Imagen */}
+[936]                         <div onClick={() => handleCardClick(fp)} className="w-[45%] rounded-2xl overflow-hidden shadow-sm flex-shrink-0 relative group cursor-pointer h-[160px] lg:h-[200px]">
+[937]                           <img src={fp.img} alt={fp.name} className={`w-full h-full object-cover transition-all duration-500 ${isEditMode ? 'opacity-80' : 'group-hover:scale-105'}`} />
+[938]                           {isEditMode && (
+[939]                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+[940]                               <div className="bg-white/90 p-2 rounded-full shadow-lg text-slate-900">
+[941]                                 <Camera size={20} />
+[942]                               </div>
+[943]                             </div>
+[944]                           )}
+[945]                         </div>
+[946] 
+[947]                         {/* Texto */}
+[948]                         <div className="flex-1 flex flex-col justify-between py-1">
+[949]                           <div>
+[950]                             <div className={`px-2.5 py-1 rounded-md text-[9px] lg:text-[10px] font-bold tracking-wider inline-flex mb-2 lg:mb-3 uppercase border ${statusColor}`}>
+[951]                               {fp.status}
+[952]                             </div>
+[953]                             <h3 onClick={() => handleCardClick(fp)} className={`text-lg lg:text-xl font-bold text-slate-900 mb-1 tracking-tight relative group cursor-pointer ${isEditMode ? 'hover:bg-slate-50 rounded px-1 -ml-1' : 'hover:text-[#C5A059]'}`}>
+[954]                               {fp.name}
+[955]                               {isEditMode && <Edit2 size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100" />}
+[956]                             </h3>
+[957]                             <p className="text-[13px] lg:text-sm text-slate-500 font-medium flex items-center gap-1.5 mb-1.5 lg:mb-2">
+[958]                               <MapPin size={13} className="text-slate-400"/> {fp.location}
+[959]                             </p>
+[960]                             <p className={`text-[11px] lg:text-xs text-slate-500 leading-relaxed relative group ${isEditMode ? 'cursor-pointer hover:bg-slate-50 rounded px-1 -ml-1' : ''}`}>
+[961]                               {fp.description}
+[962]                               {isEditMode && <Edit2 size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100" />}
+[963]                             </p>
+[964]                           </div>
+[965] 
+[966]                           {/* Progress bar */}
+[967]                           <div className="mt-3">
+[968]                             <div className="flex justify-between items-center mb-1.5">
+[969]                               <span className="text-[11px] font-bold text-slate-600">Avance del proyecto</span>
+[970]                               <span className="text-[15px] font-bold text-slate-900 leading-none">{fp.progress}%</span>
+[971]                             </div>
+[972]                             <div className="w-full bg-slate-100 rounded-full h-1.5">
+[973]                               <div className="bg-[#D9AC6B] rounded-full h-1.5 transition-all duration-500" style={{width: `${fp.progress}%`}}></div>
+[974]                             </div>
+[975]                           </div>
+[976]                         </div>
+[977]                       </div>
+[978] 
+[979]                       {/* Stats Row */}
+[980]                       <div className="border-t border-gray-100 pt-3 lg:pt-4 grid grid-cols-4 gap-2 lg:gap-4">
+[981]                         <div className={`flex flex-col relative group ${isEditMode ? 'cursor-pointer hover:bg-slate-50 rounded p-1 -m-1' : ''}`}>
+[982]                           <p className="text-[8px] lg:text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 lg:mb-1.5 leading-tight">Presupuesto<br/>Total</p>
+[983]                           <p className="text-[15px] lg:text-[17px] font-bold text-slate-900 leading-none">{fp.presupuesto}</p>
+[984]                           {isEditMode && <Edit2 size={12} className="absolute right-1 top-1 text-slate-400 opacity-0 group-hover:opacity-100" />}
+[985]                         </div>
+[986]                         <div className="flex flex-col border-l border-gray-100 pl-2 lg:pl-4">
+[987]                           <p className="text-[8px] lg:text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 lg:mb-1.5 leading-tight">Ejecutado</p>
+[988]                           <p className="text-[15px] lg:text-[17px] font-bold text-slate-900 leading-none">{fp.ejecutado}</p>
+[989]                           <p className="text-[10px] lg:text-[11px] font-bold text-[#C5A059] mt-1">{fp.ejecutadoPct}</p>
+[990]                         </div>
+[991]                         <div className="flex flex-col border-l border-gray-100 pl-2 lg:pl-4">
+[992]                           <p className="text-[8px] lg:text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 lg:mb-1.5 leading-tight">Entrega<br/>Estimada</p>
+[993]                           <p className="text-[12px] lg:text-[14px] font-bold text-slate-900 leading-none pt-0.5">{fp.entrega}</p>
+[994]                         </div>
+[995]                         <div className="flex flex-col border-l border-gray-100 pl-2 lg:pl-4">
+[996]                           <p className="text-[8px] lg:text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 lg:mb-1.5 leading-tight">Rentabilidad<br/>Proyectada</p>
+[997]                           <p className="text-[15px] lg:text-[17px] font-bold text-emerald-500 leading-none">{fp.rentabilidad}</p>
+[998]                         </div>
+[999]                       </div>
+[1000] 
+[1001]                       {/* Footer Actions */}
+[1002]                       <div className="border-t border-gray-100 pt-3 lg:pt-4 mt-3 lg:mt-4 grid grid-cols-2 gap-4">
+[1003]                         <button 
+[1004]                           onClick={() => handleCardClick(fp)}
+[1005]                           className="bg-[#0B1B2C] text-white py-2.5 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1 w-full hover:bg-slate-800 transition-colors shadow-sm"
+[1006]                         >
+[1007]                           Ir al Proyecto <ChevronRight size={14}/>
+[1008]                         </button>
+[1009]                         <button 
+[1010]                           onClick={() => setCurrentView('all-projects')}
+[1011]                           className="bg-white text-slate-700 border border-gray-200 py-2.5 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 w-full hover:bg-gray-50 transition-colors shadow-sm"
+[1012]                         >
+[1013]                           <Layers size={14} className="text-slate-400" />
+[1014]                           Ver Todos los Proyectos
+[1015]                         </button>
+[1016]                       </div>
+[1017]                     </div>
+[1018]                   );
+[1019]                 })()}
+[1020] 
+[1021]                 {/* Gráfica Flujo de Caja */}
+[1022]                 <div className="bg-white rounded-[20px] shadow-[0_1px_8px_rgba(0,0,0,0.05)] border border-gray-100/80 flex flex-col p-5 lg:p-6">
+[1023]                   <div className="flex justify-between items-center mb-4 lg:mb-5">
+[1024]                     <h2 className="text-[11px] font-bold text-slate-900 tracking-[0.12em] uppercase">Flujo de caja (mensual)</h2>
+[1025]                     <button className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-white px-2.5 py-1.5 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+[1026]                       Este año <ChevronDown size={12} className="text-slate-400" />
+[1027]                     </button>

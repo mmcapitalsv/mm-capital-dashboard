@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon2.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portal Ejecutivo - MM Capital</title>
+    <script>
+      // Aplica el tema guardado ANTES del primer pintado para evitar el
+      // parpadeo blanco al recargar en modo oscuro.
+      //
+      // La pantalla de inicio de sesión siempre va en claro, así que solo se
+      // aplica el modo oscuro si ya existe una sesión de Supabase guardada.
+      // Sin esto, al abrir el login en modo oscuro se vería un destello negro
+      // antes de que React resolviera la sesión.
+      (function () {
+        try {
+          var haySesion = false;
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k)) {
+              haySesion = true;
+              break;
+            }
+          }
+
+          var guardado = localStorage.getItem('mmcapital:tema');
+          var oscuro = haySesion && (guardado === 'dark' || (guardado === null &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches));
+          if (oscuro) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+          }
+          var idioma = localStorage.getItem('mmcapital:idioma');
+          document.documentElement.setAttribute('lang', idioma === 'en' ? 'en' : 'es');
+        } catch (e) {
+          /* localStorage no disponible: se queda en modo claro */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
