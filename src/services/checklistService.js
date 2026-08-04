@@ -183,9 +183,35 @@ export function normalizeHito(row, index = 0) {
     text: String(row.text || row.titulo || row.nombre || 'Hito sin título'),
     detail: String(row.detail || row.descripcion || ''),
     fecha: fechaTexto ? String(fechaTexto) : '',
+    // Dinero que este hito aporta al costo ejecutado al marcarse como hecho
+    valor: aMonto(row.valor ?? row.valor_asociado),
     orden: Number.isFinite(ordenNum) ? ordenNum : index,
     persisted: row.id !== undefined && row.id !== null
   };
+}
+
+/** Lo que el usuario escribió en la casilla de dinero -> número no negativo. */
+export function aMonto(valor) {
+  if (valor === '' || valor === null || valor === undefined) return 0;
+  const n = Number(String(valor).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n * 100) / 100);
+}
+
+/**
+ * Suma el `valor` de los hitos COMPLETADOS.
+ *
+ * Es lo que el checklist aporta al Costo Ejecutado del proyecto. Se recalcula
+ * siempre desde la lista (no se acumulan deltas al marcar y desmarcar), así
+ * que la cifra nunca se desincroniza aunque se marque y desmarque mil veces.
+ */
+export function sumarValoresCompletados(items) {
+  if (!Array.isArray(items)) return 0;
+  const total = items.reduce(
+    (s, i) => s + (i && (i.done === true || i.estado === 'completado') ? aMonto(i.valor ?? i.valor_asociado) : 0),
+    0
+  );
+  return Math.round(total * 100) / 100;
 }
 
 /**
@@ -203,6 +229,7 @@ function toRow(item, index, proyectoId) {
     completado: !!item?.done,
     fecha_vencimiento: toISODate(fechaTexto),
     fecha_texto: fechaTexto,
+    valor_asociado: aMonto(item?.valor),
     orden: index
   };
 }
@@ -306,6 +333,7 @@ async function guardarComoJSON(proyectoId, items) {
     text: String(item.text || ''),
     detail: String(item.detail || ''),
     fecha: String(item.fecha || ''),
+    valor: aMonto(item.valor),
     orden: i
   }));
 

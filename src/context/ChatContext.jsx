@@ -6,7 +6,8 @@ import { nombreSimple } from '../lib/perfilUsuario';
 import {
   CANAL_SOCIOS, MIEMBROS_SOCIOS, listarMensajes, enviarMensajeSocios,
   suscribirMensajes, leerMarcaLectura, marcarCanalLeido, puedeUsarChat,
-  listarAvataresUsuarios
+  listarAvataresUsuarios, editarMensaje, eliminarMensaje, vaciarCanalSocios,
+  puedeLimpiarChat
 } from '../services/chatService';
 
 /**
@@ -41,6 +42,9 @@ export function ChatProvider({ children, user }) {
 
   const rol = perfil?.rol || null;
   const tieneAcceso = puedeUsarChat(rol);
+  // Vaciar el historial completo es solo del Administrador (rol 'admin'),
+  // el mismo candado que ya gobierna los checks de avance de los proyectos.
+  const esAdmin = puedeLimpiarChat(rol);
   const nombreAutor = nombreSimple(user, perfil) || 'Socio MM Capital';
 
   // ── Ficha del usuario: rol (permiso), nombre del autor y foto de perfil.
@@ -111,10 +115,66 @@ export function ChatProvider({ children, user }) {
   useEffect(() => {
     if (!uid || !tieneAcceso) return;
 
-    return suscribirMensajes(uid, (nuevo) => {
-      setMensajes(prev => (prev.some(m => m.id === nuevo.id) ? prev : [...prev, nuevo]));
-    });
+    return suscribirMensajes(
+      uid,
+      (nuevo) => {
+        setMensajes(prev => (prev.some(m => m.id === nuevo.id) ? prev : [...prev, nuevo]));
+      },
+      {
+        alEditar: (editado) => {
+          setMensajes(prev => prev.map(m => (m.id === editado.id ? editado : m)));
+        },
+        alBorrar: (id) => {
+          setMensajes(prev => prev.filter(m => String(m.id) !== String(id)));
+        }
+      }
+    );
   }, [uid, tieneAcceso]);
+
+  /**
+   * Corrige un mensaje propio. La comprobación de autoría se hace aquí y otra
+   * vez en la base (RLS): la interfaz puede equivocarse, la RLS no.
+   */
+  const editarMensajePropio = useCallback(async (id, texto) => {
+    const limpio = String(texto || '').trim();
+    if (!limpio || !uid) return false;
+
+    const { mensaje, error: errEdicion } = await editarMensaje({ id, texto: limpio, uid });
+    if (errEdicion) { setError(errEdicion); return false; }
+    if (mensaje) {
+      setError(null);
+      setMensajes(prev => prev.map(m => (m.id === mensaje.id ? mensaje : m)));
+    }
+    return true;
+  }, [uid]);
+
+  /** Elimina un mensaje propio del canal. */
+  const eliminarMensajePropio = useCallback(async (id) => {
+    if (!id || !uid) return false;
+
+    const { success, error: errBorrado } = await eliminarMensaje({ id, uid });
+    if (!success) { setError(errBorrado); return false; }
+
+    setError(null);
+    setMensajes(prev => prev.filter(m => String(m.id) !== String(id)));
+    return true;
+  }, [uid]);
+
+  /**
+   * Vacía el historial del canal General. Exclusivo del Administrador: aquí se
+   * corta antes de tocar la red, y la RLS lo vuelve a exigir en la base.
+   * Los mensajes directos no se ven afectados.
+   */
+  const limpiarHistorial = useCallback(async () => {
+    if (!esAdmin) return false;
+
+    const { success, error: errLimpieza } = await vaciarCanalSocios();
+    if (!success) { setError(errLimpieza); return false; }
+
+    setError(null);
+    setMensajes([]);
+    return true;
+  }, [esAdmin]);
 
   /**
    * Envía un mensaje al canal. Se pinta al instante con la fila que devuelve
@@ -174,12 +234,16 @@ export function ChatProvider({ children, user }) {
     cargando,
     error,
     tieneAcceso,
+    esAdmin,
     rol,
     enviarMensaje,
+    editarMensajePropio,
+    eliminarMensajePropio,
+    limpiarHistorial,
     marcarLeido,
     hayNoLeidos,
     noLeidos
-  }), [uid, nombreAutor, perfil?.avatar_url, avatares, avatarDe, mensajes, cargando, error, tieneAcceso, rol, enviarMensaje, marcarLeido, hayNoLeidos, noLeidos]);
+  }), [uid, nombreAutor, perfil?.avatar_url, avatares, avatarDe, mensajes, cargando, error, tieneAcceso, esAdmin, rol, enviarMensaje, editarMensajePropio, eliminarMensajePropio, limpiarHistorial, marcarLeido, hayNoLeidos, noLeidos]);
 
   return <ChatContext.Provider value={valor}>{children}</ChatContext.Provider>;
 }

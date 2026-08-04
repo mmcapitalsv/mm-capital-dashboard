@@ -51,7 +51,7 @@ import {
 
 // ─── Vistas secundarias ───────────────────────────────────────────────────────
 
-function VaultView({ userRole, onBack, isAdmin }) {
+function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
   const { t, locale } = usePrefs();
   /* Fuente ÚNICA de datos: la tabla `archivos` de Supabase (proyecto_id null).
      No hay documentos de ejemplo: lo que no esté subido, no se ve. */
@@ -106,6 +106,12 @@ function VaultView({ userRole, onBack, isAdmin }) {
     return () => { supabase.removeChannel(canal); };
   }, []);
 
+  // Apagar el Modo Edición cierra el formulario de renombrado a medio escribir:
+  // no puede quedar abierto un editor que ya no tiene permiso para guardar.
+  useEffect(() => {
+    if (!isEditMode) setEditingDoc(null);
+  }, [isEditMode]);
+
   const handleUploadVaultDoc = async (e) => {
     e.preventDefault();
     const file = fileInputRef.current?.files?.[0];
@@ -156,7 +162,7 @@ function VaultView({ userRole, onBack, isAdmin }) {
 
   const handleSaveEditDoc = async (e) => {
     e.preventDefault();
-    if (!editingDoc) return;
+    if (!editingDoc || !puedeModificarDocs) return;
 
     const { success, error } = await actualizarArchivo(editingDoc.id, {
       nombre_archivo: editDocName,
@@ -175,6 +181,7 @@ function VaultView({ userRole, onBack, isAdmin }) {
   };
 
   const handleDeleteDoc = async (doc) => {
+    if (!puedeModificarDocs) return;
     if (!confirm(t('vault.confirmEliminar'))) return;
 
     const { success, error } = await eliminarArchivo(doc.raw || doc);
@@ -199,6 +206,11 @@ function VaultView({ userRole, onBack, isAdmin }) {
   }));
 
   const adminAccess = isAdmin || userRole === 'admin';
+
+  /* Renombrar y eliminar exigen ADEMÁS el Modo Edición encendido. En lectura
+     un documento corporativo solo se descarga: así ni el propio Administrador
+     borra un escritura de un clic despistado. */
+  const puedeModificarDocs = adminAccess && !!isEditMode;
 
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-[#F5F6F8] dark:bg-zinc-900">
@@ -249,6 +261,13 @@ function VaultView({ userRole, onBack, isAdmin }) {
                   {cambiosPendientes && (
                     <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
                       <AlertTriangle size={12} /> {t('vault.cambiosPendientes')}
+                    </span>
+                  )}
+                  {/* Sin esta pista, un administrador buscaría los botones de
+                      renombrar y borrar sin entender por qué ya no están. */}
+                  {!isEditMode && (
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-300 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                      <Lock size={12} className="text-slate-400 dark:text-zinc-400" /> {t('vault.soloLectura')}
                     </span>
                   )}
                   <button
@@ -313,8 +332,8 @@ function VaultView({ userRole, onBack, isAdmin }) {
                       </a>
                     )}
 
-                    {/* Editar / Eliminar (Solo Admin) */}
-                    {adminAccess && (
+                    {/* Editar / Eliminar: Administrador Y en Modo Edición */}
+                    {puedeModificarDocs && (
                       <>
                         <button
                           onClick={() => {
@@ -2294,8 +2313,19 @@ export default function Dashboard({ user, onLogout }) {
     return () => clearInterval(interval);
   }, []);
 
-  const [currentView, setCurrentView] = useState('portfolio');
+  /* La vista se lee de la URL en el PRIMER render, no en un efecto posterior:
+     así un F5 sobre el detalle de un proyecto no parpadea mostrando el
+     Dashboard antes de volver a su sitio. */
+  const [currentView, setCurrentView] = useState(
+    () => new URLSearchParams(window.location.search).get('view') || 'portfolio'
+  );
   const [activeProject, setActiveProject] = useState(null);
+  /* Id del proyecto que venía en la URL y todavía no se puede resolver: los
+     proyectos llegan de Supabase un instante después. En cuanto la lista está,
+     el efecto de más abajo lo convierte en el proyecto real. */
+  const [proyectoPendiente, setProyectoPendiente] = useState(
+    () => new URLSearchParams(window.location.search).get('proyecto')
+  );
   const [isEditMode, setIsEditMode] = useState(false);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -2474,21 +2504,19 @@ export default function Dashboard({ user, onLogout }) {
 
   // 2. Sincronización con el botón "Atrás" del navegador (Popstate & History API)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const initialView = params.get('view');
-    if (initialView) {
-      setCurrentView(initialView);
-    }
-
     const handlePopState = (e) => {
       if (e.state && e.state.view) {
         setCurrentView(e.state.view);
         if (e.state.activeProject !== undefined) {
           setActiveProject(e.state.activeProject);
+          setProyectoPendiente(null);
         }
       } else {
         const p = new URLSearchParams(window.location.search);
         setCurrentView(p.get('view') || 'portfolio');
+        // Sin estado en el historial (p. ej. tras recargar) el id de la URL
+        // es lo único que dice qué proyecto tocaba: se vuelve a resolver.
+        setProyectoPendiente(p.get('proyecto'));
       }
     };
 
@@ -2496,15 +2524,52 @@ export default function Dashboard({ user, onLogout }) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  /**
+   * Cambia de vista y lo deja escrito en la URL.
+   *
+   * El id del proyecto viaja en la dirección (`?view=project-details&proyecto=…`)
+   * y no solo en el estado del historial: al recargar, el estado se pierde pero
+   * la URL sobrevive, y es lo que permite quedarse en la misma pantalla.
+   */
   const changeView = (viewName, projectData = null) => {
     setCurrentView(viewName);
-    if (projectData !== undefined) setActiveProject(projectData);
-    const newUrl = viewName === 'portfolio' ? window.location.pathname : `${window.location.pathname}?view=${viewName}`;
+    if (projectData !== undefined) {
+      setActiveProject(projectData);
+      setProyectoPendiente(null);
+    }
+
+    let newUrl = window.location.pathname;
+    if (viewName !== 'portfolio') {
+      newUrl += `?view=${encodeURIComponent(viewName)}`;
+      if (projectData?.id) newUrl += `&proyecto=${encodeURIComponent(projectData.id)}`;
+    }
     window.history.pushState({ view: viewName, activeProject: projectData }, '', newUrl);
   };
 
   // Usa los proyectos reales de Supabase
   const PROJECTS = proyectos;
+
+  /* Recarga sobre el detalle de un proyecto: la URL trae el id, pero la lista
+     tarda un instante en llegar de Supabase. Aquí se espera a esa lista y se
+     reabre el proyecto exacto. Si al terminar de cargar el id ya no existe
+     (proyecto borrado, enlace viejo), se vuelve al inicio en vez de dejar la
+     pantalla en blanco, y se limpia la dirección. */
+  useEffect(() => {
+    if (!proyectoPendiente) return;
+
+    const encontrado = PROJECTS.find(p => String(p?.id) === String(proyectoPendiente));
+    if (encontrado) {
+      setActiveProject(encontrado);
+      setProyectoPendiente(null);
+      return;
+    }
+
+    if (!loading && PROJECTS.length > 0) {
+      setProyectoPendiente(null);
+      setCurrentView('portfolio');
+      window.history.replaceState({ view: 'portfolio', activeProject: null }, '', window.location.pathname);
+    }
+  }, [proyectoPendiente, PROJECTS, loading]);
   const safeIndex = PROJECTS.length > 0 ? featuredIndex % PROJECTS.length : 0;
   const fp = PROJECTS[safeIndex] || null;
 
@@ -2863,7 +2928,7 @@ export default function Dashboard({ user, onLogout }) {
               </div>
 
               {chatError && (
-                <p className="text-[8px] text-red-300 leading-relaxed flex-shrink-0 mb-1">{chatError}</p>
+                <p className="text-[8px] text-red-300 leading-relaxed flex-shrink-0 mb-1 break-words">{chatError}</p>
               )}
 
               <form onSubmit={handleEnviarSidebar} className="relative mt-2 flex-shrink-0">
@@ -3162,8 +3227,16 @@ export default function Dashboard({ user, onLogout }) {
         <div className="flex-1 flex flex-col overflow-hidden relative pb-[68px] md:pb-0">
           {currentView === 'project-details' && activeProject ? (
             <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} isEditMode={isEditMode} onUpdateProject={refetchData} />
+          ) : currentView === 'project-details' && proyectoPendiente ? (
+            /* Recarga sobre un proyecto: se espera a que Supabase devuelva la
+               lista. Sin esto asomaría el Dashboard un instante, que es
+               justo el salto que se quiere evitar. */
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 bg-white dark:bg-zinc-900">
+              <Loader2 size={28} className="animate-spin text-[#C5A059]" />
+              <p className="text-xs font-bold text-slate-400 dark:text-zinc-300">{t('comun.cargando')}</p>
+            </div>
           ) : currentView === 'vault' ? (
-            <VaultView userRole={rol} onBack={handleBack} />
+            <VaultView userRole={rol} onBack={handleBack} isAdmin={isAdmin} isEditMode={isEditMode} />
           ) : currentView === 'investors' ? (
             <InvestorsView
               onBack={handleBack}
@@ -3173,7 +3246,7 @@ export default function Dashboard({ user, onLogout }) {
               isAdmin={isAdmin}
             />
           ) : currentView === 'chat' ? (
-            <ChatModule onBack={handleBack} />
+            <ChatModule onBack={handleBack} isEditMode={isEditMode} />
           ) : currentView === 'admin-users' ? (
             <AdminUsersView onBack={handleBack} currentUserId={user?.id} isEditMode={isEditMode} isAdmin={isAdmin} />
           ) : currentView === 'ai-chat' ? (

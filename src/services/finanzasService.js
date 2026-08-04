@@ -11,11 +11,22 @@ const AVISO_MIGRACION =
   'ejecucion_mensual). Ejecuta supabase/migrations/002_fase2_finanzas_galeria.sql y ' +
   'supabase/migrations/007_finanzas_reales_y_hilo_reportes.sql en el SQL Editor de Supabase.';
 
+export const AVISO_MIGRACION_010 =
+  'Falta la columna `ajuste_costo_manual`, así que la corrección a mano del ' +
+  'Costo Ejecutado no se pudo guardar. Ejecuta ' +
+  'supabase/migrations/010_valor_hitos_y_chat_editable.sql en el SQL Editor de Supabase.';
+
 function columnaFaltante(error) {
   if (!error) return false;
   const code = String(error.code || '');
   const msg = `${error.message || ''} ${error.details || ''}`;
   return code === '42703' || code === 'PGRST204' || /could not find the .* column/i.test(msg);
+}
+
+/** true si el error se queja específicamente de la columna del ajuste manual. */
+function faltaAjusteManual(error) {
+  if (!columnaFaltante(error)) return false;
+  return /ajuste_costo_manual/i.test(`${error.message || ''} ${error.details || ''}`);
 }
 
 /** Convierte lo que el usuario escribió a un número válido y no negativo. */
@@ -26,6 +37,27 @@ export function aNumero(valor) {
   const n = Number(limpio);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, n);
+}
+
+/**
+ * Igual que `aNumero` pero CONSERVA el signo: el ajuste manual es negativo
+ * cuando el Administrador escribe un total menor que facturas + hitos.
+ */
+export function aAjuste(valor) {
+  if (valor === '' || valor === null || valor === undefined) return 0;
+  const n = Number(String(valor).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Costo Ejecutado del proyecto, con sus tres orígenes sumados:
+ *   facturas registradas + hitos del checklist ya marcados + ajuste manual.
+ * Nunca baja de cero: un ajuste negativo excesivo deja la cifra en 0, no en rojo.
+ */
+export function componerCostoEjecutado({ facturas = 0, hitos = 0, ajuste = 0 } = {}) {
+  const total = aNumero(facturas) + aNumero(hitos) + aAjuste(ajuste);
+  return Math.max(0, Math.round(total * 100) / 100);
 }
 
 /**
@@ -70,7 +102,7 @@ export function normalizarEjecucionMensual(bruto) {
  */
 export async function guardarFinanzas(
   proyectoId,
-  { presupuesto, anticipo, cuota, costoEjecutado, ejecucionMensual, nombre, ubicacion }
+  { presupuesto, anticipo, cuota, costoEjecutado, ajusteManual, ejecucionMensual, nombre, ubicacion }
 ) {
   if (!esIdValidoDeSupabase(proyectoId)) {
     return {
@@ -85,10 +117,14 @@ export async function guardarFinanzas(
     cuota_asignada: aNumero(cuota)
   };
 
-  // El costo ejecutado y la ejecución mensual ya no se editan a mano: se
-  // derivan de la tabla `gastos`. Solo se escriben si quien llama los manda
+  // El costo ejecutado se COMPONE: facturas + hitos marcados + ajuste manual.
+  // `costo_ejecutado` guarda el total ya calculado (lo leen reportes y vistas
+  // antiguas) y `ajuste_costo_manual` guarda solo la parte escrita a mano, que
+  // es lo único que la aplicación no puede recalcular por su cuenta.
+  // Ambas y la ejecución mensual se escriben solo si quien llama las manda
   // explícitamente (así un guardado normal no pisa la columna con ceros).
   if (costoEjecutado !== undefined) valores.costo_ejecutado = aNumero(costoEjecutado);
+  if (ajusteManual !== undefined) valores.ajuste_costo_manual = aAjuste(ajusteManual);
   if (ejecucionMensual !== undefined) valores.ejecucion_mensual = normalizarEjecucionMensual(ejecucionMensual);
 
   // Identidad del proyecto: solo se toca si llegó algo escrito.
@@ -96,12 +132,25 @@ export async function guardarFinanzas(
   if (typeof nombre === 'string' && nombre.trim()) valores.nombre = nombre.trim();
   if (typeof ubicacion === 'string') valores.ubicacion = ubicacion.trim();
 
-  const { data, error } = await supabase
+  const actualizar = (cuerpo) => supabase
     .from('proyectos')
-    .update(valores)
+    .update(cuerpo)
     .eq('id', proyectoId)
     .select()
     .single();
+
+  let { data, error } = await actualizar(valores);
+
+  // La migración 010 todavía no se ha corrido: se guarda todo lo demás y se
+  // avisa qué falta, en vez de perder también el presupuesto y el anticipo.
+  if (faltaAjusteManual(error)) {
+    const { ajuste_costo_manual: _sinColumna, ...resto } = valores;
+    const reintento = await actualizar(resto);
+    if (!reintento.error) {
+      return { success: false, valores: reintento.data, error: AVISO_MIGRACION_010, requiereMigracion: true };
+    }
+    ({ data, error } = reintento);
+  }
 
   if (error) {
     if (columnaFaltante(error)) return { success: false, error: AVISO_MIGRACION, requiereMigracion: true };

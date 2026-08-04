@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { normalizeHito, calcularAvance } from '../services/checklistService';
+import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 
@@ -248,20 +248,10 @@ export function useProyectos(user) {
     if (!proyecto) return DEFAULT_PROJECTS[0];
 
     const pIdStr = String(proyecto.id || '');
-    const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
-    const gastosSumados = gastosProyecto.reduce((sum, g) => sum + (Number(g?.monto) || 0), 0);
-    // El costo ejecutado es DINÁMICO: siempre la suma real de `gastos` del
-    // proyecto. La columna `proyectos.costo_ejecutado` ya no manda, así cada
-    // factura registrada mueve la métrica en Dashboard y Resumen al instante.
-    const costoEjecutado = gastosSumados;
-    const totalGastado = costoEjecutado;
-    const presupuestoTotal = Number(proyecto.presupuesto_total || proyecto.presupuesto || 0);
-    const balance = presupuestoTotal - totalGastado;
-    const calcPct = presupuestoTotal > 0 ? (totalGastado / presupuestoTotal) * 100 : 0;
-    const porcentajeGastado = Number(proyecto.porcentajeGastado || proyecto.porcentaje_manual || calcPct);
 
     // ── Avance FÍSICO de obra: se lee del checklist real guardado en Supabase ──
     // Prioridad: filas de `checklist_hitos` > columna JSON `proyectos.checklist` > semilla local.
+    // Va primero porque el costo ejecutado necesita el dinero de sus hitos.
     const hitosProyecto = safeHitos.filter(h => h && String(h.proyecto_id || '') === pIdStr);
     let checklistFinal = [];
     if (hitosProyecto.length > 0) {
@@ -277,6 +267,25 @@ export function useProyectos(user) {
     const avanceFisico = checklistFinal.length > 0
       ? calcularAvance(checklistFinal)
       : Math.round(Number(proyecto.porcentaje_avance) || 0);
+
+    const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
+    const gastosSumados = gastosProyecto.reduce((sum, g) => sum + (Number(g?.monto) || 0), 0);
+    /* El costo ejecutado es DINÁMICO y se compone igual que en la ficha del
+       proyecto: facturas reales + dinero de los hitos ya marcados + la
+       corrección manual del Administrador. La columna `costo_ejecutado` guarda
+       el total, pero aquí se recalcula para que el Dashboard no muestre una
+       cifra vieja mientras el detalle muestra otra. */
+    const valorHitosHechos = sumarValoresCompletados(checklistFinal);
+    const ajusteManual = Number(proyecto.ajuste_costo_manual) || 0;
+    const costoEjecutado = Math.max(
+      0,
+      Math.round((gastosSumados + valorHitosHechos + ajusteManual) * 100) / 100
+    );
+    const totalGastado = costoEjecutado;
+    const presupuestoTotal = Number(proyecto.presupuesto_total || proyecto.presupuesto || 0);
+    const balance = presupuestoTotal - totalGastado;
+    const calcPct = presupuestoTotal > 0 ? (totalGastado / presupuestoTotal) * 100 : 0;
+    const porcentajeGastado = Number(proyecto.porcentajeGastado || proyecto.porcentaje_manual || calcPct);
 
     const nombreFinal = proyecto.nombre || proyecto.title || 'Proyecto';
     const ubicacionFinal = proyecto.ubicacion || proyecto.location || '';

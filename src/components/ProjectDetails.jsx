@@ -3,7 +3,7 @@ import {
   ArrowLeft, CheckSquare, Square, Circle, Upload, Image, TrendingUp, FileText, LayoutGrid,
   ChevronDown, ChevronUp, Edit2, Save, Plus, Trash2, AlertTriangle, Loader2, CheckCircle2,
   ExternalLink, Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert, Building,
-  Sparkles, FileImage, ZoomIn, ZoomOut
+  Sparkles, FileImage, ZoomIn, ZoomOut, Lock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
@@ -12,17 +12,20 @@ import {
 } from '../services/storageService';
 import { supabase } from '../supabaseClient';
 import {
-  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero,
+  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero, aAjuste,
   getFacturas, crearFactura, actualizarFactura, eliminarFactura,
   esComprobanteArchivo, esComprobantePdf, nombreArchivoFactura,
-  sumarGastos, ejecucionMensualReal
+  sumarGastos, ejecucionMensualReal, componerCostoEjecutado
 } from '../services/finanzasService';
 import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
 } from '../services/galeriaService';
 import { usePrefs } from '../context/PreferenciasContext';
 import {
-  fetchChecklist, saveChecklist, deleteHito, updateHito, calcularAvance
+  // El lápiz y el basurero ya no escriben solos: todo el checklist viaja a
+  // Supabase en un único `saveChecklist` al presionar "Guardar Cambios".
+  fetchChecklist, saveChecklist, calcularAvance,
+  sumarValoresCompletados, aMonto
 } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
 import { puedeEditarHitos } from '../lib/perfilUsuario';
@@ -41,7 +44,7 @@ const TABS = [
  * Tarjeta de monto financiero. En modo lectura muestra la cifra formateada;
  * en modo edición se convierte en un input controlado.
  */
-function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, resaltado }) {
+function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, resaltado, children }) {
   return (
     <div className={`border shadow-sm rounded-2xl p-5 transition-colors ${
       editando
@@ -74,6 +77,7 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
       )}
 
       <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-semibold">{pie}</p>
+      {children}
     </div>
   );
 }
@@ -126,9 +130,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   // Checklist State & Admin Controls
   const isAdmin = ['admin', 'socio_administrador'].includes(userRole);
-  // Los checks de avance son EXCLUSIVOS del administrador: socios e
-  // inversionistas ven el estado real pero no pueden modificarlo.
-  const puedeEditarChecklist = puedeEditarHitos(userRole);
+  /* El checklist es EXCLUSIVO del administrador: socios e inversionistas ven
+     el estado real pero no pueden modificarlo. Y ni siquiera el administrador
+     lo toca en lectura: hace falta ADEMÁS el Modo Edición encendido. Marcar un
+     hito mueve dinero al Costo Ejecutado, así que no puede pasar de un clic
+     despistado mientras se revisa el avance. */
+  const esAdminChecklist = puedeEditarHitos(userRole);
+  const puedeEditarChecklist = esAdminChecklist && !!isEditMode;
   const [checklist, setChecklist] = useState([]);
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true);
   // true = lo que se ve son datos reales de Supabase; false = semilla aún sin guardar
@@ -137,18 +145,26 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [newItemText, setNewItemText] = useState('');
   const [newHitoDetail, setNewHitoDetail] = useState('');
   const [newHitoDate, setNewHitoDate] = useState('');
+  const [newHitoValor, setNewHitoValor] = useState('');
 
   // Edit Hito State
   const [editingHitoIndex, setEditingHitoIndex] = useState(null);
   const [editHitoText, setEditHitoText] = useState('');
   const [editHitoDetail, setEditHitoDetail] = useState('');
   const [editHitoDate, setEditHitoDate] = useState('');
+  const [editHitoValor, setEditHitoValor] = useState('');
 
   // Save Manual & Global Sync State
   const [isSavingChanges, setIsSavingChanges] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState(null);
   const [saveErrorMsg, setSaveErrorMsg] = useState(null);
   const [hayCambiosSinGuardar, setHayCambiosSinGuardar] = useState(false);
+  /* Hitos que YA existen en Supabase y el administrador quitó de la lista.
+     Solo desaparecieron de la pantalla: la fila sigue en la base hasta que se
+     presiona "Guardar Cambios" y se confirma el borrado definitivo. Se guarda
+     el título para poder enumerarlos en esa confirmación. */
+  const [hitosPorEliminar, setHitosPorEliminar] = useState([]);
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
 
   // Lista blindada: nunca es null/undefined aunque la BD devuelva algo raro
   const safeChecklist = Array.isArray(checklist) ? checklist.filter(Boolean) : [];
@@ -191,6 +207,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         setChecklistPersistido(false);
       }
       setHayCambiosSinGuardar(false);
+      setHitosPorEliminar([]);
     } catch (err) {
       console.error('Error cargando el checklist desde Supabase:', err);
       setChecklist(getChecklistSeed(project?.id, project?.nombre || project?.title).map((item, i) => ({ ...item, id: null, orden: i })));
@@ -204,6 +221,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     cargarChecklist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
+
+  /* Apagar el Modo Edición equivale a cancelar: se relee el checklist de
+     Supabase y se descarta lo que no llegó a guardarse. Sin esto quedarían
+     tareas "borradas" en pantalla que ya nadie puede confirmar, porque el
+     botón de Guardar Cambios también vive detrás del Modo Edición. */
+  useEffect(() => {
+    if (isEditMode) return;
+    setEditingHitoIndex(null);
+    setConfirmandoBorrado(false);
+    if (hayCambiosSinGuardar) cargarChecklist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode]);
 
   const limpiarMensajes = () => {
     setSaveSuccessMsg(null);
@@ -221,35 +250,43 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     limpiarMensajes();
   };
 
-  // Elimina el hito PERMANENTEMENTE de Supabase (icono de basurero)
-  const handleDeleteHito = async (index) => {
+  /* Dinero que representa la tarea. Si ya está marcada como hecha, cambiar el
+     monto mueve el Costo Ejecutado en el acto (`totalHitos` se recalcula solo);
+     si está pendiente, el monto queda esperando a que se marque. */
+  const handleValorHito = (index, valor) => {
+    if (!puedeEditarChecklist) return;
+    setChecklist(prev => (Array.isArray(prev) ? prev : []).map((item, i) =>
+      i === index ? { ...item, valor: aMonto(valor) } : item
+    ));
+    setHayCambiosSinGuardar(true);
+    limpiarMensajes();
+  };
+
+  /**
+   * Quita el hito de la LISTA, no de la base.
+   *
+   * Así se puede sacar una tarea y ver al instante cómo queda el avance y la
+   * gráfica sin comprometerse a nada: si no se presiona "Guardar Cambios", la
+   * fila sigue intacta en Supabase y basta con salir para recuperarla.
+   */
+  const handleDeleteHito = (index) => {
     if (!puedeEditarChecklist) return;
     const item = safeChecklist[index];
     if (!item) return;
-    if (!confirm(t('dlg.eliminarHito', { titulo: item.text }))) return;
 
     limpiarMensajes();
-    const restantes = safeChecklist.filter((_, i) => i !== index);
-    setChecklist(restantes);
+    setChecklist(safeChecklist.filter((_, i) => i !== index));
 
-    if (item.id === null || item.id === undefined) {
-      // Todavía no existía en la base: basta con quitarlo de la lista local
-      setHayCambiosSinGuardar(true);
-      return;
+    // Los que ya existían en la base se anotan para confirmarlos al guardar.
+    // Los que nunca llegaron a Supabase (id null) no hay nada que borrar.
+    if (item.id !== null && item.id !== undefined) {
+      setHitosPorEliminar(prev => (
+        prev.some(h => String(h.id) === String(item.id))
+          ? prev
+          : [...prev, { id: item.id, text: item.text || t('proy.hitoSinTitulo') }]
+      ));
     }
-
-    setIsSavingChanges(true);
-    const { success, error } = await deleteHito(item.id);
-    if (success) {
-      const pct = calcularAvance(restantes);
-      await sincronizarProyecto(pct, restantes);
-      setSaveSuccessMsg(t('msg.hitoEliminado', { pct }));
-      setTimeout(() => setSaveSuccessMsg(null), 6000);
-    } else {
-      setSaveErrorMsg(t('msg.errorEliminarHito', { error }));
-      await cargarChecklist();
-    }
-    setIsSavingChanges(false);
+    setHayCambiosSinGuardar(true);
   };
 
   const handleStartEditHito = (index) => {
@@ -260,10 +297,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setEditHitoText(item.text || item.titulo || '');
     setEditHitoDetail(item.detail || item.descripcion || '');
     setEditHitoDate(item.fecha || item.fecha_vencimiento || '');
+    setEditHitoValor(aMonto(item.valor) || '');
   };
 
-  // Guarda la edición del hito PERMANENTEMENTE en Supabase (icono de lápiz)
-  const handleSaveEditHito = async (e) => {
+  /**
+   * Aplica la edición del hito a la LISTA. Igual que el basurero, no toca la
+   * base: el texto, la fecha y el monto nuevos viajan a Supabase en el mismo
+   * "Guardar Cambios" que todo lo demás.
+   */
+  const handleSaveEditHito = (e) => {
     e.preventDefault();
     if (!puedeEditarChecklist) return;
     if (editingHitoIndex === null || !editHitoText.trim()) return;
@@ -272,29 +314,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       ...safeChecklist[editingHitoIndex],
       text: editHitoText.trim(),
       detail: editHitoDetail.trim() || t('fb.hitoActualizadoBitacora'),
-      fecha: editHitoDate.trim() || 'Proyectado'
+      fecha: editHitoDate.trim() || 'Proyectado',
+      valor: aMonto(editHitoValor)
     };
     const nuevaLista = safeChecklist.map((item, i) => i === editingHitoIndex ? actualizado : item);
 
     limpiarMensajes();
     setChecklist(nuevaLista);
     setEditingHitoIndex(null);
-
-    if (actualizado.id === null || actualizado.id === undefined) {
-      setHayCambiosSinGuardar(true);
-      return;
-    }
-
-    setIsSavingChanges(true);
-    const { success, error } = await updateHito(actualizado.id, actualizado, editingHitoIndex, project?.id);
-    if (success) {
-      setSaveSuccessMsg(t('msg.hitoActualizado', { titulo: actualizado.text }));
-      setTimeout(() => setSaveSuccessMsg(null), 6000);
-    } else {
-      setSaveErrorMsg(t('msg.errorActualizarHito', { error }));
-      await cargarChecklist();
-    }
-    setIsSavingChanges(false);
+    setHayCambiosSinGuardar(true);
   };
 
   // Agrega una tarea nueva (se persiste al presionar "Guardar Cambios")
@@ -308,6 +336,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       text: newItemText.trim(),
       detail: newHitoDetail.trim() || t('fb.hitoBitacora'),
       fecha: newHitoDate.trim() || 'Proyectado',
+      valor: aMonto(newHitoValor),
       orden: safeChecklist.length,
       persisted: false
     };
@@ -315,6 +344,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setNewItemText('');
     setNewHitoDetail('');
     setNewHitoDate('');
+    setNewHitoValor('');
     setShowAddHitoModal(false);
     setHayCambiosSinGuardar(true);
     limpiarMensajes();
@@ -351,6 +381,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       return;
     }
 
+    /* Este es el único punto sin retorno: hasta aquí quitar una tarea solo la
+       escondía. Si hay hitos que ya existen en Supabase esperando borrado, se
+       enumeran y se pide confirmación antes de tocar la base. */
+    if (hitosPorEliminar.length > 0 && !confirmandoBorrado) {
+      setConfirmandoBorrado(true);
+      return;
+    }
+    setConfirmandoBorrado(false);
+
     setIsSavingChanges(true);
     limpiarMensajes();
 
@@ -366,10 +405,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       setChecklist(listaFinal);
       setChecklistPersistido(true);
       setHayCambiosSinGuardar(false);
+      // `saveChecklist` ya borró en Supabase las filas que faltaban en la lista
+      setHitosPorEliminar([]);
 
-      // Las cifras y la identidad editadas viajan en el MISMO clic que el checklist
+      /* Las cifras y la identidad editadas viajan en el MISMO clic que el
+         checklist. El costo ejecutado se recalcula con la lista RECIÉN
+         guardada, no con la que había al abrir la pantalla: así el dinero de
+         un hito marcado hace un segundo ya entra en el total que se persiste. */
       if (modoEdicionFinanzas) {
-        const fin = await guardarFinanzas(project.id, { ...finanzas, ...identidad });
+        const costoFinal = componerCostoEjecutado({
+          facturas: totalFacturas,
+          hitos: sumarValoresCompletados(listaFinal),
+          ajuste: finanzas.ajusteManual
+        });
+
+        const fin = await guardarFinanzas(project.id, {
+          ...finanzas, ...identidad, costoEjecutado: costoFinal
+        });
         if (!fin.success) {
           setSaveErrorMsg(t('msg.errorGuardarCambios', { error: fin.error || t('msg.errorDesconocido') }));
           return;
@@ -380,6 +432,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           project.anticipo = fin.valores.anticipo;
           project.cuota_asignada = fin.valores.cuota_asignada;
           project.costo_ejecutado = fin.valores.costo_ejecutado;
+          project.ajuste_costo_manual = fin.valores.ajuste_costo_manual;
           project.ejecucion_mensual = fin.valores.ejecucion_mensual;
         }
       }
@@ -861,13 +914,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
      mientras el administrador escribe, así la gráfica y la alerta de
      sobrecosto reaccionan al instante.
 
-     Costo ejecutado: NO se edita a mano. Es la suma real de la tabla `gastos`
-     filtrada por `proyecto_id`, de modo que cada factura registrada mueve la
-     cifra al instante (ver `totalSpent`). */
+     Costo ejecutado: se COMPONE de tres orígenes (ver `totalSpent`).
+       · Facturas       — suma real de `gastos`, se mueve sola con cada factura.
+       · Hitos marcados — `valor` de las tareas del checklist ya completadas.
+       · Ajuste manual  — lo que el Administrador escribe encima en la tarjeta.
+     Solo el ajuste se guarda como tal (`proyectos.ajuste_costo_manual`): los
+     otros dos se recalculan siempre, así que corregir una factura o desmarcar
+     un hito nunca pisa la corrección escrita a mano. */
   const finanzasDesdeProyecto = () => ({
     presupuesto: Number(project?.presupuesto_total ?? 0),
     anticipo: Number(project?.anticipo ?? 0),
-    cuota: Number(project?.cuota_asignada ?? 0)
+    cuota: Number(project?.cuota_asignada ?? 0),
+    ajusteManual: Number(project?.ajuste_costo_manual ?? 0)
   });
 
   /* Identidad editable del proyecto (título y ubicación del header).
@@ -902,7 +960,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     project?.id, project?.presupuesto_total, project?.anticipo,
-    project?.cuota_asignada
+    project?.cuota_asignada, project?.ajuste_costo_manual
   ]);
 
   // Lo mismo para el título y la ubicación del header
@@ -943,7 +1001,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setGuardandoFinanzas(true);
     setFinanzasMsg(null);
 
-    const { success, valores, error } = await guardarFinanzas(project?.id, { ...finanzas, ...identidad });
+    const { success, valores, error } = await guardarFinanzas(project?.id, {
+      ...finanzas, ...identidad, costoEjecutado: totalSpent
+    });
 
     setGuardandoFinanzas(false);
 
@@ -953,12 +1013,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         project.presupuesto_total = valores.presupuesto_total;
         project.anticipo = valores.anticipo;
         project.cuota_asignada = valores.cuota_asignada;
+        project.costo_ejecutado = valores.costo_ejecutado;
+        project.ajuste_costo_manual = valores.ajuste_costo_manual;
       }
       // Lo guardado por Supabase es lo que se muestra: nada de valores locales
       setFinanzas({
         presupuesto: Number(valores.presupuesto_total || 0),
         anticipo: Number(valores.anticipo || 0),
-        cuota: Number(valores.cuota_asignada || 0)
+        cuota: Number(valores.cuota_asignada || 0),
+        ajusteManual: Number(valores.ajuste_costo_manual || 0)
       });
       setEditandoFinanzas(false);
       setFinanzasMsg({ tipo: 'exito', texto: t('fin.guardado') });
@@ -978,10 +1041,33 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   // Cálculos derivados: reaccionan a cada tecla mientras se edita
   const totalBudget = Number(finanzas.presupuesto) || 0;
-  /* Costo ejecutado DINÁMICO: suma de `gastos.monto` del proyecto. `facturas`
-     se recarga tras cada alta/edición/borrado y por Realtime, así que la cifra
-     y la gráfica se mueven solas en cuanto se registra una factura. */
-  const totalSpent = sumarGastos(facturas);
+
+  /* Costo ejecutado DINÁMICO, con sus tres orígenes sumados:
+       · `totalFacturas` — suma de `gastos.monto`; `facturas` se recarga tras
+         cada alta/edición/borrado y por Realtime, así que se mueve sola.
+       · `totalHitos`    — dinero de las tareas del checklist ya marcadas: al
+         marcar una de $1,000 la cifra sube $1,000 y al desmarcarla baja igual.
+         Se recalcula desde la lista, nunca se acumulan deltas, así que marcar
+         y desmarcar mil veces deja exactamente el mismo número.
+       · `ajusteManual`  — la corrección escrita a mano en la tarjeta. */
+  const totalFacturas = sumarGastos(facturas);
+  const totalHitos = sumarValoresCompletados(safeChecklist);
+  const ajusteManual = Number(finanzas.ajusteManual) || 0;
+  const totalSpent = componerCostoEjecutado({
+    facturas: totalFacturas, hitos: totalHitos, ajuste: ajusteManual
+  });
+
+  /* Al escribir un total a mano no se guarda el total, se guarda la DIFERENCIA
+     contra lo que la app sí sabe calcular. Así una factura registrada mañana
+     sigue sumando sobre la corrección de hoy en vez de borrarla. */
+  const handleCostoEjecutadoManual = (valor) => {
+    setFinanzas(prev => ({
+      ...prev,
+      ajusteManual: aAjuste(valor) - totalFacturas - totalHitos
+    }));
+    setFinanzasMsg(null);
+  };
+
   const ejecucionMensual = ejecucionMensualReal(facturas, language);
   const isOverBudget = totalSpent > totalBudget;
   const overBudgetAmount = isOverBudget ? totalSpent - totalBudget : 0;
@@ -997,51 +1083,68 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   // Datos de la gráfica de facturas agrupados por mes
   const gastosPorMes = agruparGastosPorMes(facturas, language);
 
+  /* Distintivo de estado del proyecto ("En progreso · 40%").
+     Se pinta DOS veces con la misma función y solo una es visible a la vez:
+     en escritorio va a la par del título, donde sobra espacio, y en móvil baja
+     a la línea de la ubicación, que es donde sí cabe. */
+  const claseEstado = avancePct >= 100 && safeChecklist.length > 0
+    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+    : avancePct > 0
+    ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
+    : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-600';
+
+  const distintivoEstado = (visibilidad) => (
+    <span className={`normal-case tracking-normal text-[11px] font-bold px-2.5 py-0.5 rounded-full border whitespace-nowrap flex-shrink-0 ${claseEstado} ${visibilidad}`}>
+      {estadoAutomatico} · {avancePct}%
+    </span>
+  );
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-900 relative">
 
       {/* ── Header ── */}
       <header className="flex-shrink-0 px-6 md:px-10 pt-8 pb-5 border-b border-gray-100 dark:border-zinc-700 flex items-center justify-between gap-5">
-        <div className="flex items-center gap-5">
+        {/* `min-w-0` en toda la cadena: sin él los hijos se niegan a encogerse y
+            el distintivo de estado se sale del panel en pantallas medianas. */}
+        <div className="flex items-center gap-5 min-w-0 flex-1">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white text-base font-medium transition-colors rounded-xl px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 -ml-3"
+            className="flex items-center gap-2 flex-shrink-0 text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white text-base font-medium transition-colors rounded-xl px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 -ml-3"
           >
             <ArrowLeft size={20} />
             {t('proy.volver')}
           </button>
-          <div className="h-6 w-px bg-gray-200" />
-          <div className="min-w-0">
+          <div className="h-6 w-px bg-gray-200 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
             {/* En Modo Edición el título y la ubicación son inputs reales:
                 se persisten en `proyectos.nombre` y `proyectos.ubicacion`
                 con el mismo botón "Guardar Cambios". */}
-            {modoEdicionFinanzas ? (
-              <input
-                type="text"
-                value={identidad.nombre}
-                onChange={(e) => handleCampoIdentidad('nombre', e.target.value)}
-                placeholder={t('proy.nombreProyecto')}
-                aria-label={t('proy.nombreProyecto')}
-                className="w-full min-w-0 md:min-w-[26rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase"
-              />
-            ) : (
-              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase flex items-center gap-2">
-                {project.title || project.nombre}
-              </h1>
-            )}
-            {/* El estado ya NO es texto estático: se calcula con el avance
-                real de los hitos (0% Planificación · 1-99% En progreso · 100%
-                Finalizado). Junto a él se conserva la ubicación del proyecto. */}
+            {/* El estado ya NO es texto estático: se calcula con el avance real
+                de los hitos (0% Planificación · 1-99% En progreso · 100%
+                Finalizado). En escritorio acompaña al título en la misma línea;
+                en móvil baja con la ubicación. */}
+            <div className="flex items-center gap-3 min-w-0">
+              {modoEdicionFinanzas ? (
+                <input
+                  type="text"
+                  value={identidad.nombre}
+                  onChange={(e) => handleCampoIdentidad('nombre', e.target.value)}
+                  placeholder={t('proy.nombreProyecto')}
+                  aria-label={t('proy.nombreProyecto')}
+                  /* El ancho holgado para escribir se reserva a partir de `lg`:
+                     exigirlo desde `md` empujaba el distintivo fuera del panel. */
+                  className="flex-1 w-full min-w-0 lg:min-w-[20rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase"
+                />
+              ) : (
+                <h1 className="min-w-0 text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">
+                  {project.title || project.nombre}
+                </h1>
+              )}
+              {distintivoEstado('hidden md:inline-flex')}
+            </div>
+
             <p className="text-xs md:text-sm text-slate-400 dark:text-zinc-200 mt-0.5 uppercase tracking-widest font-medium flex flex-wrap items-center gap-2">
-              <span className={`normal-case tracking-normal text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                avancePct >= 100 && safeChecklist.length > 0
-                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
-                  : avancePct > 0
-                  ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
-                  : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-600'
-              }`}>
-                {estadoAutomatico} · {avancePct}%
-              </span>
+              {distintivoEstado('md:hidden')}
               {modoEdicionFinanzas ? (
                 <input
                   type="text"
@@ -1125,6 +1228,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       {t('proy.cambiosSinGuardar')}
                     </span>
                   )}
+                  {/* Las tareas quitadas siguen vivas en Supabase: el contador
+                      recuerda cuántas se van de verdad al guardar. */}
+                  {hitosPorEliminar.length > 0 && (
+                    <span className="text-xs font-bold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/10 px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-500/30 flex items-center gap-1.5">
+                      <Trash2 size={13} className="text-red-500" />
+                      {t('proy.porEliminar', { n: hitosPorEliminar.length })}
+                    </span>
+                  )}
                   {!isLoadingChecklist && !checklistPersistido && safeChecklist.length > 0 && (
                     <span className="text-xs font-semibold text-slate-500 dark:text-zinc-200 bg-white dark:bg-zinc-800 px-3.5 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-zinc-600">
                       {t('proy.plantillaInicial')}
@@ -1149,12 +1260,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       )}
                     </button>
                   ) : (
+                    /* Dos motivos distintos para no poder tocar el checklist, y
+                       cada uno merece su propio aviso: al administrador hay que
+                       decirle que le falta encender el Modo Edición, no que no
+                       tiene permiso. */
                     <span
                       className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700/60 border border-gray-200 dark:border-zinc-600 px-3.5 py-1.5 rounded-xl"
-                      title={t('proy.checksSoloAdmin')}
+                      title={esAdminChecklist ? t('proy.checklistSoloEdicion') : t('proy.checksSoloAdmin')}
                     >
-                      <ShieldAlert size={13} className="text-slate-400 dark:text-zinc-200" />
-                      {t('proy.checksSoloLectura')}
+                      {esAdminChecklist
+                        ? <Lock size={13} className="text-slate-400 dark:text-zinc-200" />
+                        : <ShieldAlert size={13} className="text-slate-400 dark:text-zinc-200" />}
+                      {esAdminChecklist ? t('proy.checklistSoloEdicion') : t('proy.checksSoloLectura')}
                     </span>
                   )}
                 </div>
@@ -1185,6 +1302,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   const title = item.text || item.titulo || t('proy.hitoSinTitulo');
                   const detail = item.detail || item.descripcion || t('proy.sinDetalle');
                   const dateStr = item.fecha || item.fecha_vencimiento || t('proy.sinFecha');
+                  const valorHito = aMonto(item.valor);
 
                   return (
                     <li key={item.id ?? `nuevo-${i}`} className="border border-gray-100 dark:border-zinc-700 rounded-[20px] bg-white dark:bg-zinc-800 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
@@ -1237,6 +1355,48 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-zinc-700">
                                     <Calendar size={12} className="text-slate-400 dark:text-zinc-200" />
                                     {t('proy.proyectadoPara')} {dateStr}
+                                  </span>
+                                )}
+                                {/* Monto de la tarea, JUSTO a la par de la fecha.
+                                    El Administrador lo escribe; los demás solo
+                                    lo ven, y únicamente si tiene valor. Va fuera
+                                    del div que abre el acordeón para que teclear
+                                    una cifra no despliegue el detalle. */}
+                                {puedeEditarChecklist ? (
+                                  <span
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`inline-flex items-center gap-0.5 text-[11px] font-bold pl-2 pr-1 py-0.5 rounded-full border transition-colors ${
+                                      valorHito > 0 && isDone
+                                        ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                                        : valorHito > 0
+                                        ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
+                                        : 'bg-slate-50 dark:bg-zinc-700/50 text-slate-500 dark:text-zinc-300 border-gray-200 dark:border-zinc-600'
+                                    }`}
+                                    title={t('proy.valorHitoTooltip')}
+                                  >
+                                    <DollarSign size={11} className="flex-shrink-0 opacity-70" />
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      inputMode="decimal"
+                                      value={valorHito || ''}
+                                      placeholder="0"
+                                      aria-label={t('proy.valorHito')}
+                                      onChange={(e) => handleValorHito(i, e.target.value)}
+                                      onFocus={(e) => e.target.select()}
+                                      onWheel={(e) => e.currentTarget.blur()}
+                                      className="w-16 bg-transparent border-none outline-none focus:ring-0 p-0 text-[11px] font-bold placeholder-slate-300 dark:placeholder-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    />
+                                  </span>
+                                ) : valorHito > 0 && (
+                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                    isDone
+                                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                                      : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700'
+                                  }`}>
+                                    <DollarSign size={11} className="opacity-70" />
+                                    {formatearMoneda(valorHito).replace('$', '')}
                                   </span>
                                 )}
                                 {(item.id === null || item.id === undefined) && (
@@ -1478,15 +1638,31 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 colorValor="text-slate-900 dark:text-white"
               />
 
-              {/* Costo ejecutado: SIEMPRE la suma real de `gastos`, nunca editable */}
+              {/* Costo ejecutado: facturas + hitos marcados + ajuste manual.
+                  En Modo Edición el Administrador escribe el total que quiera y
+                  la diferencia se guarda como ajuste, sin perder lo que la app
+                  calcula sola. El desglose se muestra debajo para que la cifra
+                  nunca sea una caja negra. */}
               <TarjetaMonto
                 etiqueta={t('fin.costoEjecutado')}
                 pie={`${Math.round((totalSpent / (totalBudget || 1)) * 100)}% ${t('fin.presupuestoEjecutado')}`}
                 valor={totalSpent}
-                editando={false}
+                editando={modoEdicionFinanzas}
+                onChange={handleCostoEjecutadoManual}
                 colorValor={isOverBudget ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}
                 resaltado={isOverBudget}
-              />
+              >
+                {(totalHitos > 0 || ajusteManual !== 0 || modoEdicionFinanzas) && (
+                  <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1.5 leading-relaxed font-medium">
+                    {t('fin.desgloseFacturas')} {formatearMoneda(totalFacturas)}
+                    {' · '}
+                    {t('fin.desgloseHitos')} {formatearMoneda(totalHitos)}
+                    {ajusteManual !== 0 && (
+                      <> {' · '}{t('fin.desgloseAjuste')} {ajusteManual > 0 ? '+' : '−'}{formatearMoneda(Math.abs(ajusteManual))}</>
+                    )}
+                  </p>
+                )}
+              </TarjetaMonto>
             </div>
 
             {/* Gráfica de Ejecución financiera mensual.
@@ -2464,6 +2640,56 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         </div>
       )}
 
+      {/* ════ CONFIRMACIÓN DEL BORRADO DEFINITIVO DE HITOS ════
+          Quitar una tarea de la lista es reversible; guardar no lo es. Aquí se
+          enumeran por nombre las que van a desaparecer de Supabase, para que la
+          decisión se tome viendo exactamente qué se pierde. */}
+      {confirmandoBorrado && hitosPorEliminar.length > 0 && (
+        <div className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-10 h-10 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-500" />
+              </span>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {t('dlg.eliminarHitosTitulo', { n: hitosPorEliminar.length })}
+              </h3>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-zinc-300">
+              {t('dlg.eliminarHitosAviso')}
+            </p>
+
+            <ul className="mt-3 max-h-44 overflow-y-auto space-y-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 p-3">
+              {hitosPorEliminar.map(h => (
+                <li key={h.id} className="flex items-start gap-2 text-[13px] text-slate-700 dark:text-zinc-200 font-medium">
+                  <Trash2 size={12} className="text-red-400 flex-shrink-0 mt-1" />
+                  <span className="break-words">{h.text}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="pt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmandoBorrado(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl"
+              >
+                {t('comun.cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAllChanges}
+                className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm"
+              >
+                <Trash2 size={13} />
+                {t('dlg.eliminarHitosConfirmar')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ════ MODAL AGREGAR HITO AL CHECKLIST (ADMIN) ════ */}
       {showAddHitoModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2507,6 +2733,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   onChange={(e) => setNewHitoDate(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
+                <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
+                  <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={newHitoValor}
+                    onChange={(e) => setNewHitoValor(e.target.value)}
+                    className="w-full bg-transparent border-none outline-none focus:ring-0 p-0 text-sm"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-400 mt-1 leading-relaxed">{t('modal.valorHitoAyuda')}</p>
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setShowAddHitoModal(false)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
@@ -2638,6 +2881,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   onChange={(e) => setEditHitoDate(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
+                <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
+                  <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={editHitoValor}
+                    onChange={(e) => setEditHitoValor(e.target.value)}
+                    className="w-full bg-transparent border-none outline-none focus:ring-0 p-0 text-sm"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-400 mt-1 leading-relaxed">{t('modal.valorHitoAyuda')}</p>
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setEditingHitoIndex(null)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">

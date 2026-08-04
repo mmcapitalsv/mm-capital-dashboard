@@ -24,21 +24,65 @@ export const AVISO_MIGRACION_009 =
   'Falta la columna `receptor_id`. Ejecuta ' +
   'supabase/migrations/009_mensajes_directos.sql en el SQL Editor de Supabase.';
 
+export const AVISO_MIGRACION_010 =
+  'No se pudo editar el mensaje: falta el permiso de edición en la base. ' +
+  'Ejecuta supabase/migrations/010_valor_hitos_y_chat_editable.sql en el ' +
+  'SQL Editor de Supabase.';
+
+/** Solo el Administrador puede vaciar el historial del canal General. */
+export function puedeLimpiarChat(rol) {
+  return String(rol || '') === 'admin';
+}
+
 /**
  * Columnas que pinta la interfaz. Se une la ficha del remitente para traer su
  * foto: así cada burbuja muestra el avatar real y no solo la inicial.
  */
-const COLUMNAS =
-  'id, canal, usuario_id, receptor_id, autor, contenido, created_at, ' +
-  'remitente:usuarios!mensajes_usuario_id_fkey ( id, nombre_completo, avatar_url )';
+const CAMPOS = 'id, canal, usuario_id, receptor_id, autor, contenido, created_at';
 
-/** Si la unión con `usuarios` no existe (FK sin nombrar), se pide sin ella. */
-const COLUMNAS_SIMPLES = 'id, canal, usuario_id, receptor_id, autor, contenido, created_at';
+/** `editado_en` la agrega la migración 010; puede no existir todavía. */
+const CAMPOS_CON_EDICION = `${CAMPOS}, editado_en`;
+
+const UNION_REMITENTE =
+  ', remitente:usuarios!mensajes_usuario_id_fkey ( id, nombre_completo, avatar_url )';
+
+/**
+ * Juegos de columnas del más completo al más básico. Se prueban en orden: si
+ * la unión con `usuarios` no está declarada, o si `editado_en` aún no existe,
+ * la consulta cae al siguiente juego en vez de fallar.
+ */
+const VARIANTES = [
+  CAMPOS_CON_EDICION + UNION_REMITENTE,
+  CAMPOS_CON_EDICION,
+  CAMPOS + UNION_REMITENTE,
+  CAMPOS
+];
 
 function falloDeUnion(error) {
   if (!error) return false;
   const msg = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`;
   return /relationship|foreign key|mensajes_usuario_id_fkey|PGRST200/i.test(`${error.code} ${msg}`);
+}
+
+/** ¿El error se debe a que `editado_en` todavía no existe en la tabla? */
+function faltaColumnaEdicion(error) {
+  if (!error) return false;
+  const msg = `${error.message || ''} ${error.details || ''}`;
+  return /editado_en/i.test(msg);
+}
+
+/**
+ * Ejecuta una consulta probando los juegos de columnas hasta que uno funcione.
+ * Solo reintenta ante fallos de esquema; cualquier otro error se devuelve tal cual.
+ */
+async function consultarTolerante(hacer) {
+  let ultimo = { data: null, error: null };
+  for (const columnas of VARIANTES) {
+    ultimo = await hacer(columnas);
+    if (!ultimo.error) return ultimo;
+    if (!falloDeUnion(ultimo.error) && !faltaColumnaEdicion(ultimo.error)) return ultimo;
+  }
+  return ultimo;
 }
 
 function faltaColumna(error) {
@@ -71,6 +115,7 @@ export function normalizarMensaje(fila, uid) {
     receptorId: fila?.receptor_id || null,
     propio: !!uid && String(fila?.usuario_id) === String(uid),
     texto: fila?.contenido || '',
+    editadoEn: fila?.editado_en || null,
     creadoEn: fila?.created_at || new Date().toISOString(),
     hora: fecha.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   };
@@ -78,16 +123,13 @@ export function normalizarMensaje(fila, uid) {
 
 /** Historial completo del canal General, del más antiguo al más reciente. */
 export async function listarMensajes(uid) {
-  const consulta = (columnas) => supabase
+  const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
     .select(columnas)
     .eq('canal', CANAL_SOCIOS)
     .is('receptor_id', null)
     .order('created_at', { ascending: true })
-    .limit(300);
-
-  let { data, error } = await consulta(COLUMNAS);
-  if (falloDeUnion(error)) ({ data, error } = await consulta(COLUMNAS_SIMPLES));
+    .limit(300));
 
   if (error) {
     if (faltaTabla(error)) return { mensajes: [], error: AVISO_MIGRACION_006 };
@@ -103,14 +145,11 @@ export async function enviarMensajeSocios({ texto, uid, autor }) {
   if (!contenido) return { mensaje: null, error: null };
   if (!uid) return { mensaje: null, error: 'Sesión no válida.' };
 
-  const consulta = (columnas) => supabase
+  const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
     .insert({ canal: CANAL_SOCIOS, usuario_id: uid, autor: autor || '', contenido })
     .select(columnas)
-    .single();
-
-  let { data, error } = await consulta(COLUMNAS);
-  if (falloDeUnion(error)) ({ data, error } = await consulta(COLUMNAS_SIMPLES));
+    .single());
 
   if (error) {
     if (faltaTabla(error)) return { mensaje: null, error: AVISO_MIGRACION_006 };
@@ -124,9 +163,10 @@ export async function enviarMensajeSocios({ texto, uid, autor }) {
 
 /**
  * Suscripción Realtime al canal. `alMensaje` recibe cada mensaje nuevo ya
- * normalizado. Devuelve la función de limpieza.
+ * normalizado; `alEditar` y `alBorrar` (opcionales) reflejan al instante lo
+ * que otro socio corrige o elimina. Devuelve la función de limpieza.
  */
-export function suscribirMensajes(uid, alMensaje) {
+export function suscribirMensajes(uid, alMensaje, { alEditar, alBorrar } = {}) {
   const canal = supabase
     .channel('chat-socios-mmcapital')
     .on(
@@ -134,9 +174,97 @@ export function suscribirMensajes(uid, alMensaje) {
       { event: 'INSERT', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_SOCIOS}` },
       (payload) => alMensaje(normalizarMensaje(payload.new, uid))
     )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_SOCIOS}` },
+      (payload) => { if (alEditar) alEditar(normalizarMensaje(payload.new, uid)); }
+    )
+    .on(
+      // El borrado no admite filtro por canal (la fila ya no existe): se
+      // reenvía el id y la vista descarta el que no tenga.
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: TABLA },
+      (payload) => { if (alBorrar && payload.old?.id) alBorrar(payload.old.id); }
+    )
     .subscribe();
 
   return () => { supabase.removeChannel(canal); };
+}
+
+/**
+ * Corrige el texto de un mensaje. La RLS (migración 010) solo deja hacerlo al
+ * autor: si alguien intenta editar un mensaje ajeno no hay error, hay CERO
+ * filas afectadas, y por eso se comprueba `data.length` antes de dar por buena
+ * la operación.
+ */
+export async function editarMensaje({ id, texto, uid }) {
+  const contenido = String(texto || '').trim();
+  if (!id) return { mensaje: null, error: 'Falta el mensaje a editar.' };
+  if (!contenido) return { mensaje: null, error: 'El mensaje no puede quedar vacío.' };
+
+  const { data, error } = await consultarTolerante((columnas) => supabase
+    .from(TABLA)
+    .update({ contenido, editado_en: new Date().toISOString() })
+    .eq('id', id)
+    .eq('usuario_id', uid)
+    .select(columnas));
+
+  if (error) {
+    if (faltaTabla(error)) return { mensaje: null, error: AVISO_MIGRACION_006 };
+    if (/editado_en/i.test(`${error.message || ''} ${error.details || ''}`)) {
+      return { mensaje: null, error: AVISO_MIGRACION_010 };
+    }
+    return { mensaje: null, error: error.message };
+  }
+  if (!data || data.length === 0) return { mensaje: null, error: AVISO_MIGRACION_010 };
+
+  return { mensaje: normalizarMensaje(data[0], uid), error: null };
+}
+
+/**
+ * Borra un mensaje propio. La política "mensajes_borrado" (migración 006) deja
+ * hacerlo al autor o al Administrador; sin permiso se borran cero filas.
+ */
+export async function eliminarMensaje({ id, uid }) {
+  if (!id) return { success: false, error: 'Falta el mensaje a eliminar.' };
+
+  const { data, error } = await supabase
+    .from(TABLA)
+    .delete()
+    .eq('id', id)
+    .eq('usuario_id', uid)
+    .select('id');
+
+  if (error) return { success: false, error: error.message };
+  if (!data || data.length === 0) {
+    return { success: false, error: 'Solo puedes eliminar tus propios mensajes.' };
+  }
+  return { success: true, error: null };
+}
+
+/**
+ * Vacía el historial COMPLETO del canal General. Acción exclusiva del
+ * Administrador: la política "mensajes_borrado" solo deja borrar mensajes
+ * ajenos a quien cumple `public.es_admin()`, así que para cualquier otro esto
+ * borraría únicamente los suyos. Por eso la interfaz ni siquiera ofrece el
+ * botón y aquí se verifica que la limpieza fuera realmente total.
+ *
+ * Los mensajes directos NO se tocan: `receptor_id is null` los deja fuera.
+ */
+export async function vaciarCanalSocios() {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .delete()
+    .eq('canal', CANAL_SOCIOS)
+    .is('receptor_id', null)
+    .select('id');
+
+  if (error) {
+    if (faltaTabla(error)) return { success: false, borrados: 0, error: AVISO_MIGRACION_006 };
+    return { success: false, borrados: 0, error: error.message };
+  }
+
+  return { success: true, borrados: (data || []).length, error: null };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -152,7 +280,7 @@ export const CANAL_DIRECTO = 'directo';
 export async function listarMensajesDirectos(uid, otroId) {
   if (!uid || !otroId) return { mensajes: [], error: null };
 
-  const consulta = (columnas) => supabase
+  const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
     .select(columnas)
     .not('receptor_id', 'is', null)
@@ -161,10 +289,7 @@ export async function listarMensajesDirectos(uid, otroId) {
       `and(usuario_id.eq.${otroId},receptor_id.eq.${uid})`
     )
     .order('created_at', { ascending: true })
-    .limit(300);
-
-  let { data, error } = await consulta(COLUMNAS);
-  if (falloDeUnion(error)) ({ data, error } = await consulta(COLUMNAS_SIMPLES));
+    .limit(300));
 
   if (error) {
     if (faltaTabla(error)) return { mensajes: [], error: AVISO_MIGRACION_006 };
@@ -181,7 +306,7 @@ export async function enviarMensajeDirecto({ texto, uid, autor, receptorId }) {
   if (!uid) return { mensaje: null, error: 'Sesión no válida.' };
   if (!receptorId) return { mensaje: null, error: 'Falta el destinatario del mensaje.' };
 
-  const consulta = (columnas) => supabase
+  const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
     .insert({
       canal: CANAL_DIRECTO,
@@ -191,10 +316,7 @@ export async function enviarMensajeDirecto({ texto, uid, autor, receptorId }) {
       contenido
     })
     .select(columnas)
-    .single();
-
-  let { data, error } = await consulta(COLUMNAS);
-  if (falloDeUnion(error)) ({ data, error } = await consulta(COLUMNAS_SIMPLES));
+    .single());
 
   if (error) {
     if (faltaTabla(error)) return { mensaje: null, error: AVISO_MIGRACION_006 };
@@ -208,19 +330,29 @@ export async function enviarMensajeDirecto({ texto, uid, autor, receptorId }) {
  * Realtime de los directos: entrega solo los mensajes de la conversación con
  * `otroId`. Devuelve la función de limpieza.
  */
-export function suscribirDirectos(uid, otroId, alMensaje) {
+export function suscribirDirectos(uid, otroId, alMensaje, { alEditar, alBorrar } = {}) {
+  const dePareja = (fila) =>
+    (String(fila?.usuario_id) === String(uid) && String(fila?.receptor_id) === String(otroId)) ||
+    (String(fila?.usuario_id) === String(otroId) && String(fila?.receptor_id) === String(uid));
+
   const canal = supabase
     .channel(`chat-directo-${uid}-${otroId}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_DIRECTO}` },
+      (payload) => { if (dePareja(payload.new)) alMensaje(normalizarMensaje(payload.new, uid)); }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_DIRECTO}` },
       (payload) => {
-        const fila = payload.new || {};
-        const dePareja =
-          (String(fila.usuario_id) === String(uid) && String(fila.receptor_id) === String(otroId)) ||
-          (String(fila.usuario_id) === String(otroId) && String(fila.receptor_id) === String(uid));
-        if (dePareja) alMensaje(normalizarMensaje(fila, uid));
+        if (alEditar && dePareja(payload.new)) alEditar(normalizarMensaje(payload.new, uid));
       }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: TABLA },
+      (payload) => { if (alBorrar && payload.old?.id) alBorrar(payload.old.id); }
     )
     .subscribe();
 

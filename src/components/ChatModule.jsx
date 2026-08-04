@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  AlertTriangle, ChevronLeft, Lock, MessageSquare, Paperclip, Send, User, Users
+  AlertTriangle, Check, ChevronLeft, Lock, MessageSquare, Paperclip, Pencil, Send,
+  Trash2, User, Users, X
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useChat } from '../context/ChatContext';
 import { getUsuarios } from '../services/inversionesService';
 import {
-  listarMensajesDirectos, enviarMensajeDirecto, suscribirDirectos
+  listarMensajesDirectos, enviarMensajeDirecto, suscribirDirectos,
+  editarMensaje, eliminarMensaje
 } from '../services/chatService';
 
 /**
@@ -19,11 +21,12 @@ import {
  * muestran exactamente lo mismo, al instante.
  */
 
-export default function ChatModule({ onBack }) {
+export default function ChatModule({ onBack, isEditMode }) {
   const { t } = usePrefs();
   const {
     mensajes, enviarMensaje, marcarLeido, cargando, error, tieneAcceso, miembros,
-    uid, nombreAutor, avatarDe
+    uid, nombreAutor, avatarDe, esAdmin,
+    editarMensajePropio, eliminarMensajePropio, limpiarHistorial
   } = useChat();
 
   const [pestana, setPestana] = useState('general');   // 'general' | 'directos'
@@ -35,10 +38,21 @@ export default function ChatModule({ onBack }) {
 
   const [borrador, setBorrador] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // Edición y borrado del mensaje propio + limpieza global (Administrador)
+  const [editandoId, setEditandoId] = useState(null);
+  const [borradorEdicion, setBorradorEdicion] = useState('');
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  const [confirmarLimpieza, setConfirmarLimpieza] = useState(false);
+  const [limpiando, setLimpiando] = useState(false);
   const finRef = useRef(null);
   const composerRef = useRef(null);
 
   const enDirectos = pestana === 'directos';
+
+  /* Vaciar el canal entero pide DOS llaves: ser Administrador y tener el Modo
+     Edición encendido. Borrar el historial de todos los socios no puede estar
+     a un clic de distancia mientras se lee el chat con normalidad. */
+  const puedeLimpiarHistorial = esAdmin && tieneAcceso && !!isEditMode;
   const conversacion = enDirectos ? directos : mensajes;
   const cargandoConv = enDirectos ? cargandoDirectos : cargando;
   const errorConv = enDirectos ? errorDirectos : error;
@@ -135,6 +149,66 @@ export default function ChatModule({ onBack }) {
       // El textarea crece con el texto: al vaciarlo vuelve a una sola línea
       if (composerRef.current) composerRef.current.style.height = 'auto';
     }
+  };
+
+  /* ── Edición y borrado del mensaje PROPIO ─────────────────────────────────
+     Cada quien manda sobre lo suyo y solo sobre lo suyo: la burbuja ajena no
+     ofrece los controles y, aunque alguien forzara la llamada, la RLS de
+     Supabase (migración 010) rechaza tocar un mensaje de otro. */
+
+  const iniciarEdicion = (m) => {
+    if (!m?.propio) return;
+    setEditandoId(m.id);
+    setBorradorEdicion(m.texto || '');
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoId(null);
+    setBorradorEdicion('');
+  };
+
+  const guardarEdicion = async (e) => {
+    e?.preventDefault();
+    const texto = borradorEdicion.trim();
+    if (!texto || guardandoEdicion || !editandoId) return;
+
+    setGuardandoEdicion(true);
+    if (enDirectos) {
+      const { mensaje, error: err } = await editarMensaje({ id: editandoId, texto, uid });
+      if (err) setErrorDirectos(err);
+      if (mensaje) {
+        setErrorDirectos(null);
+        setDirectos(prev => prev.map(m => (m.id === mensaje.id ? mensaje : m)));
+        cancelarEdicion();
+      }
+    } else if (await editarMensajePropio(editandoId, texto)) {
+      cancelarEdicion();
+    }
+    setGuardandoEdicion(false);
+  };
+
+  const borrarMensaje = async (m) => {
+    if (!m?.propio) return;
+    if (!confirm(t('chat.confirmarEliminarMensaje'))) return;
+
+    if (enDirectos) {
+      const { success, error: err } = await eliminarMensaje({ id: m.id, uid });
+      if (!success) { setErrorDirectos(err); return; }
+      setErrorDirectos(null);
+      setDirectos(prev => prev.filter(x => String(x.id) !== String(m.id)));
+    } else {
+      await eliminarMensajePropio(m.id);
+    }
+    if (String(editandoId) === String(m.id)) cancelarEdicion();
+  };
+
+  /** Vacía el canal General entero. Irreversible y solo del Administrador. */
+  const handleLimpiarHistorial = async () => {
+    if (!puedeLimpiarHistorial) return;
+    setLimpiando(true);
+    const ok = await limpiarHistorial();
+    setLimpiando(false);
+    if (ok) setConfirmarLimpieza(false);
   };
 
   /* Pestañas General / Directos: las mismas dos en escritorio y en móvil. */
@@ -276,9 +350,26 @@ export default function ChatModule({ onBack }) {
               </span>
             </div>
             {!enDirectos && (
-              <span className="text-[11px] text-slate-400 dark:text-zinc-300 font-semibold flex items-center gap-1.5 flex-shrink-0">
-                <Users size={12} /> {miembros} {t('chat.miembros')}
-              </span>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <span className="text-[11px] text-slate-400 dark:text-zinc-300 font-semibold flex items-center gap-1.5">
+                  <Users size={12} /> {miembros} {t('chat.miembros')}
+                </span>
+                {/* Vaciar el historial es EXCLUSIVO del Administrador y solo
+                    en Modo Edición: para cualquier otro rol el botón ni
+                    siquiera existe, y la RLS de Supabase lo vuelve a impedir
+                    en la base. */}
+                {puedeLimpiarHistorial && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarLimpieza(true)}
+                    title={t('chat.limpiarHistorial')}
+                    className="flex items-center gap-1.5 text-[11px] font-bold text-red-600 dark:text-red-300 border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-2.5 py-1.5 rounded-xl hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                  >
+                    <Trash2 size={12} />
+                    <span className="hidden sm:inline">{t('chat.limpiarHistorial')}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -309,40 +400,109 @@ export default function ChatModule({ onBack }) {
                       {enDirectos ? t('chat.sinMensajesDirectos') : t('chat.sinMensajes')}
                     </p>
                   </div>
-                ) : conversacion.map(m => (
-                  <div key={m.id} className={`flex items-end gap-2 ${m.propio ? 'justify-end' : 'justify-start'}`}>
-                    {/* Avatar del autor: grande y legible en la vista principal
-                        del Chat (el recuadro del Dashboard conserva el suyo). */}
-                    {!m.propio && (
-                      <Avatar
-                        url={m.avatarUrl || avatarDe(m.usuarioId)}
-                        nombre={m.autor}
-                        className="w-11 h-11 mb-1"
-                        tamanoTexto="text-[15px]"
-                      />
-                    )}
-                    <div className={`max-w-[78%] px-4 py-2.5 shadow-sm ${
-                      m.propio
-                        ? 'bg-[#0B1B2C] text-white rounded-[20px] rounded-br-md'
-                        : 'bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-slate-800 dark:text-zinc-100 rounded-[20px] rounded-bl-md'
-                    }`}>
+                ) : conversacion.map(m => {
+                  const enEdicion = String(editandoId) === String(m.id);
+
+                  return (
+                    <div key={m.id} className={`group flex items-end gap-2 ${m.propio ? 'justify-end' : 'justify-start'}`}>
+                      {/* Avatar del autor: grande y legible en la vista principal
+                          del Chat (el recuadro del Dashboard conserva el suyo). */}
                       {!m.propio && (
-                        <p className="text-[12px] font-bold text-[#C5A059] mb-0.5">{m.autor}</p>
+                        <Avatar
+                          url={m.avatarUrl || avatarDe(m.usuarioId)}
+                          nombre={m.autor}
+                          className="w-11 h-11 mb-1"
+                          tamanoTexto="text-[15px]"
+                        />
                       )}
-                      <p className="text-[15px] leading-[1.45] break-words">{m.texto}</p>
-                      <p className={`text-[11px] mt-1 ${m.propio ? 'text-white/50' : 'text-slate-400 dark:text-zinc-300'}`}>
-                        {m.hora}
-                      </p>
+
+                      {/* Lápiz y basurero: SOLO en las burbujas propias. Discretos
+                          (aparecen al pasar el cursor) pero siempre visibles en
+                          táctil, donde no existe el hover. */}
+                      {m.propio && !enEdicion && (
+                        <div className="flex items-center gap-1 mb-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => iniciarEdicion(m)}
+                            title={t('chat.editarMensaje')}
+                            aria-label={t('chat.editarMensaje')}
+                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-[#C5A059] hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => borrarMensaje(m)}
+                            title={t('chat.eliminarMensaje')}
+                            aria-label={t('chat.eliminarMensaje')}
+                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors active:scale-90"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
+
+                      <div className={`max-w-[78%] px-4 py-2.5 shadow-sm ${
+                        m.propio
+                          ? 'bg-[#0B1B2C] text-white rounded-[20px] rounded-br-md'
+                          : 'bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-slate-800 dark:text-zinc-100 rounded-[20px] rounded-bl-md'
+                      }`}>
+                        {!m.propio && (
+                          <p className="text-[12px] font-bold text-[#C5A059] mb-0.5">{m.autor}</p>
+                        )}
+
+                        {enEdicion ? (
+                          /* La corrección se escribe en la burbuja misma: se ve
+                             exactamente dónde va a quedar el texto. */
+                          <form onSubmit={guardarEdicion} className="flex flex-col gap-2 min-w-[200px]">
+                            <textarea
+                              autoFocus
+                              rows={2}
+                              value={borradorEdicion}
+                              onChange={(e) => setBorradorEdicion(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Escape') cancelarEdicion(); }}
+                              className="w-full resize-none bg-white/10 border border-white/25 rounded-xl px-3 py-2 text-[15px] leading-snug text-white placeholder-white/40 focus:outline-none focus:border-[#C5A059]"
+                            />
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={cancelarEdicion}
+                                title={t('comun.cancelar')}
+                                className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                              >
+                                <X size={15} />
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={!borradorEdicion.trim() || guardandoEdicion}
+                                title={t('comun.guardar')}
+                                className="p-1.5 rounded-full text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] transition-colors disabled:opacity-40"
+                              >
+                                <Check size={15} />
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <p className="text-[15px] leading-[1.45] break-words whitespace-pre-wrap">{m.texto}</p>
+                        )}
+
+                        <p className={`text-[11px] mt-1 ${m.propio ? 'text-white/50' : 'text-slate-400 dark:text-zinc-300'}`}>
+                          {m.hora}
+                          {m.editadoEn && <span className="ml-1.5 italic">{t('chat.editado')}</span>}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={finRef} />
               </div>
 
               {errorConv && (
                 <div className="mx-4 mb-2 flex items-start gap-2 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-3 py-2 flex-shrink-0">
                   <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-[12px] text-red-600 dark:text-red-300 leading-relaxed">{errorConv}</p>
+                  {/* `break-words` es imprescindible: los avisos nombran rutas
+                      de migración largas y sin espacios, que si no desbordan. */}
+                  <p className="min-w-0 text-[12px] text-red-600 dark:text-red-300 leading-relaxed break-words">{errorConv}</p>
                 </div>
               )}
 
@@ -394,6 +554,51 @@ export default function ChatModule({ onBack }) {
           )}
         </section>
       </div>
+
+      {/* ════ CONFIRMACIÓN DE LIMPIEZA DEL HISTORIAL (SOLO ADMINISTRADOR) ════
+          Borrar el canal entero no tiene vuelta atrás, así que nunca ocurre de
+          un solo clic: se explica qué se borra y qué NO se toca. */}
+      {confirmarLimpieza && puedeLimpiarHistorial && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-10 h-10 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={18} className="text-red-500" />
+              </span>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {t('chat.limpiarHistorial')}
+              </h3>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-zinc-300">
+              {t('chat.limpiarAviso', { canal: t('chat.canalSocios') })}
+            </p>
+            <p className="text-[12px] leading-relaxed text-slate-400 dark:text-zinc-400 mt-2">
+              {t('chat.limpiarDirectosIntactos')}
+            </p>
+
+            <div className="pt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarLimpieza(false)}
+                disabled={limpiando}
+                className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-50"
+              >
+                {t('comun.cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={handleLimpiarHistorial}
+                disabled={limpiando}
+                className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm disabled:opacity-60"
+              >
+                <Trash2 size={13} />
+                {limpiando ? t('comun.cargando') : t('chat.limpiarConfirmar')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
