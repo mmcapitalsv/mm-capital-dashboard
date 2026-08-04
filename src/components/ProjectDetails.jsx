@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ArrowLeft, CheckSquare, Square, Upload, Image, TrendingUp, FileText, LayoutGrid,
+  ArrowLeft, CheckSquare, Square, Circle, Upload, Image, TrendingUp, FileText, LayoutGrid,
   ChevronDown, ChevronUp, Edit2, Save, Plus, Trash2, AlertTriangle, Loader2, CheckCircle2,
-  ExternalLink, Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert, Building
+  ExternalLink, Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert, Building,
+  Sparkles, FileImage, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
-  uploadArchivoProyecto, getArchivosProyecto, renombrarArchivo, eliminarArchivo
+  uploadArchivoProyecto, getArchivosProyecto, renombrarArchivo, eliminarArchivo,
+  subirComprobanteFactura, validarComprobante, descargarArchivo
 } from '../services/storageService';
 import { supabase } from '../supabaseClient';
 import {
-  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero
+  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero,
+  getFacturas, crearFactura, actualizarFactura, eliminarFactura,
+  esComprobanteArchivo, esComprobantePdf, nombreArchivoFactura,
+  sumarGastos, ejecucionMensualReal
 } from '../services/finanzasService';
 import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
@@ -20,6 +25,8 @@ import {
   fetchChecklist, saveChecklist, deleteHito, updateHito, calcularAvance
 } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
+import { puedeEditarHitos } from '../lib/perfilUsuario';
+import { analizarComprobante } from '../services/geminiService';
 
 // Se guarda la CLAVE de traducción, no el texto: la etiqueta se resuelve en
 // cada render para que el cambio de idioma se refleje al instante.
@@ -30,133 +37,33 @@ const TABS = [
   { id: 'gallery',   claveLabel: 'proy.tab.galeria',  icon: LayoutGrid },
 ];
 
-const PROJECT_DATA = {
-  '1': {
-    budget: 1480000,
-    advancePayment: 148000,
-    spent: 527000,
-    monthlyData: [
-      { name: 'Ene', value: 45000 }, { name: 'Feb', value: 82000 }, { name: 'Mar', value: 120000 },
-      { name: 'Abr', value: 95000 }, { name: 'May', value: 110000 }, { name: 'Jun', value: 75000 }
-    ],
-    documents: ['Contrato_Constructor_SanMartin.pdf', 'Planos_Arquitectonicos_SanMartin.pdf', 'Permiso_Municipal_SanMartin.pdf'],
-    galleryAlbums: [
-      {
-        id: 101,
-        title: 'Rehabilitación y Obra Gris',
-        date: 'Julio 2025',
-        photoCount: 6,
-        cover: 'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=600&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
-        ]
-      },
-      {
-        id: 102,
-        title: 'Acabados y Fachada Principal',
-        date: 'Junio 2025',
-        photoCount: 4,
-        cover: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=600&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80'
-        ]
-      }
-    ],
-  },
-  '2': {
-    budget: 850000,
-    advancePayment: 85000,
-    spent: 590000,
-    monthlyData: [
-      { name: 'Mar', value: 85000 }, { name: 'Abr', value: 120000 }, { name: 'May', value: 165000 }, { name: 'Jun', value: 220000 }
-    ],
-    documents: ['Escritura_Terreno_Chalchuapa.pdf', 'Permiso_Alcaldia_Chalchuapa.pdf', 'Planos_Estructurales_v2.pdf'],
-    galleryAlbums: [
-      {
-        id: 201,
-        title: 'Levantamiento Topográfico y Terracería',
-        date: 'Mayo 2025',
-        photoCount: 5,
-        cover: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=600&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=800&q=80'
-        ]
-      },
-      {
-        id: 202,
-        title: 'Primera Piedra y Cimentación',
-        date: 'Junio 2025',
-        photoCount: 4,
-        cover: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=600&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
-        ]
-      }
-    ],
-  },
-  '3': {
-    budget: 100000,
-    advancePayment: 5000,
-    spent: 55000,
-    monthlyData: [
-      { name: 'Ene', value: 200000 }, { name: 'Feb', value: 350000 }, { name: 'Mar', value: 400000 }, { name: 'Abr', value: 330000 }
-    ],
-    documents: ['Escritura_Terreno_Opico.pdf', 'Permiso_Ambiental_MARN.pdf'],
-    galleryAlbums: [
-      {
-        id: 301,
-        title: 'Estudio de Suelos y Terracería',
-        date: 'Junio 2025',
-        photoCount: 4,
-        cover: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=600&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1541888081-37d4251752b5?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
-          'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=800&q=80'
-        ]
-      }
-    ],
-  }
-};
-
 /**
  * Tarjeta de monto financiero. En modo lectura muestra la cifra formateada;
  * en modo edición se convierte en un input controlado.
  */
-function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor }) {
+function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, resaltado }) {
   return (
     <div className={`border shadow-sm rounded-2xl p-5 transition-colors ${
       editando
         ? 'bg-amber-50/40 dark:bg-amber-500/5 border-[#C5A059]/50'
+        : resaltado
+        ? 'bg-red-50/50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
         : 'bg-white dark:bg-zinc-800 border-gray-100 dark:border-zinc-700'
     }`}>
-      <p className="text-xs text-slate-400 dark:text-zinc-400 uppercase font-bold tracking-wider mb-2">{etiqueta}</p>
+      <p className="text-xs text-slate-400 dark:text-zinc-200 uppercase font-bold tracking-wider mb-2">{etiqueta}</p>
 
       {editando ? (
         <div className="flex items-center gap-1">
           <span className={`text-2xl md:text-3xl font-black ${colorValor}`}>$</span>
           <input
-            type="text"
+            type="number"
+            step="0.01"
+            min="0"
             inputMode="decimal"
             value={valor}
             onChange={(e) => onChange(e.target.value)}
             onFocus={(e) => e.target.select()}
+            onWheel={(e) => e.currentTarget.blur()}
             className={`w-full min-w-0 bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-2xl md:text-3xl font-black ${colorValor}`}
           />
         </div>
@@ -166,7 +73,7 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor }) 
         </p>
       )}
 
-      <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1 font-semibold">{pie}</p>
+      <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-semibold">{pie}</p>
     </div>
   );
 }
@@ -182,18 +89,29 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(null);
 
-  // Invoices & Facturas state
-  const [facturas, setFacturas] = useState([
-    { id: 1, proveedor: 'BOMEL S.A. de C.V.', concepto: 'Subestructura y Cimentación', monto: 42500, comprobante: 'Factura Crédito Fiscal #F-9482', fecha: '2025-07-12' },
-    { id: 2, proveedor: 'Constructora El Salvador', concepto: 'Obra Gris Etapa 1', monto: 38000, comprobante: 'Factura #4029', fecha: '2025-06-28' },
-    { id: 3, proveedor: 'Distribuidora Ferretera', concepto: 'Cemento y Varillas de Hierro 1/2"', monto: 17500, comprobante: 'Factura #1092', fecha: '2025-06-15' }
-  ]);
+  // Facturas de proveedores: filas REALES de la tabla `gastos` de Supabase
+  const [facturas, setFacturas] = useState([]);
+  const [facturasMsg, setFacturasMsg] = useState(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [newInvoice, setNewInvoice] = useState({ proveedor: '', concepto: '', monto: '', comprobante: '' });
+  const [newInvoice, setNewInvoice] = useState({ proveedor: '', concepto: '', monto: '' });
+  // Comprobante adjunto: archivo elegido + previsualización local antes de subir
+  const [comprobanteFile, setComprobanteFile] = useState(null);
+  const [comprobantePreview, setComprobantePreview] = useState(null);
+  const [arrastrandoComprobante, setArrastrandoComprobante] = useState(false);
+  const [extrayendoIA, setExtrayendoIA] = useState(false);
+  const [guardandoFactura, setGuardandoFactura] = useState(false);
+  const [facturaEnVisor, setFacturaEnVisor] = useState(null);
+  // Edición y borrado de una factura ya registrada (solo en Modo Edición)
+  const [facturaEditando, setFacturaEditando] = useState(null);
+  const [edicionFactura, setEdicionFactura] = useState({ proveedor: '', concepto: '', monto: '' });
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  const [facturaEliminando, setFacturaEliminando] = useState(null);
+  const [visorAmpliado, setVisorAmpliado] = useState(false);
+  const [descargandoVisor, setDescargandoVisor] = useState(false);
+  const comprobanteInputRef = useRef(null);
 
-  // Gallery Albums & Modals state
-  const data = PROJECT_DATA[project.id] || PROJECT_DATA['1'];
-  const [albums, setAlbums] = useState(data.galleryAlbums || []);
+  // Gallery Albums & Modals state (los álbumes REALES llegan de Supabase)
+  const [albums, setAlbums] = useState([]);
   const [activeAlbumModal, setActiveAlbumModal] = useState(null);
   const [selectedPhotoLightbox, setSelectedPhotoLightbox] = useState(null);
   const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
@@ -208,6 +126,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   // Checklist State & Admin Controls
   const isAdmin = ['admin', 'socio_administrador'].includes(userRole);
+  // Los checks de avance son EXCLUSIVOS del administrador: socios e
+  // inversionistas ven el estado real pero no pueden modificarlo.
+  const puedeEditarChecklist = puedeEditarHitos(userRole);
   const [checklist, setChecklist] = useState([]);
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true);
   // true = lo que se ve son datos reales de Supabase; false = semilla aún sin guardar
@@ -238,10 +159,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const photoInputRef = useRef(null);
   const albumPhotoInputRef = useRef(null);
 
-  // Sync albums cuando cambia el proyecto
+  // Al cambiar de proyecto se vacía la galería hasta que Supabase responda:
+  // así nunca se ven los álbumes del proyecto anterior.
   useEffect(() => {
-    const currentData = PROJECT_DATA[project?.id] || PROJECT_DATA['1'];
-    setAlbums(currentData.galleryAlbums || []);
+    setAlbums([]);
   }, [project?.id]);
 
   /**
@@ -289,8 +210,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setSaveErrorMsg(null);
   };
 
-  // Marca / desmarca un checkbox (se persiste al presionar "Guardar Cambios")
+  // Marca / desmarca un checkbox (se persiste al presionar "Guardar Cambios").
+  // Blindaje: aunque alguien fuerce el clic, sin rol admin no se toca el estado.
   const handleToggleHito = (index) => {
+    if (!puedeEditarChecklist) return;
     setChecklist(prev => (Array.isArray(prev) ? prev : []).map((item, i) =>
       i === index ? { ...item, done: !item.done } : item
     ));
@@ -300,6 +223,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   // Elimina el hito PERMANENTEMENTE de Supabase (icono de basurero)
   const handleDeleteHito = async (index) => {
+    if (!puedeEditarChecklist) return;
     const item = safeChecklist[index];
     if (!item) return;
     if (!confirm(t('dlg.eliminarHito', { titulo: item.text }))) return;
@@ -329,6 +253,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleStartEditHito = (index) => {
+    if (!puedeEditarChecklist) return;
     const item = safeChecklist[index];
     if (!item) return;
     setEditingHitoIndex(index);
@@ -340,6 +265,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   // Guarda la edición del hito PERMANENTEMENTE en Supabase (icono de lápiz)
   const handleSaveEditHito = async (e) => {
     e.preventDefault();
+    if (!puedeEditarChecklist) return;
     if (editingHitoIndex === null || !editHitoText.trim()) return;
 
     const actualizado = {
@@ -374,6 +300,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   // Agrega una tarea nueva (se persiste al presionar "Guardar Cambios")
   const handleAddHito = (e) => {
     e.preventDefault();
+    if (!puedeEditarChecklist) return;
     if (!newItemText.trim()) return;
     const newItem = {
       id: null,
@@ -410,11 +337,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   /**
-   * "Guardar Cambios": sincroniza TODO el checklist contra Supabase
-   * (INSERT de tareas nuevas, UPDATE de checkboxes/textos, DELETE de las quitadas)
-   * y guarda el porcentaje de avance en la tabla `proyectos`.
+   * "Guardar Cambios": sincroniza TODO contra Supabase en una sola pasada.
+   * · Checklist: INSERT de tareas nuevas, UPDATE de checkboxes/textos, DELETE
+   *   de las quitadas, y el porcentaje de avance en la tabla `proyectos`.
+   * · Finanzas: si el Administrador está en Modo Edición, se guardan además
+   *   presupuesto, anticipo, cuota, costo ejecutado y la ejecución mensual,
+   *   para que un único botón deje la base completamente al día.
    */
   const handleSaveAllChanges = async () => {
+    if (!puedeEditarChecklist) return;
     if (!project?.id) {
       setSaveErrorMsg(t('msg.idInvalido'));
       return;
@@ -435,6 +366,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       setChecklist(listaFinal);
       setChecklistPersistido(true);
       setHayCambiosSinGuardar(false);
+
+      // Las cifras y la identidad editadas viajan en el MISMO clic que el checklist
+      if (modoEdicionFinanzas) {
+        const fin = await guardarFinanzas(project.id, { ...finanzas, ...identidad });
+        if (!fin.success) {
+          setSaveErrorMsg(t('msg.errorGuardarCambios', { error: fin.error || t('msg.errorDesconocido') }));
+          return;
+        }
+        aplicarIdentidadGuardada(fin.valores);
+        if (project) {
+          project.presupuesto_total = fin.valores.presupuesto_total;
+          project.anticipo = fin.valores.anticipo;
+          project.cuota_asignada = fin.valores.cuota_asignada;
+          project.costo_ejecutado = fin.valores.costo_ejecutado;
+          project.ejecucion_mensual = fin.valores.ejecucion_mensual;
+        }
+      }
 
       await sincronizarProyecto(porcentaje, listaFinal);
 
@@ -544,21 +492,228 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setTimeout(() => setUploadMessage(null), 5000);
   };
 
-  const handleCreateInvoice = (e) => {
-    e.preventDefault();
-    if (!newInvoice.proveedor || !newInvoice.monto) return;
-    const item = {
-      id: Date.now(),
-      proveedor: newInvoice.proveedor,
-      concepto: newInvoice.concepto || 'Gasto registrado',
-      monto: Number(newInvoice.monto) || 0,
-      comprobante: newInvoice.comprobante || t('fb.comprobantePago'),
-      fecha: new Date().toISOString().split('T')[0]
-    };
-    setFacturas([item, ...facturas]);
-    setNewInvoice({ proveedor: '', concepto: '', monto: '', comprobante: '' });
+  /** Carga las facturas reales del proyecto desde `gastos`. */
+  const cargarFacturas = async () => {
+    if (!project?.id) { setFacturas([]); return; }
+    const { facturas: lista, error } = await getFacturas(project.id);
+    setFacturas(Array.isArray(lista) ? lista : []);
+    setFacturasMsg(error ? { tipo: 'error', texto: error } : null);
+  };
+
+  useEffect(() => {
+    cargarFacturas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  // Realtime: una factura nueva aparece sola en todas las sesiones abiertas
+  useEffect(() => {
+    if (!project?.id) return;
+    const canal = supabase
+      .channel(`gastos-proyecto-${project.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' }, cargarFacturas)
+      .subscribe();
+    return () => { supabase.removeChannel(canal); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  /* ── Modal de registro de factura ──────────────────────────────────────── */
+
+  /** Deja el modal como recién abierto y libera la URL de previsualización. */
+  const limpiarFormularioFactura = () => {
+    setComprobantePreview((previa) => {
+      if (previa) URL.revokeObjectURL(previa);
+      return null;
+    });
+    setNewInvoice({ proveedor: '', concepto: '', monto: '' });
+    setComprobanteFile(null);
+    setArrastrandoComprobante(false);
+    setExtrayendoIA(false);
+    setGuardandoFactura(false);
+  };
+
+  const cerrarModalFactura = () => {
+    limpiarFormularioFactura();
     setShowInvoiceModal(false);
   };
+
+
+  /** Acepta el archivo del input o del drag & drop y prepara su vista previa. */
+  const adjuntarComprobante = (file) => {
+    if (!file) return;
+
+    const invalido = validarComprobante(file);
+    if (invalido) {
+      setFacturasMsg({ tipo: 'error', texto: invalido });
+      return;
+    }
+
+    setComprobantePreview((previa) => {
+      if (previa) URL.revokeObjectURL(previa);
+      return file.type === 'application/pdf' ? null : URL.createObjectURL(file);
+    });
+    setComprobanteFile(file);
+    setFacturasMsg(null);
+  };
+
+  /** Quita el comprobante adjunto sin tocar el resto del formulario. */
+  const limpiarComprobanteAdjunto = () => {
+    setComprobantePreview((previa) => {
+      if (previa) URL.revokeObjectURL(previa);
+      return null;
+    });
+    setComprobanteFile(null);
+  };
+
+  const handleSoltarComprobante = (e) => {
+    e.preventDefault();
+    setArrastrandoComprobante(false);
+    adjuntarComprobante(e.dataTransfer?.files?.[0]);
+  };
+
+  /**
+   * Extracción REAL: el comprobante adjunto viaja en Base64 a `gemini-1.5-flash`,
+   * que devuelve un JSON estricto {proveedor, concepto, monto} con el que se
+   * rellenan los inputs. Los campos siguen siendo editables a mano.
+   */
+  const handleExtraerConIA = async () => {
+    if (extrayendoIA) return;
+
+    if (!comprobanteFile) {
+      setFacturasMsg({ tipo: 'error', texto: t('modal.iaSinArchivo') });
+      return;
+    }
+
+    setExtrayendoIA(true);
+    setFacturasMsg(null);
+
+    const { datos, error } = await analizarComprobante(comprobanteFile);
+    setExtrayendoIA(false);
+
+    if (error || !datos) {
+      setFacturasMsg({ tipo: 'error', texto: error || t('msg.errorSupabase') });
+      return;
+    }
+
+    // Un campo vacío en la lectura no borra lo que el usuario ya había escrito
+    setNewInvoice(previo => ({
+      proveedor: datos.proveedor || previo.proveedor,
+      concepto: datos.concepto || previo.concepto,
+      monto: datos.monto || previo.monto
+    }));
+  };
+
+  const handleCreateInvoice = async (e) => {
+    e.preventDefault();
+    if (!newInvoice.proveedor || !newInvoice.monto || guardandoFactura) return;
+
+    setGuardandoFactura(true);
+
+    // 1. El comprobante viaja primero: sin URL la factura quedaría sin respaldo
+    let urlComprobante = '';
+    if (comprobanteFile) {
+      const subida = await subirComprobanteFactura(comprobanteFile, project?.id);
+      if (!subida.success) {
+        setFacturasMsg({ tipo: 'error', texto: subida.error });
+        setGuardandoFactura(false);
+        return;
+      }
+      urlComprobante = subida.url;
+    }
+
+    // 2. Fila en `gastos` con la URL pública en `comprobante`
+    const { success, error } = await crearFactura(project?.id, {
+      proveedor: newInvoice.proveedor,
+      concepto: newInvoice.concepto || t('fb.comprobantePago'),
+      monto: newInvoice.monto,
+      comprobante: urlComprobante
+    });
+
+    if (!success) {
+      setFacturasMsg({ tipo: 'error', texto: error });
+      setGuardandoFactura(false);
+      return;
+    }
+
+    cerrarModalFactura();
+    setFacturasMsg(null);
+    await cargarFacturas();
+  };
+
+  /* ── Edición y borrado de facturas ya registradas ──────────────────────── */
+
+  /** Abre el modal de edición con los datos actuales de la fila. */
+  const abrirEdicionFactura = (fac) => {
+    setFacturaEditando(fac);
+    setEdicionFactura({
+      proveedor: fac.proveedor || '',
+      concepto: fac.concepto || '',
+      monto: fac.monto ? String(fac.monto) : ''
+    });
+    setFacturasMsg(null);
+  };
+
+  const cerrarEdicionFactura = () => {
+    setFacturaEditando(null);
+    setGuardandoEdicion(false);
+  };
+
+  const handleActualizarFactura = async (e) => {
+    e.preventDefault();
+    if (!facturaEditando || guardandoEdicion) return;
+
+    setGuardandoEdicion(true);
+    const { success, error } = await actualizarFactura(facturaEditando.id, edicionFactura);
+
+    if (!success) {
+      setFacturasMsg({ tipo: 'error', texto: error });
+      setGuardandoEdicion(false);
+      return;
+    }
+
+    cerrarEdicionFactura();
+    setFacturasMsg(null);
+    await cargarFacturas();
+  };
+
+  const handleEliminarFactura = async (fac) => {
+    if (facturaEliminando) return;
+    if (!confirm(t('dlg.eliminarFactura', { proveedor: fac.proveedor }))) return;
+
+    setFacturaEliminando(fac.id);
+    const { success, error } = await eliminarFactura(fac.id);
+    setFacturaEliminando(null);
+
+    if (!success) {
+      setFacturasMsg({ tipo: 'error', texto: error });
+      return;
+    }
+
+    // El visor no puede quedar mostrando un comprobante que ya no existe
+    setFacturaEnVisor((previa) => (previa?.id === fac.id ? null : previa));
+    setFacturasMsg(null);
+    await cargarFacturas();
+  };
+
+  /** Descarga el comprobante abierto en el visor. */
+  const handleDescargarComprobante = async () => {
+    if (!facturaEnVisor?.comprobante || descargandoVisor) return;
+    setDescargandoVisor(true);
+    await descargarArchivo(facturaEnVisor.comprobante, nombreArchivoFactura(facturaEnVisor));
+    setDescargandoVisor(false);
+  };
+
+  // Escape cierra el visor y el scroll del fondo se congela mientras está abierto
+  useEffect(() => {
+    if (!facturaEnVisor) return;
+    const alPulsar = (e) => { if (e.key === 'Escape') setFacturaEnVisor(null); };
+    window.addEventListener('keydown', alPulsar);
+    const overflowPrevio = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', alPulsar);
+      document.body.style.overflow = overflowPrevio;
+    };
+  }, [facturaEnVisor]);
 
   /* ── Galería contra Supabase ───────────────────────────────────────────── */
 
@@ -702,27 +857,82 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   /* ── Finanzas editables ──────────────────────────────────────────────────
      `finanzas` es la fuente de verdad de la pestaña: se inicializa con lo que
-     trae Supabase y se actualiza en vivo mientras el administrador escribe,
-     así la gráfica y la alerta de sobrecosto reaccionan al instante. */
-  const [finanzas, setFinanzas] = useState({
-    presupuesto: Number(project?.presupuesto_total ?? data.budget ?? 0),
-    anticipo: Number(project?.anticipo ?? data.advancePayment ?? 0),
+     trae Supabase (jamás con cifras de demostración) y se actualiza en vivo
+     mientras el administrador escribe, así la gráfica y la alerta de
+     sobrecosto reaccionan al instante.
+
+     Costo ejecutado: NO se edita a mano. Es la suma real de la tabla `gastos`
+     filtrada por `proyecto_id`, de modo que cada factura registrada mueve la
+     cifra al instante (ver `totalSpent`). */
+  const finanzasDesdeProyecto = () => ({
+    presupuesto: Number(project?.presupuesto_total ?? 0),
+    anticipo: Number(project?.anticipo ?? 0),
     cuota: Number(project?.cuota_asignada ?? 0)
   });
+
+  /* Identidad editable del proyecto (título y ubicación del header).
+     Se guarda en las columnas `nombre` y `ubicacion` de la tabla `proyectos`,
+     en el mismo UPDATE que las cifras financieras. */
+  const identidadDesdeProyecto = () => ({
+    nombre: project?.nombre || project?.title || '',
+    ubicacion: project?.ubicacion || project?.location || ''
+  });
+
+  const [identidad, setIdentidad] = useState(identidadDesdeProyecto);
+
+  const [finanzas, setFinanzas] = useState(finanzasDesdeProyecto);
   const [editandoFinanzas, setEditandoFinanzas] = useState(false);
   const [guardandoFinanzas, setGuardandoFinanzas] = useState(false);
   const [finanzasMsg, setFinanzasMsg] = useState(null);
 
+  /* En "Modo Edición" TODOS los campos financieros son inputs, sin tener que
+     pulsar además "Editar cifras": basta con que el Administrador active el
+     modo desde el header. El botón local sigue existiendo para editar sin
+     encender el modo global. */
+  const modoEdicionFinanzas = editandoFinanzas || (isAdmin && !!isEditMode);
+
+  /* Editar o eliminar una factura ya registrada es exclusivo del Administrador
+     con el Modo Edición encendido: en lectura la lista es intocable. */
+  const puedeEditarFacturas = isAdmin && modoEdicionFinanzas;
+
   // Re-sincroniza si cambia el proyecto o llegan datos nuevos por Realtime
   useEffect(() => {
-    if (editandoFinanzas) return;   // no pisar lo que se está escribiendo
-    setFinanzas({
-      presupuesto: Number(project?.presupuesto_total ?? data.budget ?? 0),
-      anticipo: Number(project?.anticipo ?? data.advancePayment ?? 0),
-      cuota: Number(project?.cuota_asignada ?? 0)
-    });
+    if (modoEdicionFinanzas) return;   // no pisar lo que se está escribiendo
+    setFinanzas(finanzasDesdeProyecto());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, project?.presupuesto_total, project?.anticipo, project?.cuota_asignada]);
+  }, [
+    project?.id, project?.presupuesto_total, project?.anticipo,
+    project?.cuota_asignada
+  ]);
+
+  // Lo mismo para el título y la ubicación del header
+  useEffect(() => {
+    if (modoEdicionFinanzas) return;
+    setIdentidad(identidadDesdeProyecto());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, project?.nombre, project?.title, project?.ubicacion, project?.location]);
+
+  const handleCampoIdentidad = (campo, valor) => {
+    setIdentidad(prev => ({ ...prev, [campo]: valor }));
+    setFinanzasMsg(null);
+  };
+
+  /** Refleja en memoria el nombre/ubicación que devolvió Supabase. */
+  const aplicarIdentidadGuardada = (valores) => {
+    if (!project || !valores) return;
+    if (valores.nombre !== undefined) {
+      project.nombre = valores.nombre;
+      project.title = valores.nombre;
+    }
+    if (valores.ubicacion !== undefined) {
+      project.ubicacion = valores.ubicacion;
+      project.location = valores.ubicacion;
+    }
+    setIdentidad({
+      nombre: valores.nombre ?? identidad.nombre,
+      ubicacion: valores.ubicacion ?? identidad.ubicacion
+    });
+  };
 
   const handleCampoFinanzas = (campo, valor) => {
     setFinanzas(prev => ({ ...prev, [campo]: aNumero(valor) }));
@@ -733,16 +943,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setGuardandoFinanzas(true);
     setFinanzasMsg(null);
 
-    const { success, valores, error } = await guardarFinanzas(project?.id, finanzas);
+    const { success, valores, error } = await guardarFinanzas(project?.id, { ...finanzas, ...identidad });
 
     setGuardandoFinanzas(false);
 
     if (success) {
+      aplicarIdentidadGuardada(valores);
       if (project) {
         project.presupuesto_total = valores.presupuesto_total;
         project.anticipo = valores.anticipo;
         project.cuota_asignada = valores.cuota_asignada;
       }
+      // Lo guardado por Supabase es lo que se muestra: nada de valores locales
+      setFinanzas({
+        presupuesto: Number(valores.presupuesto_total || 0),
+        anticipo: Number(valores.anticipo || 0),
+        cuota: Number(valores.cuota_asignada || 0)
+      });
       setEditandoFinanzas(false);
       setFinanzasMsg({ tipo: 'exito', texto: t('fin.guardado') });
       if (typeof onUpdateProject === 'function') await onUpdateProject();
@@ -753,22 +970,29 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleCancelarFinanzas = () => {
-    setFinanzas({
-      presupuesto: Number(project?.presupuesto_total ?? data.budget ?? 0),
-      anticipo: Number(project?.anticipo ?? data.advancePayment ?? 0),
-      cuota: Number(project?.cuota_asignada ?? 0)
-    });
+    setFinanzas(finanzasDesdeProyecto());
+    setIdentidad(identidadDesdeProyecto());
     setEditandoFinanzas(false);
     setFinanzasMsg(null);
   };
 
   // Cálculos derivados: reaccionan a cada tecla mientras se edita
   const totalBudget = Number(finanzas.presupuesto) || 0;
-  const totalSpent = Number(project.totalGastado || data.spent || 0);
-  const advancePayment = Number(finanzas.anticipo) || 0;
-  const cuotaAsignada = Number(finanzas.cuota) || 0;
+  /* Costo ejecutado DINÁMICO: suma de `gastos.monto` del proyecto. `facturas`
+     se recarga tras cada alta/edición/borrado y por Realtime, así que la cifra
+     y la gráfica se mueven solas en cuanto se registra una factura. */
+  const totalSpent = sumarGastos(facturas);
+  const ejecucionMensual = ejecucionMensualReal(facturas, language);
   const isOverBudget = totalSpent > totalBudget;
   const overBudgetAmount = isOverBudget ? totalSpent - totalBudget : 0;
+
+  /* Estado del proyecto: NO es texto fijo, sale del % de hitos completados.
+     0% = Planificación · 1–99% = En progreso · 100% = Finalizado. */
+  const estadoAutomatico = safeChecklist.length === 0 || avancePct === 0
+    ? t('estado.planificacion')
+    : avancePct >= 100
+    ? t('estado.finalizado')
+    : t('estado.enProgreso');
 
   // Datos de la gráfica de facturas agrupados por mes
   const gastosPorMes = agruparGastosPorMes(facturas, language);
@@ -781,17 +1005,56 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         <div className="flex items-center gap-5">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-slate-400 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white text-base font-medium transition-colors rounded-xl px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 -ml-3"
+            className="flex items-center gap-2 text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white text-base font-medium transition-colors rounded-xl px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 -ml-3"
           >
             <ArrowLeft size={20} />
             {t('proy.volver')}
           </button>
           <div className="h-6 w-px bg-gray-200" />
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase flex items-center gap-2">
-              {project.title || project.nombre}
-            </h1>
-            <p className="text-xs md:text-sm text-slate-400 dark:text-zinc-400 mt-0.5 uppercase tracking-widest font-medium">{project.tag || project.ubicacion}</p>
+          <div className="min-w-0">
+            {/* En Modo Edición el título y la ubicación son inputs reales:
+                se persisten en `proyectos.nombre` y `proyectos.ubicacion`
+                con el mismo botón "Guardar Cambios". */}
+            {modoEdicionFinanzas ? (
+              <input
+                type="text"
+                value={identidad.nombre}
+                onChange={(e) => handleCampoIdentidad('nombre', e.target.value)}
+                placeholder={t('proy.nombreProyecto')}
+                aria-label={t('proy.nombreProyecto')}
+                className="w-full min-w-0 md:min-w-[26rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase"
+              />
+            ) : (
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase flex items-center gap-2">
+                {project.title || project.nombre}
+              </h1>
+            )}
+            {/* El estado ya NO es texto estático: se calcula con el avance
+                real de los hitos (0% Planificación · 1-99% En progreso · 100%
+                Finalizado). Junto a él se conserva la ubicación del proyecto. */}
+            <p className="text-xs md:text-sm text-slate-400 dark:text-zinc-200 mt-0.5 uppercase tracking-widest font-medium flex flex-wrap items-center gap-2">
+              <span className={`normal-case tracking-normal text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                avancePct >= 100 && safeChecklist.length > 0
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                  : avancePct > 0
+                  ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
+                  : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-600'
+              }`}>
+                {estadoAutomatico} · {avancePct}%
+              </span>
+              {modoEdicionFinanzas ? (
+                <input
+                  type="text"
+                  value={identidad.ubicacion}
+                  onChange={(e) => handleCampoIdentidad('ubicacion', e.target.value)}
+                  placeholder={t('proy.ubicacionProyecto')}
+                  aria-label={t('proy.ubicacionProyecto')}
+                  className="flex-1 min-w-0 md:min-w-[18rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xs md:text-sm text-slate-500 dark:text-zinc-300 uppercase tracking-widest font-medium"
+                />
+              ) : (
+                project.ubicacion || project.location
+              )}
+            </p>
           </div>
         </div>
       </header>
@@ -830,7 +1093,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               className={`flex-1 flex flex-col md:flex-row justify-center items-center gap-1.5 md:gap-2.5 py-4 text-xs md:text-base font-medium border-b-[3px] transition-all -mb-px ${
                 active
                   ? 'text-slate-900 dark:text-white border-slate-900 dark:border-[#C5A059]'
-                  : 'text-slate-400 dark:text-zinc-400 border-transparent hover:text-slate-600 dark:hover:text-zinc-200 hover:border-slate-300'
+                  : 'text-slate-400 dark:text-zinc-200 border-transparent hover:text-slate-600 dark:hover:text-zinc-200 hover:border-slate-300'
               }`}
             >
               <Icon size={18} />
@@ -849,7 +1112,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             
             <div className="lg:col-span-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400 flex items-center gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 flex items-center gap-2">
                   <CheckSquare size={14} className="text-[#C5A059]" /> {t('proy.checklist')}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -863,32 +1126,42 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     </span>
                   )}
                   {!isLoadingChecklist && !checklistPersistido && safeChecklist.length > 0 && (
-                    <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400 bg-white dark:bg-zinc-800 px-3.5 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-zinc-600">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-zinc-200 bg-white dark:bg-zinc-800 px-3.5 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-zinc-600">
                       {t('proy.plantillaInicial')}
                     </span>
                   )}
-                  <button
-                    onClick={handleSaveAllChanges}
-                    disabled={isSavingChanges || isLoadingChecklist}
-                    className="flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 text-xs font-bold px-3.5 py-1.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
-                  >
-                    {isSavingChanges ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin text-[#C5A059]" />
-                        {t('proy.guardando')}
-                      </>
-                    ) : (
-                      <>
-                        <Save size={14} className="text-[#C5A059]" />
-                        {t('proy.guardarCambios')}
-                      </>
-                    )}
-                  </button>
+                  {puedeEditarChecklist ? (
+                    <button
+                      onClick={handleSaveAllChanges}
+                      disabled={isSavingChanges || isLoadingChecklist}
+                      className="flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 text-xs font-bold px-3.5 py-1.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                    >
+                      {isSavingChanges ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin text-[#C5A059]" />
+                          {t('proy.guardando')}
+                        </>
+                      ) : (
+                        <>
+                          <Save size={14} className="text-[#C5A059]" />
+                          {t('proy.guardarCambios')}
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <span
+                      className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700/60 border border-gray-200 dark:border-zinc-600 px-3.5 py-1.5 rounded-xl"
+                      title={t('proy.checksSoloAdmin')}
+                    >
+                      <ShieldAlert size={13} className="text-slate-400 dark:text-zinc-200" />
+                      {t('proy.checksSoloLectura')}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {isLoadingChecklist && (
-                <div className="flex items-center justify-center gap-3 py-16 text-slate-400 dark:text-zinc-400">
+                <div className="flex items-center justify-center gap-3 py-16 text-slate-400 dark:text-zinc-200">
                   <Loader2 size={20} className="animate-spin text-[#C5A059]" />
                   <span className="text-sm font-semibold">{t('proy.cargandoChecklist')}</span>
                 </div>
@@ -896,10 +1169,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
               {!isLoadingChecklist && safeChecklist.length === 0 && (
                 <div className="border border-dashed border-gray-300 dark:border-zinc-600 rounded-[20px] bg-slate-50/60 dark:bg-zinc-800/60 py-12 px-6 text-center">
-                  <CheckSquare size={28} className="text-slate-300 dark:text-zinc-400 mx-auto mb-3" />
+                  <CheckSquare size={28} className="text-slate-300 dark:text-zinc-200 mx-auto mb-3" />
                   <p className="text-sm font-bold text-slate-600 dark:text-zinc-300">{t('proy.sinHitos')}</p>
-                  <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1">
-                    {(isAdmin || isEditMode)
+                  <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1">
+                    {puedeEditarChecklist
                       ? t('proy.sinHitosAdmin')
                       : t('proy.sinHitosLector')}
                   </p>
@@ -917,17 +1190,35 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <li key={item.id ?? `nuevo-${i}`} className="border border-gray-100 dark:border-zinc-700 rounded-[20px] bg-white dark:bg-zinc-800 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                       <div className="w-full flex items-start justify-between gap-4 p-5 hover:bg-slate-50/50 dark:hover:bg-zinc-700/30 transition-colors text-left">
                         <div className="flex items-start gap-4 flex-1 min-w-0">
-                          {/* Checkbox toggle */}
-                          <button
-                            onClick={() => handleToggleHito(i)}
-                            className="mt-0.5 focus:outline-none"
-                            title={isDone ? t('proy.marcarPendiente') : t('proy.marcarHecho')}
-                          >
-                            {isDone
-                              ? <CheckSquare size={22} className="text-[#C5A059] flex-shrink-0" />
-                              : <Square size={22} className="text-slate-300 dark:text-zinc-400 hover:text-slate-500 flex-shrink-0" />
-                            }
-                          </button>
+                          {/* Administrador: casilla real que marca y desmarca.
+                              Invitado: NO es un control desactivado, es un
+                              indicador estático de estado — sin hover, sin
+                              cursor de "prohibido" y sin opacidad de apagado. */}
+                          {puedeEditarChecklist ? (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleHito(i)}
+                              className="mt-0.5 focus:outline-none"
+                              title={isDone ? t('proy.marcarPendiente') : t('proy.marcarHecho')}
+                            >
+                              {isDone
+                                ? <CheckSquare size={22} className="text-[#C5A059] flex-shrink-0" />
+                                : <Square size={22} className="flex-shrink-0 text-slate-300 dark:text-zinc-200 hover:text-slate-500" />
+                              }
+                            </button>
+                          ) : (
+                            <span
+                              className="mt-0.5 flex-shrink-0"
+                              role="img"
+                              aria-label={isDone ? t('proy.hitoCompletado') : t('proy.hitoPendiente')}
+                              title={isDone ? t('proy.hitoCompletado') : t('proy.hitoPendiente')}
+                            >
+                              {isDone
+                                ? <CheckCircle2 size={22} className="text-emerald-500 flex-shrink-0" />
+                                : <Circle size={22} className="text-slate-300 dark:text-zinc-300 flex-shrink-0" />
+                              }
+                            </span>
+                          )}
 
                           <div className="flex-1 min-w-0">
                             <div className="cursor-pointer" onClick={() => setOpenAccordion(openAccordion === i ? null : i)}>
@@ -944,7 +1235,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-zinc-700">
-                                    <Calendar size={12} className="text-slate-400 dark:text-zinc-400" />
+                                    <Calendar size={12} className="text-slate-400 dark:text-zinc-200" />
                                     {t('proy.proyectadoPara')} {dateStr}
                                   </span>
                                 )}
@@ -960,12 +1251,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {(isAdmin || isEditMode) && (
+                          {puedeEditarChecklist && (
                             <>
                               <button
                                 onClick={() => handleStartEditHito(i)}
                                 disabled={isSavingChanges}
-                                className="p-1.5 text-slate-400 dark:text-zinc-400 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-40"
+                                className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-40"
                                 title={t('proy.editarTarea')}
                               >
                                 <Edit2 size={16} />
@@ -973,7 +1264,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                               <button
                                 onClick={() => handleDeleteHito(i)}
                                 disabled={isSavingChanges}
-                                className="p-1.5 text-slate-300 dark:text-zinc-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40"
+                                className="p-1.5 text-slate-300 dark:text-zinc-200 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40"
                                 title={t('proy.eliminarTarea')}
                               >
                                 <Trash2 size={16} />
@@ -981,7 +1272,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             </>
                           )}
                           <button onClick={() => setOpenAccordion(openAccordion === i ? null : i)}>
-                            {openAccordion === i ? <ChevronUp size={20} className="text-slate-400 dark:text-zinc-400" /> : <ChevronDown size={20} className="text-slate-400 dark:text-zinc-400" />}
+                            {openAccordion === i ? <ChevronUp size={20} className="text-slate-400 dark:text-zinc-200" /> : <ChevronDown size={20} className="text-slate-400 dark:text-zinc-200" />}
                           </button>
                         </div>
                       </div>
@@ -996,7 +1287,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 })}
               </ul>
               {/* ── CRUD de Checklist: alta de tareas (solo Administrador) ── */}
-              {(isAdmin || isEditMode) && (
+              {puedeEditarChecklist && (
                 <>
                   <form onSubmit={handleAddHito} className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white dark:bg-zinc-800 p-3 rounded-2xl border border-gray-200 dark:border-zinc-700 shadow-sm focus-within:border-[#C5A059] focus-within:ring-1 focus-within:ring-[#C5A059] transition-all">
                     <input
@@ -1018,7 +1309,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   </form>
 
                   <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
-                    <p className="text-[11px] text-slate-400 dark:text-zinc-400 font-medium">
+                    <p className="text-[11px] text-slate-400 dark:text-zinc-200 font-medium">
                       {t('proy.ayudaGuardado', { boton: t('proy.guardarCambios') })}
                     </p>
                     <button
@@ -1036,7 +1327,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
             <div className="space-y-6">
               <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl p-6 shadow-sm flex flex-col items-center">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400 w-full mb-3 text-center">{t('proy.avanceCronologico')}</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 w-full mb-3 text-center">{t('proy.avanceCronologico')}</h3>
                 <div className="w-full h-44 relative">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1065,13 +1356,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-2xl font-black text-slate-900 dark:text-white">{avancePct}%</span>
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-400 uppercase tracking-widest">{t('dash.ejecutado')}</span>
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-200 uppercase tracking-widest">{t('dash.ejecutado')}</span>
                   </div>
                 </div>
               </div>
 
               <div className="bg-slate-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl p-6 relative">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400 mb-3">{t('proy.descripcionGeneral')}</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 mb-3">{t('proy.descripcionGeneral')}</h3>
                 <p className="text-sm text-slate-600 dark:text-zinc-300 leading-relaxed font-medium">{project.description || project.descripcion}</p>
               </div>
             </div>
@@ -1084,11 +1375,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             
             {/* Action Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-zinc-400">{t('fin.titulo')}</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('fin.titulo')}</h2>
               <div className="flex flex-wrap items-center gap-2">
                 {/* Edición de cifras: solo administrador */}
-                {(isAdmin || isEditMode) && (
-                  editandoFinanzas ? (
+                {isAdmin && (
+                  modoEdicionFinanzas ? (
                     <>
                       <button
                         onClick={handleCancelarFinanzas}
@@ -1164,7 +1455,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 etiqueta={t('fin.presupuestoTotal')}
                 pie={t('fin.usdProyectado')}
                 valor={finanzas.presupuesto}
-                editando={editandoFinanzas}
+                editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('presupuesto', v)}
                 colorValor="text-slate-900 dark:text-white"
               />
@@ -1173,7 +1464,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 etiqueta={t('fin.anticipo')}
                 pie={t('fin.anticipoDesc')}
                 valor={finanzas.anticipo}
-                editando={editandoFinanzas}
+                editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('anticipo', v)}
                 colorValor="text-[#C5A059]"
               />
@@ -1182,37 +1473,54 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 etiqueta={t('fin.cuotaAsignada')}
                 pie={t('fin.cuotaAsignadaDesc')}
                 valor={finanzas.cuota}
-                editando={editandoFinanzas}
+                editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('cuota', v)}
                 colorValor="text-slate-900 dark:text-white"
               />
 
-              {/* Costo ejecutado: se calcula desde los gastos, no se edita */}
-              <div className={`border shadow-sm rounded-2xl p-5 ${isOverBudget ? 'bg-red-50/50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30' : 'bg-white dark:bg-zinc-800 border-gray-100 dark:border-zinc-700'}`}>
-                <p className="text-xs text-slate-400 dark:text-zinc-400 uppercase font-bold tracking-wider mb-2">{t('fin.costoEjecutado')}</p>
-                <p className={`text-2xl md:text-3xl font-black ${isOverBudget ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>${totalSpent.toLocaleString()}</p>
-                <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1 font-semibold">
-                  {Math.round((totalSpent / (totalBudget || 1)) * 100)}% {t('fin.presupuestoEjecutado')}
-                </p>
-              </div>
+              {/* Costo ejecutado: SIEMPRE la suma real de `gastos`, nunca editable */}
+              <TarjetaMonto
+                etiqueta={t('fin.costoEjecutado')}
+                pie={`${Math.round((totalSpent / (totalBudget || 1)) * 100)}% ${t('fin.presupuestoEjecutado')}`}
+                valor={totalSpent}
+                editando={false}
+                colorValor={isOverBudget ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}
+                resaltado={isOverBudget}
+              />
             </div>
 
-            {/* Gráfica de Ejecución */}
+            {/* Gráfica de Ejecución financiera mensual.
+                Las barras son las sumas REALES de `gastos` agrupadas por mes:
+                cero datos de relleno y cero edición manual. Si aún no hay
+                facturas registradas no se dibuja una gráfica vacía. */}
             <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 shadow-sm rounded-2xl p-6">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400 mb-4">{t('fin.ejecucionMensual')}</p>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.monthlyData || []}>
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
-                    <Tooltip 
-                      cursor={{ fill: '#f8fafc' }} 
-                      contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }} 
-                      formatter={(value) => [`$${value.toLocaleString()}`, t('fin.gasto')]}
-                    />
-                    <Bar dataKey="value" fill="#0B1B2C" radius={[6, 6, 0, 0]} maxBarSize={44} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('fin.ejecucionMensual')}</p>
+                <span className="text-xs font-black text-slate-900 dark:text-white">
+                  {formatearMoneda(totalSpent)}
+                </span>
               </div>
+
+              {ejecucionMensual.length === 0 ? (
+                <div className="h-56 w-full flex flex-col items-center justify-center gap-2 text-center">
+                  <Receipt size={26} className="text-slate-300 dark:text-zinc-600" />
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-400">{t('fin.sinFacturas')}</p>
+                </div>
+              ) : (
+                <div className="h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={ejecucionMensual}>
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
+                      <Tooltip
+                        cursor={{ fill: '#f8fafc' }}
+                        contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}
+                        formatter={(value) => [`$${Number(value || 0).toLocaleString()}`, t('fin.gasto')]}
+                      />
+                      <Bar dataKey="value" fill="#0B1B2C" radius={[6, 6, 0, 0]} maxBarSize={44} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1222,12 +1530,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-zinc-700">
               <div className="flex items-center gap-3">
-                <button onClick={() => setShowExpenses(false)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm">
+                <button onClick={() => setShowExpenses(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm">
                   <ArrowLeft size={18} />
                 </button>
                 <div>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white">{t('fin.facturasTitulo')}</h2>
-                  <p className="text-xs text-slate-400 dark:text-zinc-400 font-medium">{t('fin.facturasSub')}</p>
+                  <p className="text-xs text-slate-400 dark:text-zinc-200 font-medium">{t('fin.facturasSub')}</p>
                 </div>
               </div>
               {isAdmin && (
@@ -1244,7 +1552,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             {gastosPorMes.length > 0 && (
               <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 shadow-sm rounded-2xl p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">
                     {t('fin.gastosPorMes')}
                   </p>
                   <span className="text-xs font-black text-slate-900 dark:text-white">
@@ -1283,30 +1591,122 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-3">
-              {facturas.map((fac) => (
-                <div key={fac.id} className="p-4 bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-11 h-11 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200/80 flex items-center justify-center flex-shrink-0 text-[#8B6914] dark:text-[#E3C77B]">
-                      <Receipt size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">{fac.proveedor}</h4>
-                      <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">{fac.concepto}</p>
-                      <span className="inline-block text-[10px] font-semibold text-slate-400 dark:text-zinc-400 mt-1">{fac.comprobante} • {fac.fecha}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-3 sm:pt-0">
-                    <span className="text-base font-black text-slate-900 dark:text-white">${fac.monto.toLocaleString()} USD</span>
+            {facturasMsg && (
+              <div className="p-4 rounded-2xl border flex items-start gap-3 text-xs font-semibold bg-red-50 dark:bg-red-500/10 text-red-800 dark:text-red-300 border-red-200 dark:border-red-500/30">
+                <ShieldAlert size={16} className="flex-shrink-0 mt-px" />
+                <span>{facturasMsg.texto}</span>
+              </div>
+            )}
+
+            {facturas.length === 0 && !facturasMsg && (
+              <div className="border border-dashed border-gray-300 dark:border-zinc-600 rounded-2xl bg-slate-50/60 dark:bg-zinc-800/60 py-12 px-6 text-center">
+                <Receipt size={28} className="text-slate-300 dark:text-zinc-200 mx-auto mb-3" />
+                <p className="text-sm font-bold text-slate-600 dark:text-zinc-300">{t('fin.sinFacturas')}</p>
+                <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1">
+                  {isAdmin ? t('fin.sinFacturasAdmin') : t('fin.sinFacturasLector')}
+                </p>
+              </div>
+            )}
+
+            {/* Lista de documentos: miniatura cuadrada a la izquierda, datos a la derecha */}
+            <div className="flex flex-col gap-3">
+              {facturas.map((fac) => {
+                const tieneArchivo = esComprobanteArchivo(fac.comprobante);
+                const esPdf = esComprobantePdf(fac.comprobante);
+
+                return (
+                  <div
+                    key={fac.id}
+                    className="group flex items-stretch gap-4 p-3 sm:p-4 bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm hover:shadow-md hover:border-[#C5A059]/50 transition-all"
+                  >
+                    {/* Miniatura cuadrada */}
                     <button
-                      onClick={() => alert(t('proy.visualizando', { comprobante: fac.comprobante, proveedor: fac.proveedor }))}
-                      className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-700 px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-colors"
+                      type="button"
+                      disabled={!tieneArchivo}
+                      onClick={() => { setVisorAmpliado(false); setFacturaEnVisor(fac); }}
+                      title={tieneArchivo ? t('fac.verComprobante') : t('fac.sinComprobante')}
+                      className={`relative w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden border border-gray-200 dark:border-zinc-600 bg-slate-50 dark:bg-zinc-900 ${
+                        tieneArchivo ? 'cursor-zoom-in hover:border-[#C5A059]' : 'cursor-default'
+                      }`}
                     >
-                      <Eye size={13} /> {t('fin.verPDF')}
+                      {tieneArchivo && !esPdf ? (
+                        <>
+                          <img
+                            src={fac.comprobante}
+                            alt={fac.proveedor}
+                            loading="lazy"
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <span className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-colors flex items-center justify-center">
+                            <Eye size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </span>
+                        </>
+                      ) : (
+                        <span className="w-full h-full flex flex-col items-center justify-center gap-1 text-[#8B6914] dark:text-[#E3C77B]">
+                          {tieneArchivo
+                            ? <><FileText size={24} /><span className="text-[9px] font-black tracking-wider">PDF</span></>
+                            : <><FileImage size={22} className="text-slate-300 dark:text-zinc-300" /><span className="text-[9px] font-bold text-slate-400 dark:text-zinc-300">{t('fac.sinArchivo')}</span></>}
+                        </span>
+                      )}
                     </button>
+
+                    {/* Información detallada */}
+                    <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{fac.proveedor}</h4>
+                        <p className="text-xs text-slate-500 dark:text-zinc-200 mt-0.5 line-clamp-2">{fac.concepto}</p>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1.5">
+                          <Calendar size={11} /> {fac.fecha}
+                          {tieneArchivo && (
+                            <span className="inline-flex items-center gap-1 text-[#8B6914] dark:text-[#E3C77B]">
+                              • <Receipt size={11} /> {t('fac.conComprobante')}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2 sm:gap-2.5 flex-shrink-0">
+                        <span className="text-base font-black text-slate-900 dark:text-white whitespace-nowrap">
+                          {formatearMoneda(fac.monto)}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {tieneArchivo && (
+                            <button
+                              onClick={() => { setVisorAmpliado(false); setFacturaEnVisor(fac); }}
+                              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-700 px-3 py-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-600 transition-colors"
+                            >
+                              <Eye size={13} /> {t('fac.ver')}
+                            </button>
+                          )}
+
+                          {/* Editar / Eliminar: solo con el Modo Edición encendido */}
+                          {puedeEditarFacturas && (
+                            <>
+                              <button
+                                onClick={() => abrirEdicionFactura(fac)}
+                                title={t('fac.editar')}
+                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-[#8B6914] dark:hover:text-[#E3C77B] hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                onClick={() => handleEliminarFactura(fac)}
+                                disabled={facturaEliminando === fac.id}
+                                title={t('fac.eliminar')}
+                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                              >
+                                {facturaEliminando === fac.id
+                                  ? <Loader2 size={13} className="animate-spin" />
+                                  : <Trash2 size={13} />}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -1324,8 +1724,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-zinc-400">{t('doc.archivos')}</h2>
-                <p className="text-[11px] text-slate-400 dark:text-zinc-400 mt-0.5">{t('doc.bucket')} <span className="font-mono font-semibold text-slate-500 dark:text-zinc-400">archivos_mmcapital</span></p>
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('doc.archivos')}</h2>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-200 mt-0.5">{t('doc.bucket')} <span className="font-mono font-semibold text-slate-500 dark:text-zinc-200">archivos_mmcapital</span></p>
               </div>
               {isAdmin && (
                 <button
@@ -1364,9 +1764,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               if (docs.length === 0) {
                 return (
                   <div className="border border-dashed border-gray-300 dark:border-zinc-600 rounded-2xl bg-slate-50/60 dark:bg-zinc-800/60 py-12 px-6 text-center">
-                    <FileText size={28} className="text-slate-300 dark:text-zinc-400 mx-auto mb-3" />
+                    <FileText size={28} className="text-slate-300 dark:text-zinc-200 mx-auto mb-3" />
                     <p className="text-sm font-bold text-slate-600 dark:text-zinc-300">{t('doc.vacio')}</p>
-                    <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1">
+                    <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1">
                       {isAdmin
                         ? t('doc.vacioAdmin')
                         : t('doc.vacioLector')}
@@ -1385,7 +1785,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-slate-800 dark:text-zinc-100 truncate">{doc.nombre_archivo}</p>
-                          <p className="text-xs text-slate-400 dark:text-zinc-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                          <p className="text-xs text-slate-400 dark:text-zinc-200 mt-0.5 flex items-center gap-2 flex-wrap">
                             <span>{doc.created_at ? new Date(doc.created_at).toLocaleDateString(locale) : t('doc.delProyecto')}</span>
                             {doc.url_archivo && <span className="text-emerald-600 font-semibold">{t('doc.enBucket')}</span>}
                           </p>
@@ -1411,7 +1811,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             <button
                               onClick={() => handleRenameArchivo(doc)}
                               disabled={isUploading}
-                              className="p-2 text-slate-400 dark:text-zinc-400 hover:text-[#C5A059] rounded-xl hover:bg-amber-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
+                              className="p-2 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-xl hover:bg-amber-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
                               title={t('doc.editarNombre')}
                             >
                               <Edit2 size={15} />
@@ -1419,7 +1819,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             <button
                               onClick={() => handleDeleteArchivo(doc)}
                               disabled={isUploading}
-                              className="p-2 text-slate-300 dark:text-zinc-400 hover:text-red-500 rounded-xl hover:bg-red-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
+                              className="p-2 text-slate-300 dark:text-zinc-200 hover:text-red-500 rounded-xl hover:bg-red-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
                               title={t('doc.eliminarArchivo')}
                             >
                               <Trash2 size={15} />
@@ -1440,8 +1840,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="max-w-5xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-400">{t('gal.titulo')}</h2>
-                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">{t('gal.subtitulo')}</p>
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('gal.titulo')}</h2>
+                <p className="text-xs text-slate-500 dark:text-zinc-200 mt-0.5">{t('gal.subtitulo')}</p>
               </div>
               {isAdmin && (
                 <div className="flex items-center gap-2">
@@ -1506,7 +1906,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <div className="p-4 flex flex-col flex-1 justify-between">
                     <div>
                       <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-[#C5A059] transition-colors">{album.title}</h3>
-                      <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1 font-medium">{album.date}</p>
+                      <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-medium">{album.date}</p>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-slate-700 dark:text-zinc-200 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
@@ -1519,7 +1919,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                           <button
                             onClick={(e) => { e.stopPropagation(); setAlbumEditando({ ...album }); }}
                             disabled={subiendoGaleria}
-                            className="p-1.5 text-slate-400 dark:text-zinc-400 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-40"
+                            className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-40"
                             title={t('gal.editarAlbum')}
                           >
                             <Edit2 size={15} />
@@ -1527,7 +1927,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                           <button
                             onClick={(e) => { e.stopPropagation(); handleEliminarAlbum(album); }}
                             disabled={subiendoGaleria}
-                            className="p-1.5 text-slate-300 dark:text-zinc-500 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                            className="p-1.5 text-slate-300 dark:text-zinc-300 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-40"
                             title={t('gal.eliminarAlbum')}
                           >
                             <Trash2 size={15} />
@@ -1551,7 +1951,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             <div className="px-6 py-4 border-b border-gray-100 dark:border-zinc-700 flex items-center justify-between bg-slate-50 dark:bg-zinc-800">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">{activeAlbumModal.title}</h3>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">{activeAlbumModal.date} • {activeAlbumModal.photoCount || (activeAlbumModal.photos || []).length} {t('gal.fotosRegistradas')}</p>
+                <p className="text-xs text-slate-500 dark:text-zinc-200">{activeAlbumModal.date} • {activeAlbumModal.photoCount || (activeAlbumModal.photos || []).length} {t('gal.fotosRegistradas')}</p>
               </div>
               <div className="flex items-center gap-2">
                 {/* Subir foto directamente a este álbum */}
@@ -1568,7 +1968,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 )}
                 <button
                   onClick={() => setActiveAlbumModal(null)}
-                  className="w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white shadow-sm"
+                  className="w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white shadow-sm"
                 >
                   <X size={18} />
                 </button>
@@ -1610,7 +2010,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <button
                       onClick={(e) => { e.stopPropagation(); handleEliminarFoto(foto, activeAlbumModal.id); }}
                       disabled={subiendoGaleria}
-                      className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm text-white/80 hover:bg-red-600 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all disabled:opacity-40"
+                      className="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/60 backdrop-blur-sm text-white/90 hover:bg-red-600 hover:text-white flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all disabled:opacity-40"
                       title={t('gal.eliminarFoto')}
                     >
                       <Trash2 size={14} />
@@ -1619,7 +2019,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
                   <div
                     onClick={() => setSelectedPhotoLightbox(photoUrl)}
-                    className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer"
+                    className="absolute inset-0 bg-black/30 opacity-0 md:group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer"
                   >
                     <Eye size={24} />
                   </div>
@@ -1646,7 +2046,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Image size={18} className="text-[#C5A059]" /> {t('gal.destinoTitulo')}
               </h3>
-              <button onClick={() => setShowDestinoModal(false)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-white">
+              <button onClick={() => setShowDestinoModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white">
                 <X size={18} />
               </button>
             </div>
@@ -1654,7 +2054,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             {albums.length === 0 ? (
               <div className="text-center py-6">
                 <p className="text-sm font-bold text-slate-600 dark:text-zinc-300">{t('gal.sinAlbumes')}</p>
-                <p className="text-xs text-slate-400 dark:text-zinc-500 mt-1">{t('gal.sinAlbumesAyuda')}</p>
+                <p className="text-xs text-slate-400 dark:text-zinc-300 mt-1">{t('gal.sinAlbumesAyuda')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1708,7 +2108,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <FolderPlus size={18} className="text-[#C5A059]" /> {t('gal.crearAlbum')}
               </h3>
-              <button onClick={() => setShowCreateAlbumModal(false)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={() => setShowCreateAlbumModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
               </button>
             </div>
@@ -1748,7 +2148,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     {portadaFile.name} · {(portadaFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
                 )}
-                <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-1">{t('perfil.formatosAceptados')}</p>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1">{t('perfil.formatosAceptados')}</p>
               </div>
 
               {galeriaMsg?.tipo === 'error' && (
@@ -1758,7 +2158,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               )}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => { setShowCreateAlbumModal(false); setPortadaFile(null); }} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                <button type="button" onClick={() => { setShowCreateAlbumModal(false); setPortadaFile(null); }} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
                 <button
@@ -1783,7 +2183,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Edit2 size={18} className="text-[#C5A059]" /> {t('gal.editarAlbum')}
               </h3>
-              <button onClick={() => setAlbumEditando(null)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={() => setAlbumEditando(null)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
               </button>
             </div>
@@ -1835,7 +2235,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               )}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => { setAlbumEditando(null); setNuevaPortadaFile(null); }} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                <button type="button" onClick={() => { setAlbumEditando(null); setNuevaPortadaFile(null); }} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
                 <button
@@ -1855,16 +2255,94 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       {/* ════ MODAL REGISTRAR FACTURA (ADMIN) ════ */}
       {showInvoiceModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Receipt size={18} className="text-[#C5A059]" /> {t('modal.registrarFactura')}
               </h3>
-              <button onClick={() => setShowInvoiceModal(false)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={cerrarModalFactura} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
               </button>
             </div>
             <form onSubmit={handleCreateInvoice} className="space-y-4">
+
+              {/* ── Comprobante: arrastrar y soltar o seleccionar ── */}
+              <input
+                type="file"
+                ref={comprobanteInputRef}
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => { adjuntarComprobante(e.target.files?.[0]); e.target.value = ''; }}
+              />
+
+              <div
+                onDragOver={(e) => { e.preventDefault(); setArrastrandoComprobante(true); }}
+                onDragLeave={() => setArrastrandoComprobante(false)}
+                onDrop={handleSoltarComprobante}
+                onClick={() => comprobanteInputRef.current?.click()}
+                className={`relative rounded-2xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden ${
+                  arrastrandoComprobante
+                    ? 'border-[#C5A059] bg-amber-50 dark:bg-amber-500/10'
+                    : comprobanteFile
+                    ? 'border-[#C5A059]/60 bg-amber-50/40 dark:bg-amber-500/5'
+                    : 'border-gray-300 dark:border-zinc-600 bg-slate-50/70 dark:bg-zinc-900/50 hover:border-[#C5A059]/70'
+                }`}
+              >
+                {comprobantePreview ? (
+                  <div className="flex items-center gap-3 p-3">
+                    <img src={comprobantePreview} alt={t('modal.comprobanteFoto')} className="w-20 h-20 rounded-xl object-cover border border-gray-200 dark:border-zinc-600 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{comprobanteFile?.name}</p>
+                      <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); limpiarComprobanteAdjunto(); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 flex-shrink-0"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : comprobanteFile ? (
+                  <div className="flex items-center gap-3 p-3">
+                    <div className="w-20 h-20 rounded-xl border border-gray-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 flex flex-col items-center justify-center gap-1 text-[#8B6914] dark:text-[#E3C77B] flex-shrink-0">
+                      <FileText size={22} /><span className="text-[9px] font-black tracking-wider">PDF</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{comprobanteFile.name}</p>
+                      <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); limpiarComprobanteAdjunto(); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 flex-shrink-0"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="py-7 px-4 text-center">
+                    <div className="w-11 h-11 mx-auto mb-2 rounded-2xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 shadow-sm flex items-center justify-center text-[#C5A059]">
+                      <Upload size={20} />
+                    </div>
+                    <p className="text-xs font-bold text-slate-700 dark:text-zinc-200">{t('modal.soltarComprobante')}</p>
+                    <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1">{t('modal.formatosComprobante')}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Extracción automática con Gemini (gemini-1.5-flash) ── */}
+              <button
+                type="button"
+                onClick={handleExtraerConIA}
+                disabled={extrayendoIA || !comprobanteFile}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-wider text-white shadow-lg shadow-amber-500/20 bg-gradient-to-r from-[#0B1B2C] via-[#8B6914] to-[#C5A059] hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {extrayendoIA
+                  ? <><Loader2 size={15} className="animate-spin" /> {t('modal.procesandoComprobante')}</>
+                  : <><Sparkles size={15} /> {t('modal.extraerIA')}</>}
+              </button>
+
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.proveedor')}</label>
                 <input
@@ -1897,22 +2375,88 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
               </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button type="button" onClick={cerrarModalFactura} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                  {t('comun.cancelar')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoFactura || extrayendoIA}
+                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  {guardandoFactura && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
+                  {guardandoFactura ? t('modal.guardandoFactura') : t('modal.guardarFactura')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL EDITAR FACTURA (ADMIN · MODO EDICIÓN) ════ */}
+      {facturaEditando && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Edit2 size={18} className="text-[#C5A059]" /> {t('modal.editarFactura')}
+              </h3>
+              <button onClick={cerrarEdicionFactura} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleActualizarFactura} className="space-y-4">
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200">
+                {t('modal.editarFacturaNota')}
+              </p>
+
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.comprobante')}</label>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.proveedor')}</label>
                 <input
                   type="text"
-                  placeholder={t('modal.comprobantePh')}
-                  value={newInvoice.comprobante}
-                  onChange={(e) => setNewInvoice({ ...newInvoice, comprobante: e.target.value })}
+                  required
+                  placeholder={t('modal.proveedorPh')}
+                  value={edicionFactura.proveedor}
+                  onChange={(e) => setEdicionFactura({ ...edicionFactura, proveedor: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.concepto')}</label>
+                <input
+                  type="text"
+                  placeholder={t('modal.conceptoPh')}
+                  value={edicionFactura.concepto}
+                  onChange={(e) => setEdicionFactura({ ...edicionFactura, concepto: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.monto')}</label>
+                <input
+                  type="number"
+                  required
+                  step="0.01"
+                  min="0"
+                  placeholder="42500"
+                  value={edicionFactura.monto}
+                  onChange={(e) => setEdicionFactura({ ...edicionFactura, monto: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
+                />
+              </div>
+
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setShowInvoiceModal(false)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                <button type="button" onClick={cerrarEdicionFactura} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
-                <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm">
-                  {t('modal.guardarFactura')}
+                <button
+                  type="submit"
+                  disabled={guardandoEdicion}
+                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  {guardandoEdicion && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
+                  {guardandoEdicion ? t('modal.guardandoFactura') : t('comun.guardar')}
                 </button>
               </div>
             </form>
@@ -1928,7 +2472,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Plus size={18} className="text-[#C5A059]" /> {t('modal.agregarHito')}
               </h3>
-              <button onClick={() => setShowAddHitoModal(false)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={() => setShowAddHitoModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
               </button>
             </div>
@@ -1965,7 +2509,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 />
               </div>
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setShowAddHitoModal(false)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                <button type="button" onClick={() => setShowAddHitoModal(false)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
                 <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm">
@@ -1973,6 +2517,80 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════ VISOR DE ALTA CALIDAD DEL COMPROBANTE ════ */}
+      {facturaEnVisor && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex flex-col"
+          onClick={() => setFacturaEnVisor(null)}
+        >
+          {/* Cabecera: datos de la factura + acciones */}
+          <div
+            className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-white/10 flex-shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white truncate">{facturaEnVisor.proveedor}</h3>
+              <p className="text-[11px] font-semibold text-white/50 truncate">
+                {facturaEnVisor.concepto} · {formatearMoneda(facturaEnVisor.monto)} · {facturaEnVisor.fecha}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {!esComprobantePdf(facturaEnVisor.comprobante) && (
+                <button
+                  onClick={() => setVisorAmpliado(v => !v)}
+                  title={visorAmpliado ? t('fac.ajustarPantalla') : t('fac.tamanoReal')}
+                  className="p-2 rounded-xl text-white/80 bg-white/10 hover:bg-white/20 transition-colors"
+                >
+                  {visorAmpliado ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+                </button>
+              )}
+              <button
+                onClick={handleDescargarComprobante}
+                disabled={descargandoVisor}
+                className="flex items-center gap-2 text-xs font-bold text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+              >
+                {descargandoVisor ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                <span className="hidden sm:inline">{t('fac.descargar')}</span>
+              </button>
+              <button
+                onClick={() => setFacturaEnVisor(null)}
+                className="p-2 rounded-xl text-white/80 bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Lienzo: el archivo original a resolución completa, sin recomprimir.
+              "Ajustar a pantalla" usa object-contain; "tamaño real" deja el
+              scroll para leer los importes al 100%. */}
+          <div
+            className={`flex-1 min-h-0 p-3 sm:p-6 ${visorAmpliado ? 'overflow-auto' : 'overflow-hidden flex items-center justify-center'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {esComprobantePdf(facturaEnVisor.comprobante) ? (
+              <iframe
+                src={facturaEnVisor.comprobante}
+                title={facturaEnVisor.proveedor}
+                className="w-full h-full rounded-xl bg-white shadow-2xl"
+              />
+            ) : (
+              <img
+                src={facturaEnVisor.comprobante}
+                alt={facturaEnVisor.proveedor}
+                onClick={() => setVisorAmpliado(v => !v)}
+                className={`rounded-xl shadow-2xl bg-white ${
+                  visorAmpliado
+                    ? 'max-w-none cursor-zoom-out'
+                    : 'max-w-full max-h-full object-contain cursor-zoom-in'
+                }`}
+              />
+            )}
           </div>
         </div>
       )}
@@ -1985,7 +2603,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Edit2 size={18} className="text-[#C5A059]" /> {t('modal.editarHito')}
               </h3>
-              <button onClick={() => setEditingHitoIndex(null)} className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={() => setEditingHitoIndex(null)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
               </button>
             </div>
@@ -2022,7 +2640,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 />
               </div>
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setEditingHitoIndex(null)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
+                <button type="button" onClick={() => setEditingHitoIndex(null)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
                 <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm">

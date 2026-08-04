@@ -1,7 +1,28 @@
+import imageCompression from 'browser-image-compression';
 import { supabase } from '../supabaseClient';
+import { comprimirImagen } from '../lib/comprimirImagen';
 
-/** Único bucket de Storage usado por la aplicación. */
+/** Formatos que sí conviene comprimir antes de subir a la bóveda. */
+const TIPOS_COMPRIMIBLES = ['image/jpeg', 'image/png', 'image/webp'];
+
+/** ¿Supabase rechazó el archivo por tamaño (413 / payload too large)? */
+export function esErrorDeTamano(error) {
+  if (!error) return false;
+  const status = Number(error.statusCode ?? error.status ?? 0);
+  if (status === 413) return true;
+  const msg = String(error.message || error).toLowerCase();
+  return msg.includes('413')
+    || msg.includes('payload too large')
+    || msg.includes('entity too large')
+    || msg.includes('maximum allowed size')
+    || msg.includes('exceeded the maximum');
+}
+
+/** Bucket general de la aplicación (documentos, portadas, avatares, galería). */
 export const BUCKET = 'archivos_mmcapital';
+
+/** Bucket dedicado a los comprobantes de las facturas de proveedores. */
+export const BUCKET_FACTURAS = 'facturas';
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,36 +51,67 @@ export function rutaDesdeUrl(url) {
  * @param {File} file - The file object to upload
  * @param {string|number|null} proyectoId - The ID of the associated project or null/'global_vault' for corporate vault
  * @param {'foto_galeria'|'documento_pdf'} tipo - Type of file
- * @returns {Promise<{success: boolean, data?: object, publicUrl?: string, url?: string, error?: string}>}
+ * @param {(p: {porcentaje: number, fase: 'comprimiendo'|'subiendo'|'registrando'|'listo'}) => void} [onProgreso]
+ * @returns {Promise<{success: boolean, data?: object, publicUrl?: string, url?: string, error?: string, tamanoExcedido?: boolean}>}
  */
-export async function uploadArchivoProyecto(file, proyectoId, tipo = 'documento_pdf') {
+export async function uploadArchivoProyecto(file, proyectoId, tipo = 'documento_pdf', onProgreso) {
+  const avisar = (porcentaje, fase) => {
+    if (typeof onProgreso === 'function') onProgreso({ porcentaje: Math.round(porcentaje), fase });
+  };
+
   try {
     if (!file) throw new Error('No se seleccionó ningún archivo.');
 
-    // 1. Clean file path and unique timestamp name
+    // 1. Las imágenes se comprimen ANTES de viajar: un JPG de móvil pesa
+    //    12 MB y el bucket lo rechaza con 413.
+    let archivo = file;
+    if (TIPOS_COMPRIMIBLES.includes(file.type)) {
+      avisar(0, 'comprimiendo');
+      try {
+        archivo = await imageCompression(file, {
+          maxSizeMB: 2,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+          fileType: file.type,
+          onProgress: (p) => avisar(Number(p) * 0.4, 'comprimiendo')
+        });
+      } catch (errComp) {
+        console.warn('No se pudo comprimir la imagen, se sube original:', errComp);
+        archivo = file;
+      }
+    }
+    avisar(40, 'subiendo');
+
+    // 2. Clean file path and unique timestamp name
     const timestamp = Date.now();
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const folder = (proyectoId === 'global_vault' || !proyectoId) ? 'corporate_vault' : `proyecto_${proyectoId}`;
     const filePath = `${folder}/${timestamp}_${cleanFileName}`;
 
-    // 2. Subida al bucket `archivos_mmcapital` — un fallo aquí SÍ es fatal
+    // 3. Subida al bucket `archivos_mmcapital` — un fallo aquí SÍ es fatal
     const { error: uploadError } = await supabase
       .storage
       .from(BUCKET)
-      .upload(filePath, file, { cacheControl: '3600', upsert: true });
+      .upload(filePath, archivo, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: archivo.type || file.type || 'application/octet-stream'
+      });
 
     if (uploadError) {
       return {
         success: false,
+        tamanoExcedido: esErrorDeTamano(uploadError),
         error: `No se pudo subir al bucket ${BUCKET}: ${uploadError.message}`
       };
     }
+    avisar(85, 'registrando');
 
-    // 3. URL pública
+    // 4. URL pública
     const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
     const publicUrl = urlData?.publicUrl || null;
 
-    // 4. Registro en la tabla `archivos`
+    // 5. Registro en la tabla `archivos`
     const targetProyectoId = esIdValidoDeSupabase(proyectoId) ? proyectoId : null;
 
     const { data: dbData, error: dbError } = await supabase
@@ -83,11 +135,42 @@ export async function uploadArchivoProyecto(file, proyectoId, tipo = 'documento_
       };
     }
 
+    avisar(100, 'listo');
     return { success: true, data: dbData, publicUrl, url: publicUrl, path: filePath };
   } catch (err) {
     console.error('Upload Error:', err);
-    return { success: false, error: err.message || 'Error al subir archivo a Supabase' };
+    return {
+      success: false,
+      tamanoExcedido: esErrorDeTamano(err),
+      error: err.message || 'Error al subir archivo a Supabase'
+    };
   }
+}
+
+/**
+ * Actualiza nombre y/o categoría (`tipo`) de un archivo ya registrado.
+ * La bóveda corporativa la usa para editar un documento sin volver a subirlo.
+ */
+export async function actualizarArchivo(archivoId, { nombre_archivo, tipo } = {}) {
+  if (archivoId === null || archivoId === undefined) {
+    return { success: false, error: 'El archivo no tiene un identificador válido.' };
+  }
+
+  const cambios = {};
+  const nombre = String(nombre_archivo || '').trim();
+  if (nombre) cambios.nombre_archivo = nombre;
+  if (tipo) cambios.tipo = tipo;
+  if (Object.keys(cambios).length === 0) return { success: true, data: null };
+
+  const { data, error } = await supabase
+    .from('archivos')
+    .update(cambios)
+    .eq('id', archivoId)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data };
 }
 
 /** Renombra un archivo: actualiza `nombre_archivo` en la tabla. */
@@ -243,13 +326,27 @@ export async function subirAvatar(file, usuarioId, nombreSugerido = 'avatar.jpg'
     return { success: false, error: 'No se pudo identificar tu usuario para guardar el avatar.' };
   }
 
-  const nombre = file.name || nombreSugerido;
+  // Compresión en el cliente: un avatar nunca necesita más de 512 px de lado,
+  // así la subida es instantánea y no se cae por red lenta.
+  const imagen = await comprimirImagen(file, {
+    ladoMax: 512,
+    pesoObjetivoKB: 150,
+    nombre: file.name || nombreSugerido
+  });
+
+  const nombre = imagen.name || file.name || nombreSugerido;
+  // La ruta DEBE ser `avatares/<uid>/...`: así la reconocen las políticas RLS
+  // del bucket (migración 005) y cada quien solo toca sus propias imágenes.
   const filePath = `avatares/${usuarioId}/${Date.now()}_${rutaSegura(nombre)}`;
 
   try {
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(filePath, file, { cacheControl: '3600', upsert: true });
+      .upload(filePath, imagen, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: imagen.type || 'image/jpeg'
+      });
 
     if (upErr) return { success: false, error: `No se pudo subir la imagen: ${upErr.message}` };
 
@@ -292,6 +389,104 @@ export async function getAvatarUsuario(usuarioId) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Comprobantes de facturas de proveedores · bucket `facturas`
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** Un comprobante puede ser foto o PDF, y pesa más que un avatar. */
+export const COMPROBANTE_MAX_MB = 15;
+const TIPOS_COMPROBANTE = [...TIPOS_IMAGEN, 'application/pdf'];
+
+/** Valida el comprobante antes de gastar red. Devuelve null si está bien. */
+export function validarComprobante(file) {
+  if (!file) return 'No se seleccionó ningún comprobante.';
+  if (!TIPOS_COMPROBANTE.includes(file.type)) {
+    return 'Formato no admitido. Sube una foto (JPG, PNG, WEBP) o un PDF.';
+  }
+  if (file.size > COMPROBANTE_MAX_MB * 1024 * 1024) {
+    return `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el máximo es ${COMPROBANTE_MAX_MB} MB.`;
+  }
+  return null;
+}
+
+/**
+ * Sube la foto o el PDF de una factura al bucket `facturas` y devuelve su URL
+ * pública, que es lo que se guarda en `gastos.comprobante`.
+ *
+ * Las fotos se comprimen a 2000 px de lado: suficiente para que los importes
+ * se lean nítidos en el visor de alta calidad sin subir 12 MB desde el móvil.
+ * Los PDF viajan intactos (comprimirlos rasterizaría el texto).
+ *
+ * @returns {Promise<{success: boolean, url?: string, path?: string, error?: string}>}
+ */
+export async function subirComprobanteFactura(file, proyectoId) {
+  const invalido = validarComprobante(file);
+  if (invalido) return { success: false, error: invalido };
+
+  const esPdf = file.type === 'application/pdf';
+  const archivo = esPdf
+    ? file
+    : await comprimirImagen(file, {
+        ladoMax: 2000,
+        pesoObjetivoKB: 900,
+        nombre: file.name || 'factura.jpg'
+      });
+
+  const carpeta = esIdValidoDeSupabase(proyectoId) ? `proyecto_${proyectoId}` : 'sin_proyecto';
+  const filePath = `${carpeta}/${Date.now()}_${rutaSegura(archivo.name || file.name || 'factura')}`;
+
+  try {
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET_FACTURAS)
+      .upload(filePath, archivo, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: archivo.type || file.type || 'application/octet-stream'
+      });
+
+    if (upErr) {
+      return { success: false, error: `No se pudo subir el comprobante: ${upErr.message}` };
+    }
+
+    const url = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(filePath).data?.publicUrl || null;
+    if (!url) return { success: false, error: 'El comprobante subió pero no se pudo obtener su enlace público.' };
+
+    return { success: true, url, path: filePath };
+  } catch (err) {
+    return { success: false, error: err.message || 'Error inesperado subiendo el comprobante.' };
+  }
+}
+
+/**
+ * Descarga un archivo remoto forzando el diálogo de guardado.
+ *
+ * Un `<a download>` apuntando a otro origen es ignorado por el navegador y
+ * termina abriendo la imagen en una pestaña; por eso se baja como blob. Si el
+ * fetch falla (CORS, sin red) se abre en pestaña nueva como último recurso.
+ */
+export async function descargarArchivo(url, nombreSugerido = 'archivo') {
+  if (!url) return { success: false, error: 'No hay archivo que descargar.' };
+
+  try {
+    const respuesta = await fetch(url);
+    if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+
+    const blob = await respuesta.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = objectUrl;
+    enlace.download = rutaSegura(nombreSugerido);
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return { success: true };
+  } catch (err) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return { success: false, error: err.message || 'No se pudo descargar el archivo.' };
+  }
+}
+
 /**
  * Sube la imagen de portada de un proyecto y actualiza `proyectos.imagen_url`.
  * @returns {Promise<{success: boolean, url?: string, error?: string}>}
@@ -303,12 +498,23 @@ export async function subirPortadaProyecto(file, proyectoId) {
     return { success: false, error: 'Este proyecto no existe en Supabase todavía, no se puede cambiar su portada.' };
   }
 
-  const filePath = `proyecto_${proyectoId}/portada/${Date.now()}_${rutaSegura(file.name || 'portada.jpg')}`;
+  // Las portadas se ven a 800 px como mucho: se comprimen antes de viajar.
+  const imagen = await comprimirImagen(file, {
+    ladoMax: 1600,
+    pesoObjetivoKB: 400,
+    nombre: file.name || 'portada.jpg'
+  });
+
+  const filePath = `proyecto_${proyectoId}/portada/${Date.now()}_${rutaSegura(imagen.name || 'portada.jpg')}`;
 
   try {
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(filePath, file, { cacheControl: '3600', upsert: true });
+      .upload(filePath, imagen, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: imagen.type || 'image/jpeg'
+      });
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
 

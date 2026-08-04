@@ -153,7 +153,7 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
           <button
             onClick={onCancel}
             disabled={subiendo}
-            className="text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-white disabled:opacity-40"
+            className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white disabled:opacity-40"
           >
             <X size={18} />
           </button>
@@ -195,7 +195,7 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
 
         {/* Zoom */}
         <div className="flex items-center gap-3 mt-4">
-          <ZoomIn size={16} className="text-slate-400 dark:text-zinc-400 flex-shrink-0" />
+          <ZoomIn size={16} className="text-slate-400 dark:text-zinc-200 flex-shrink-0" />
           <input
             type="range"
             min={ZOOM_MIN}
@@ -206,12 +206,12 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
             disabled={!imagen || subiendo}
             className="flex-1 accent-[#C5A059] cursor-pointer"
           />
-          <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 w-10 text-right tabular-nums">
+          <span className="text-xs font-bold text-slate-500 dark:text-zinc-200 w-10 text-right tabular-nums">
             {zoom.toFixed(1)}x
           </span>
         </div>
 
-        <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2 text-center">
+        <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-2 text-center">
           {t('perfil.ayudaRecorte')}
         </p>
 
@@ -225,7 +225,7 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
           <button
             onClick={onCancel}
             disabled={subiendo}
-            className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-50"
+            className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-50"
           >
             {t('comun.cancelar')}
           </button>

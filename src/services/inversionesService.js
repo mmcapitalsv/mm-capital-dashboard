@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { esIdValidoDeSupabase } from './storageService';
+import { tituloCase } from '../lib/formato';
 
 /**
  * Aportaciones de capital: relación usuario_id ↔ proyecto_id ↔ monto.
@@ -58,7 +59,8 @@ export async function getInversionistas() {
       if (!porUsuario.has(u.id)) {
         porUsuario.set(u.id, {
           id: u.id,
-          nombre: u.nombre_completo || (u.email || '').split('@')[0] || 'Usuario',
+          // Title Case: la base guarda nombres en mayúscula sostenida
+          nombre: tituloCase(u.nombre_completo || (u.email || '').split('@')[0]) || 'Usuario',
           email: u.email || '',
           rol: u.rol || '',
           avatarUrl: u.avatar_url || null,
@@ -168,7 +170,12 @@ export async function getUsuarios() {
     .order('created_at', { ascending: true });
 
   if (error) return { usuarios: [], error: error.message };
-  return { usuarios: Array.isArray(data) ? data.filter(Boolean) : [], error: null };
+
+  const usuarios = (Array.isArray(data) ? data : [])
+    .filter(Boolean)
+    .map(u => ({ ...u, nombre_completo: tituloCase(u.nombre_completo) || u.nombre_completo }));
+
+  return { usuarios, error: null };
 }
 
 /**

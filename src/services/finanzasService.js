@@ -7,8 +7,9 @@ import { esIdValidoDeSupabase } from './storageService';
  */
 
 const AVISO_MIGRACION =
-  'Faltan las columnas anticipo y cuota_asignada. Ejecuta ' +
-  'supabase/migrations/002_fase2_finanzas_galeria.sql en el SQL Editor de Supabase.';
+  'Faltan columnas financieras (anticipo, cuota_asignada, costo_ejecutado o ' +
+  'ejecucion_mensual). Ejecuta supabase/migrations/002_fase2_finanzas_galeria.sql y ' +
+  'supabase/migrations/007_finanzas_reales_y_hilo_reportes.sql en el SQL Editor de Supabase.';
 
 function columnaFaltante(error) {
   if (!error) return false;
@@ -28,10 +29,49 @@ export function aNumero(valor) {
 }
 
 /**
+ * Meses del año tal como se guardan en `proyectos.ejecucion_mensual`.
+ * La clave es fija (es) y la UI la traduce; así el JSON no depende del idioma.
+ */
+export const MESES_EJECUCION = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/**
+ * Normaliza la ejecución mensual que viene de Supabase a los 12 meses.
+ * Nunca inventa cifras: lo que no está guardado vale 0.
+ *
+ * @returns {Array<{name: string, value: number}>}
+ */
+export function normalizarEjecucionMensual(bruto) {
+  const previos = new Map();
+
+  if (Array.isArray(bruto)) {
+    for (const fila of bruto) {
+      if (!fila) continue;
+      const nombre = String(fila.name ?? fila.mes ?? '').trim();
+      if (!nombre) continue;
+      previos.set(nombre.slice(0, 3).toLowerCase(), aNumero(fila.value ?? fila.valor ?? fila.monto));
+    }
+  }
+
+  return MESES_EJECUCION.map(mes => ({
+    name: mes,
+    value: previos.get(mes.toLowerCase()) ?? 0
+  }));
+}
+
+/**
  * Guarda las cifras financieras del proyecto.
+ * Incluye el costo ejecutado (sobrescribible por el Administrador) y la
+ * ejecución financiera mensual editada mes a mes.
+ *
+ * `nombre` y `ubicacion` son opcionales: viajan en el MISMO UPDATE cuando el
+ * Administrador edita el título o el subtítulo del proyecto desde el header.
+ *
  * @returns {Promise<{success: boolean, valores?: object, error?: string}>}
  */
-export async function guardarFinanzas(proyectoId, { presupuesto, anticipo, cuota }) {
+export async function guardarFinanzas(
+  proyectoId,
+  { presupuesto, anticipo, cuota, costoEjecutado, ejecucionMensual, nombre, ubicacion }
+) {
   if (!esIdValidoDeSupabase(proyectoId)) {
     return {
       success: false,
@@ -44,6 +84,17 @@ export async function guardarFinanzas(proyectoId, { presupuesto, anticipo, cuota
     anticipo: aNumero(anticipo),
     cuota_asignada: aNumero(cuota)
   };
+
+  // El costo ejecutado y la ejecución mensual ya no se editan a mano: se
+  // derivan de la tabla `gastos`. Solo se escriben si quien llama los manda
+  // explícitamente (así un guardado normal no pisa la columna con ceros).
+  if (costoEjecutado !== undefined) valores.costo_ejecutado = aNumero(costoEjecutado);
+  if (ejecucionMensual !== undefined) valores.ejecucion_mensual = normalizarEjecucionMensual(ejecucionMensual);
+
+  // Identidad del proyecto: solo se toca si llegó algo escrito.
+  // El nombre nunca se vacía: un título en blanco dejaría la tarjeta sin rótulo.
+  if (typeof nombre === 'string' && nombre.trim()) valores.nombre = nombre.trim();
+  if (typeof ubicacion === 'string') valores.ubicacion = ubicacion.trim();
 
   const { data, error } = await supabase
     .from('proyectos')
@@ -58,6 +109,135 @@ export async function guardarFinanzas(proyectoId, { presupuesto, anticipo, cuota
   }
 
   return { success: true, valores: data };
+}
+
+/* ─────────────── Facturas de proveedores REALES (tabla `gastos`) ───────────
+   Las columnas `proveedor`, `concepto` y `comprobante` ya existen en la base
+   (migración 007), así que aquí no hay avisos de migración: se lee y escribe
+   directo.
+
+   `comprobante` guarda la URL pública del archivo subido al bucket `facturas`.
+   Las filas antiguas pueden traer texto suelto ("Factura #F-9482"); por eso
+   `esComprobanteArchivo` distingue una cosa de la otra. */
+
+/** true si `comprobante` es un enlace a un archivo y no una referencia escrita. */
+export function esComprobanteArchivo(valor) {
+  return /^https?:\/\//i.test(String(valor || '').trim());
+}
+
+/** true si el comprobante es un PDF (se visualiza en iframe, no en <img>). */
+export function esComprobantePdf(valor) {
+  return /\.pdf(\?|#|$)/i.test(String(valor || '').trim());
+}
+
+/** Nombre de archivo sugerido al descargar el comprobante de una factura. */
+export function nombreArchivoFactura(factura) {
+  const proveedor = String(factura?.proveedor || 'factura').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40);
+  const extension = esComprobantePdf(factura?.comprobante) ? 'pdf' : 'jpg';
+  return `${proveedor}_${factura?.fecha || ''}.${extension}`.replace(/_+\./, '.');
+}
+
+/** Lista las facturas/gastos registrados para un proyecto. */
+export async function getFacturas(proyectoId) {
+  if (!esIdValidoDeSupabase(proyectoId)) return { facturas: [], error: null };
+
+  // Se ordena por `created_at`: la tabla `gastos` no tiene columna `fecha`,
+  // y el instante de registro es justamente el orden que interesa.
+  const { data, error } = await supabase
+    .from('gastos')
+    .select('*')
+    .eq('proyecto_id', proyectoId)
+    .order('created_at', { ascending: false });
+
+  if (error) return { facturas: [], error: error.message };
+
+  const facturas = (data || []).map(g => ({
+    id: g.id,
+    proveedor: g.proveedor || g.descripcion || 'Proveedor sin nombre',
+    concepto: g.concepto || g.descripcion || '',
+    monto: Number(g.monto) || 0,
+    comprobante: g.comprobante || '',
+    fecha: g.created_at ? String(g.created_at).slice(0, 10) : ''
+  }));
+
+  return { facturas, error: null };
+}
+
+/** Registra una factura de proveedor en `gastos`. */
+export async function crearFactura(proyectoId, { proveedor, concepto, monto, comprobante }) {
+  if (!esIdValidoDeSupabase(proyectoId)) {
+    return { success: false, error: 'Este proyecto no existe en Supabase, así que no se puede registrar la factura.' };
+  }
+
+  // `descripcion` es la columna original de la tabla y en varios reportes es
+  // lo único que se lee: se rellena con el concepto para no dejarla vacía.
+  const fila = {
+    proyecto_id: proyectoId,
+    proveedor: String(proveedor || '').trim(),
+    concepto: String(concepto || '').trim(),
+    descripcion: String(concepto || proveedor || '').trim(),
+    comprobante: String(comprobante || '').trim(),
+    monto: aNumero(monto)
+  };
+
+  if (!fila.proveedor) return { success: false, error: 'Indica el proveedor.' };
+  if (fila.monto <= 0) return { success: false, error: 'Indica un monto mayor que cero.' };
+
+  const { data, error } = await supabase.from('gastos').insert([fila]).select().single();
+
+  if (error) return { success: false, error: error.message };
+
+  return { success: true, factura: data };
+}
+
+/**
+ * Actualiza los datos de una factura ya registrada.
+ * El comprobante no se toca: se edita el texto y el monto, no el archivo.
+ */
+export async function actualizarFactura(facturaId, { proveedor, concepto, monto }) {
+  if (!esIdValidoDeSupabase(facturaId)) {
+    return { success: false, error: 'Esta factura no existe en Supabase, así que no se puede editar.' };
+  }
+
+  const valores = {
+    proveedor: String(proveedor || '').trim(),
+    concepto: String(concepto || '').trim(),
+    monto: aNumero(monto)
+  };
+  // `descripcion` acompaña siempre al concepto (ver crearFactura).
+  valores.descripcion = valores.concepto || valores.proveedor;
+
+  if (!valores.proveedor) return { success: false, error: 'Indica el proveedor.' };
+  if (valores.monto <= 0) return { success: false, error: 'Indica un monto mayor que cero.' };
+
+  const { data, error } = await supabase
+    .from('gastos')
+    .update(valores)
+    .eq('id', facturaId)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  return { success: true, factura: data };
+}
+
+/** Borra la fila de la factura en `gastos`. El archivo del bucket se conserva. */
+export async function eliminarFactura(facturaId) {
+  if (!esIdValidoDeSupabase(facturaId)) {
+    return { success: false, error: 'Esta factura no existe en Supabase, así que no se puede eliminar.' };
+  }
+
+  // `.select()` devuelve lo borrado: si RLS bloquea la operación no hay error,
+  // solo cero filas, y sin esto el borrado parecería haber funcionado.
+  const { data, error } = await supabase.from('gastos').delete().eq('id', facturaId).select();
+
+  if (error) return { success: false, error: error.message };
+  if (!data || data.length === 0) {
+    return { success: false, error: 'No se pudo eliminar la factura. Solo el Administrador puede borrar registros de gastos.' };
+  }
+
+  return { success: true };
 }
 
 /* ───────────────── Agrupación de gastos por mes para la gráfica ───────────── */
@@ -127,6 +307,41 @@ export function agruparGastosPorMes(facturas, idioma = 'es') {
       total: Math.round(x.total * 100) / 100,
       cantidad: x.cantidad
     }));
+}
+
+/**
+ * Suma REAL de los montos registrados en `gastos`.
+ * Es el único origen del "Costo Ejecutado": no hay cifras de relleno.
+ */
+export function sumarGastos(facturas) {
+  if (!Array.isArray(facturas)) return 0;
+  const total = facturas.reduce((s, f) => s + (Number(f?.monto) || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
+/**
+ * Consulta `gastos` por `proyecto_id` y devuelve el total ejecutado junto con
+ * las filas, para que la vista arme la gráfica sin una segunda consulta.
+ *
+ * @returns {Promise<{total: number, facturas: Array, error: string|null}>}
+ */
+export async function getTotalEjecutado(proyectoId) {
+  const { facturas, error } = await getFacturas(proyectoId);
+  return { total: sumarGastos(facturas), facturas, error };
+}
+
+/**
+ * Serie de la gráfica "Ejecución financiera mensual" construida ESTRICTAMENTE
+ * con las sumas reales de cada mes. Sin meses inventados ni ceros de relleno.
+ *
+ * @returns {Array<{name: string, value: number, cantidad: number}>}
+ */
+export function ejecucionMensualReal(facturas, idioma = 'es') {
+  return agruparGastosPorMes(facturas, idioma).map(m => ({
+    name: m.name,
+    value: m.total,
+    cantidad: m.cantidad
+  }));
 }
 
 /** Formatea un monto como moneda con dos decimales: $12,450.00 */

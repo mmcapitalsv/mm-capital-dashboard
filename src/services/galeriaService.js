@@ -2,6 +2,7 @@ import { supabase } from '../supabaseClient';
 import {
   BUCKET, esIdValidoDeSupabase, validarImagen, rutaDesdeUrl
 } from './storageService';
+import { comprimirImagen } from '../lib/comprimirImagen';
 
 /**
  * Álbumes de galería y sus fotos.
@@ -102,10 +103,13 @@ export async function crearAlbum(proyectoId, { titulo, fecha, portadaFile }) {
     const invalida = validarImagen(portadaFile);
     if (invalida) return { success: false, error: invalida };
 
-    portadaPath = `proyecto_${proyectoId}/portadas/${Date.now()}_${rutaSegura(portadaFile.name)}`;
+    const portada = await comprimirImagen(portadaFile, { ladoMax: 1600, pesoObjetivoKB: 400 });
+    portadaPath = `proyecto_${proyectoId}/portadas/${Date.now()}_${rutaSegura(portada.name || portadaFile.name)}`;
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(portadaPath, portadaFile, { cacheControl: '3600', upsert: true });
+      .upload(portadaPath, portada, {
+        cacheControl: '3600', upsert: true, contentType: portada.type || 'image/jpeg'
+      });
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
     portadaUrl = supabase.storage.from(BUCKET).getPublicUrl(portadaPath).data?.publicUrl || null;
@@ -145,11 +149,14 @@ export async function actualizarAlbum(albumId, { titulo, fecha, portadaFile, pro
     if (invalida) return { success: false, error: invalida };
 
     const carpeta = esIdValidoDeSupabase(proyectoId) ? `proyecto_${proyectoId}` : 'portadas';
-    const ruta = `${carpeta}/portadas/${Date.now()}_${rutaSegura(portadaFile.name)}`;
+    const portada = await comprimirImagen(portadaFile, { ladoMax: 1600, pesoObjetivoKB: 400 });
+    const ruta = `${carpeta}/portadas/${Date.now()}_${rutaSegura(portada.name || portadaFile.name)}`;
 
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(ruta, portadaFile, { cacheControl: '3600', upsert: true });
+      .upload(ruta, portada, {
+        cacheControl: '3600', upsert: true, contentType: portada.type || 'image/jpeg'
+      });
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
 
@@ -205,11 +212,14 @@ export async function subirFotoAlbum(file, proyectoId, albumId) {
     return { success: false, error: 'El proyecto no existe en Supabase todavía.' };
   }
 
-  const filePath = `proyecto_${proyectoId}/galeria/${Date.now()}_${rutaSegura(file.name)}`;
+  const foto = await comprimirImagen(file, { ladoMax: 1920, pesoObjetivoKB: 600 });
+  const filePath = `proyecto_${proyectoId}/galeria/${Date.now()}_${rutaSegura(foto.name || file.name)}`;
 
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(filePath, file, { cacheControl: '3600', upsert: true });
+    .upload(filePath, foto, {
+      cacheControl: '3600', upsert: true, contentType: foto.type || 'image/jpeg'
+    });
 
   if (upErr) return { success: false, error: `No se pudo subir la foto: ${upErr.message}` };
 

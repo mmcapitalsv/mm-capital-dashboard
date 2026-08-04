@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
+import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 
 const DEFAULT_PROJECTS = [
   {
@@ -68,6 +69,18 @@ const DEFAULT_PROJECTS = [
   }
 ];
 
+/**
+ * Estado del proyecto derivado del avance real de hitos.
+ * 0% (o sin hitos) = Planificación · 1–99% = En progreso · 100% = Finalizado.
+ * Se devuelve el valor canónico que entiende `etiquetaEstado()`.
+ */
+export function estadoPorAvance(porcentaje, totalHitos = 1) {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(porcentaje) || 0)));
+  if (!totalHitos || pct === 0) return 'Planificación';
+  if (pct >= 100) return 'Finalizado';
+  return 'En progreso';
+}
+
 function formatMoney(amount) {
   const n = Number(amount);
   if (isNaN(n) || n === 0) return '$0';
@@ -81,31 +94,41 @@ export function useProyectos(user) {
   const [gastos, setGastos] = useState([]);
   const [hitos, setHitos] = useState([]);
   const [archivos, setArchivos] = useState([]);
+  // Aportaciones de los inversionistas: son el origen ÚNICO de los egresos
+  // totales del panel (nada de cifras escritas a mano).
+  const [aportaciones, setAportaciones] = useState([]);
+  const [capitalConfigurado, setCapitalConfigurado] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rol, setRol] = useState(null);
+  const [perfil, setPerfil] = useState(null);
 
   const fetchData = async () => {
     try {
       setLoading(true);
 
-      // 1. Fetch User Role
-      if (user?.email === 'luisp.bomel@gmail.com' || user?.email === 'luis@mmcapital.com') {
-        setRol('admin');
-      } else if (user?.id) {
+      // 1. Ficha del usuario autenticado: nombre, cargo y rol reales.
+      //    De aquí salen el saludo, la tarjeta del sidebar y los permisos.
+      const esAdminPorCorreo =
+        user?.email === 'luisp.bomel@gmail.com' || user?.email === 'luis@mmcapital.com';
+
+      if (user?.id) {
         try {
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
-            .select('rol')
+            .select('*')
             .eq('id', user.id)
             .maybeSingle();
-            
-          if (!userError && userData && userData.rol) {
-            setRol(userData.rol);
+
+          if (!userError && userData) {
+            setPerfil(userData);
+            if (userData.rol) setRol(esAdminPorCorreo ? 'admin' : userData.rol);
           }
         } catch (e) {
-          console.warn("User role fetch warning:", e);
+          console.warn("User profile fetch warning:", e);
         }
       }
+
+      if (esAdminPorCorreo) setRol('admin');
 
       // 2. Fetch Projects from Supabase
       const { data: proyectosData, error: proyectosError } = await supabase
@@ -151,6 +174,21 @@ export function useProyectos(user) {
         setArchivos([]);
       }
 
+      // 6. Aportaciones (Inversionistas) -> egresos totales del portafolio
+      const { data: aportacionesData, error: aportacionesError } = await supabase
+        .from('aportaciones')
+        .select('id, usuario_id, proyecto_id, monto, fecha, nota');
+
+      if (!aportacionesError && Array.isArray(aportacionesData)) {
+        setAportaciones(aportacionesData);
+      } else {
+        setAportaciones([]);
+      }
+
+      // 7. Capital total configurable (tabla `configuracion`, migración 005)
+      const { monto } = await getCapitalTotal();
+      setCapitalConfigurado(Number.isFinite(monto) ? monto : null);
+
     } catch (error) {
       console.error("Error fetching data from Supabase:", error);
       setProyectos(DEFAULT_PROJECTS);
@@ -181,7 +219,12 @@ export function useProyectos(user) {
     };
 
     const canal = supabase.channel('portafolio-mmcapital');
-    for (const tabla of ['proyectos', 'checklist_hitos', 'gastos', 'archivos', 'usuarios']) {
+    for (const tabla of [
+      'proyectos', 'checklist_hitos', 'gastos', 'archivos', 'usuarios',
+      // Una inversión nueva o editada recalcula los egresos del Dashboard al
+      // instante, sin recargar la página.
+      'aportaciones', 'configuracion'
+    ]) {
       canal.on('postgres_changes', { event: '*', schema: 'public', table: tabla }, recargarAgrupado);
     }
     canal.subscribe();
@@ -198,6 +241,7 @@ export function useProyectos(user) {
   const safeGastos = Array.isArray(gastos) ? gastos : [];
   const safeHitos = Array.isArray(hitos) ? hitos : [];
   const safeArchivos = Array.isArray(archivos) ? archivos : [];
+  const safeAportaciones = Array.isArray(aportaciones) ? aportaciones : [];
 
   // Derived Data: Normalize fields and calculate financial metrics
   const proyectosConFinanzas = safeProyectos.map((proyecto) => {
@@ -205,7 +249,12 @@ export function useProyectos(user) {
 
     const pIdStr = String(proyecto.id || '');
     const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
-    const totalGastado = gastosProyecto.reduce((sum, g) => sum + (Number(g?.monto) || 0), 0);
+    const gastosSumados = gastosProyecto.reduce((sum, g) => sum + (Number(g?.monto) || 0), 0);
+    // El costo ejecutado es DINÁMICO: siempre la suma real de `gastos` del
+    // proyecto. La columna `proyectos.costo_ejecutado` ya no manda, así cada
+    // factura registrada mueve la métrica en Dashboard y Resumen al instante.
+    const costoEjecutado = gastosSumados;
+    const totalGastado = costoEjecutado;
     const presupuestoTotal = Number(proyecto.presupuesto_total || proyecto.presupuesto || 0);
     const balance = presupuestoTotal - totalGastado;
     const calcPct = presupuestoTotal > 0 ? (totalGastado / presupuestoTotal) * 100 : 0;
@@ -231,7 +280,9 @@ export function useProyectos(user) {
 
     const nombreFinal = proyecto.nombre || proyecto.title || 'Proyecto';
     const ubicacionFinal = proyecto.ubicacion || proyecto.location || '';
-    const estadoFinal = proyecto.estado || proyecto.status || 'En Progreso';
+    // El estado NO es texto fijo: sale del % de hitos completados.
+    // 0% = Planificación · 1–99% = En progreso · 100% = Finalizado.
+    const estadoFinal = estadoPorAvance(avanceFisico, checklistFinal.length);
     const imagenFinal = proyecto.imagen_url || proyecto.img || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80';
     const fechaFinal = proyecto.fecha_entrega || proyecto.entrega || '2025-11-30';
 
@@ -252,6 +303,10 @@ export function useProyectos(user) {
       presupuesto: formatMoney(presupuestoTotal),
       fecha_entrega: fechaFinal,
       entrega: fechaFinal,
+      // Cifras financieras reales de Supabase (editables por el Administrador)
+      costo_ejecutado: costoEjecutado,
+      gastosSumados,
+      ejecucion_mensual: Array.isArray(proyecto.ejecucion_mensual) ? proyecto.ejecucion_mensual : [],
       totalGastado,
       ejecutado: formatMoney(totalGastado),
       balance,
@@ -295,15 +350,57 @@ export function useProyectos(user) {
       };
     });
 
+  /* ── Finanzas globales del portafolio ────────────────────────────────────
+     Egresos totales = suma de TODAS las inversiones registradas en la sección
+     de Inversionistas. Nunca es un número escrito a mano: si se agrega o se
+     modifica una aportación, Realtime recarga y esta cifra cambia sola. */
+  const egresosTotales = safeAportaciones
+    .reduce((suma, a) => suma + (Number(a?.monto) || 0), 0);
+
+  // Capital total: el valor editado por el Administrador manda; si nunca se
+  // configuró, se cae a la suma de los presupuestos de los proyectos.
+  const capitalPresupuestado = proyectosConFinanzas
+    .reduce((suma, p) => suma + (Number(p?.presupuesto_total) || 0), 0);
+  const capitalTotal = Number.isFinite(capitalConfigurado) && capitalConfigurado !== null
+    ? capitalConfigurado
+    : capitalPresupuestado;
+
+  const capitalDisponible = capitalTotal - egresosTotales;
+  const pctEjecutado = capitalTotal > 0
+    ? Math.min(100, Math.max(0, (egresosTotales / capitalTotal) * 100))
+    : 0;
+  const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
+
+  /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
+  const actualizarCapitalTotal = async (monto) => {
+    const resultado = await guardarCapitalTotal(monto);
+    if (resultado.success) {
+      const importe = Number(String(monto).replace(/[^\d.-]/g, ''));
+      setCapitalConfigurado(Number.isFinite(importe) ? importe : null);
+    }
+    return resultado;
+  };
+
   return {
     proyectos: proyectosConFinanzas,
     gastos: safeGastos,
     hitos: safeHitos,
     archivos: safeArchivos,
+    aportaciones: safeAportaciones,
     rol,
+    perfil,
     loading,
     notificaciones,
     refetchData: fetchData,
+    // Finanzas reactivas del portafolio
+    capitalTotal,
+    capitalPresupuestado,
+    capitalConfigurado,
+    egresosTotales,
+    capitalDisponible,
+    pctEjecutado,
+    pctDisponible,
+    actualizarCapitalTotal,
     isAdmin: ['admin', 'socio_administrador'].includes(rol),
     isInvestorOrPartner: ['inversionista', 'socio_director'].includes(rol)
   };

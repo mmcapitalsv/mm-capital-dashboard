@@ -46,7 +46,7 @@ function App() {
     // de localStorage en lugar de usar el contexto.
     const t = crearTraductor(idiomaGuardado());
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-200">
+      <div className="min-h-full flex items-center justify-center bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-200">
         {t('comun.cargando')}
       </div>
     );
@@ -56,7 +56,9 @@ function App() {
     /* Sin sesión iniciada se fuerza el tema claro: la pantalla de acceso
        siempre se ve en versión de día, sin importar la preferencia guardada. */
     <PreferenciasProvider forzarClaro={!currentUser}>
-      <ChatProvider usuarioNombre={currentUser?.email?.split('@')[0] || 'Luis Panameño'}>
+      {/* El chat "Socios" resuelve por sí mismo el nombre y el rol reales
+          desde la ficha de `usuarios`: aquí solo necesita la sesión. */}
+      <ChatProvider user={currentUser}>
         <GlassFilterDefs />
       {currentUser ? (
         <Dashboard user={currentUser} onLogout={handleLogout} />

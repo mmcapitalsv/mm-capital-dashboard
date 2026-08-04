@@ -11,8 +11,21 @@
   --color-mm-gold: #D4AF37;
 }
 
+/* PWA / móvil nativo: bloquea el pull-to-refresh y el rebote del scroll. */
+html, body {
+  overscroll-behavior-y: none;
+}
+
 body {
   @apply bg-mm-cream text-mm-navy font-sans antialiased;
+}
+
+/* Áreas seguras (notch / isla dinámica / home indicator) en modo standalone. */
+#root {
+  height: 100dvh;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Modo oscuro: gris neutro profundo, sin subtono azul */
@@ -33,9 +46,51 @@ body {
   animation: fadeInCarrusel 500ms ease-out both;
 }
 
+/* Campaneo de la campana de notificaciones: con avisos sin leer se sacude
+   cada pocos segundos para que no pase desapercibida. Al marcarlas leídas la
+   clase desaparece y la campana vuelve a estar quieta y en blanco. */
+@keyframes campaneo {
+  0%, 65%, 100% { transform: rotate(0deg); }
+  70%  { transform: rotate(-14deg); }
+  75%  { transform: rotate(12deg); }
+  80%  { transform: rotate(-9deg); }
+  85%  { transform: rotate(7deg); }
+  90%  { transform: rotate(-4deg); }
+  95%  { transform: rotate(2deg); }
+}
+
+.animate-campaneo {
+  animation: campaneo 3s ease-in-out infinite;
+  transform-origin: top center;
+}
+
 /* Respeta a quien configuró menos movimiento en su sistema */
 @media (prefers-reduced-motion: reduce) {
   .animate-fadeIn { animation: none; }
+  .animate-campaneo { animation: none; }
+}
+
+/* Carruseles táctiles móviles: se desliza con el dedo y no se pinta barra. */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Barra inferior fija: respeta el área segura del iPhone. */
+.safe-bottom {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Barra superior: el inset del notch ya lo aporta #root, aquí solo el aire. */
+.safe-top {
+  padding-top: 0.5rem;
+}
+.safe-bottom-space {
+  height: 4.25rem;
 }
 
 @media (max-width: 1400px) {

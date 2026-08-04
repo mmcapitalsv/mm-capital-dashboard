@@ -13,6 +13,9 @@ dist-ssr
 *.local
 .env
 
+# Scripts SQL de un solo uso: llevan contraseñas en texto plano
+supabase/scripts/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
