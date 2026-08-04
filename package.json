@@ -20,11 +20,9 @@
     "lucide-react": "^1.27.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-tsparticles": "^2.12.2",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
-    "threejs-components": "^0.0.19",
-    "tsparticles": "^4.3.2"
+    "threejs-components": "^0.0.19"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
