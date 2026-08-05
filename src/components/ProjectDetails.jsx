@@ -1590,21 +1590,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                         </>
                       )}
                     </button>
-                  ) : (
-                    /* Dos motivos distintos para no poder tocar el checklist, y
-                       cada uno merece su propio aviso: al administrador hay que
-                       decirle que le falta encender el Modo Edición, no que no
-                       tiene permiso. */
+                  ) : esAdminChecklist ? (
+                    /* Al administrador sí hay que decirle que le falta encender
+                       el Modo Edición. Al resto no se le avisa nada: la vista
+                       simplemente no trae controles de edición. */
                     <span
                       className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700/60 border border-gray-200 dark:border-zinc-600 px-3.5 py-1.5 rounded-xl"
-                      title={esAdminChecklist ? t('proy.checklistSoloEdicion') : t('proy.checksSoloAdmin')}
+                      title={t('proy.checklistSoloEdicion')}
                     >
-                      {esAdminChecklist
-                        ? <Lock size={13} className="text-slate-400 dark:text-zinc-200" />
-                        : <ShieldAlert size={13} className="text-slate-400 dark:text-zinc-200" />}
-                      {esAdminChecklist ? t('proy.checklistSoloEdicion') : t('proy.checksSoloLectura')}
+                      <Lock size={13} className="text-slate-400 dark:text-zinc-200" />
+                      {t('proy.checklistSoloEdicion')}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -2624,7 +2621,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               className="archivo-oculto"
             />
 
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {/* Rejilla real desde móvil: 2 columnas de miniaturas cuadradas.
+                Con `grid-cols-1` las fotos se veían apiladas una tras otra. */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 auto-rows-min content-start">
               {(activeAlbumModal.photos || []).length === 0 && (
                 <div className="col-span-full border border-dashed border-gray-300 dark:border-zinc-600 rounded-2xl py-12 text-center">
                   <Image size={26} className="text-slate-300 dark:text-zinc-600 mx-auto mb-2" />
@@ -2637,13 +2636,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 return (
                 <div
                   key={foto?.id ?? idx}
-                  className="aspect-square rounded-2xl overflow-hidden relative group bg-slate-100 dark:bg-zinc-700 border border-gray-100 dark:border-zinc-700 shadow-sm"
+                  className="relative group aspect-square w-full rounded-2xl overflow-hidden bg-slate-100 dark:bg-zinc-700 border border-gray-100 dark:border-zinc-700 shadow-sm"
                 >
                   <img
                     src={photoUrl}
                     alt={foto?.nombre_archivo || `${idx + 1}`}
+                    loading="lazy"
                     onClick={() => setSelectedPhotoLightbox(photoUrl)}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform cursor-pointer"
+                    className="block w-full h-full aspect-square object-cover group-hover:scale-105 transition-transform cursor-pointer"
                   />
 
                   {/* Eliminar esta foto en concreto */}
