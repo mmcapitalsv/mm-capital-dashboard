@@ -1095,7 +1095,10 @@ function AIChatView({ onBack }) {
   );
 }
 
-function AllProjectsView({ projects, onCardClick, onBack, isEditMode, isAdmin, onNuevoProyecto }) {
+function AllProjectsView({
+  projects, onCardClick, onBack, isEditMode, isAdmin, onNuevoProyecto,
+  onCambiarPortada, subiendoPortadaId, portadaMsg
+}) {
   const { t } = usePrefs();
   /* La edición real de un proyecto vive en su ficha (ProjectDetails). Con el
      Modo Edición encendido, cada tarjeta muestra un acceso EXPLÍCITO a esa
@@ -1123,6 +1126,15 @@ function AllProjectsView({ projects, onCardClick, onBack, isEditMode, isAdmin, o
           </span>
         )}
       </div>
+      {portadaMsg && (
+        <div className={`mx-4 md:mx-8 mt-3 text-[11px] font-bold px-3 py-2 rounded-xl border ${
+          portadaMsg.tipo === 'exito'
+            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+            : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30'
+        }`}>
+          {portadaMsg.texto}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-4 md:p-8">
         {/* Crear proyecto: solo el Administrador y solo en Modo Edición */}
         {puedeEditar && (
@@ -1146,15 +1158,30 @@ function AllProjectsView({ projects, onCardClick, onBack, isEditMode, isAdmin, o
                 onClick={() => onCardClick(p)}
                 className="bg-white dark:bg-zinc-800 rounded-[20px] border border-gray-100 dark:border-zinc-700 shadow-sm p-5 cursor-pointer hover:shadow-[0_8px_32px_rgba(0,0,0,0.10)] transition-all group"
               >
-                {p.imagen_url ? (
-                  <div className="w-full h-36 rounded-xl overflow-hidden mb-4 bg-slate-100 dark:bg-zinc-700">
+                {/* La portada también se cambia desde aquí, no solo desde el
+                    Proyecto Destacado del panel: mismo control en móvil y en
+                    escritorio, siempre visible (nada de hover). */}
+                <div className="relative w-full h-36 rounded-xl overflow-hidden mb-4 bg-slate-100 dark:bg-zinc-700">
+                  {p.imagen_url ? (
                     <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  </div>
-                ) : (
-                  <div className="w-full h-36 rounded-xl mb-4 bg-slate-100 dark:bg-zinc-700 flex items-center justify-center">
-                    <Building2 size={36} className="text-slate-300 dark:text-zinc-200" />
-                  </div>
-                )}
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Building2 size={36} className="text-slate-300 dark:text-zinc-200" />
+                    </div>
+                  )}
+                  {puedeEditar && typeof onCambiarPortada === 'function' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCambiarPortada(p.id); }}
+                      disabled={subiendoPortadaId === p.id}
+                      className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition-transform disabled:opacity-60"
+                    >
+                      {subiendoPortadaId === p.id
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : <Camera size={12} className="text-[#C5A059]" />}
+                      {subiendoPortadaId === p.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
+                    </button>
+                  )}
+                </div>
                 <div className={`inline-flex px-2 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase border mb-2 ${statusColor(p.estado)}`}>
                   {etiquetaEstado(p.estado, t) || t('fb.sinEstado')}
                 </div>
@@ -2380,21 +2407,38 @@ export default function Dashboard({ user, onLogout }) {
   useEffect(() => {
     finChatSidebarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [mensajesSocios.length]);
-  const [subiendoPortada, setSubiendoPortada] = useState(false);
+  /* Portada del proyecto: el selector de archivo es UNO solo y sirve a los tres
+     sitios donde se puede cambiar la foto (destacado de escritorio, carrusel
+     móvil y lista "Todos los Proyectos"). Por eso el id del proyecto no puede
+     salir de `fp`: se guarda al abrir el selector.
+
+     `subiendoPortadaId` en vez de un booleano: así el spinner aparece sobre la
+     tarjeta que de verdad se está subiendo y no sobre todas a la vez. */
+  const proyectoPortadaRef = useRef(null);
+  const [subiendoPortadaId, setSubiendoPortadaId] = useState(null);
   const [portadaMsg, setPortadaMsg] = useState(null);
 
-  /** Cambia la imagen del proyecto destacado (solo en modo edición). */
+  /** Abre el selector de imagen para un proyecto concreto (solo modo edición). */
+  const pedirPortadaProyecto = (proyectoId) => {
+    if (!proyectoId) return;
+    proyectoPortadaRef.current = proyectoId;
+    portadaProyectoRef.current?.click();
+  };
+
+  /** Sube la imagen elegida y la deja como portada del proyecto marcado. */
   const handlePortadaProyecto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !fp?.id) return;
+    const proyectoId = proyectoPortadaRef.current;
+    if (!file || !proyectoId) return;
 
-    setSubiendoPortada(true);
+    setSubiendoPortadaId(proyectoId);
     setPortadaMsg(null);
 
-    const { success, error } = await subirPortadaProyecto(file, fp.id);
+    const { success, error } = await subirPortadaProyecto(file, proyectoId);
 
-    setSubiendoPortada(false);
+    setSubiendoPortadaId(null);
+    proyectoPortadaRef.current = null;
     setPortadaMsg(success
       ? { tipo: 'exito', texto: t('dash.portadaActualizada') }
       : { tipo: 'error', texto: error });
@@ -2508,7 +2552,15 @@ export default function Dashboard({ user, onLogout }) {
       if (e.state && e.state.view) {
         setCurrentView(e.state.view);
         if (e.state.activeProject !== undefined) {
-          setActiveProject(e.state.activeProject);
+          /* Lo que viaja en el historial es una FOTO del proyecto del momento
+             en que se navegó, no el objeto vivo. Si al retroceder seguimos en
+             el MISMO proyecto se conserva el que ya está en pantalla: de lo
+             contrario, cerrar las Facturas con el botón "Atrás" resucitaría
+             las cifras anteriores a lo último que se guardó. */
+          const guardado = e.state.activeProject;
+          setActiveProject(prev =>
+            (prev && guardado && String(prev.id) === String(guardado.id)) ? prev : guardado
+          );
           setProyectoPendiente(null);
         }
       } else {
@@ -2809,6 +2861,19 @@ export default function Dashboard({ user, onLogout }) {
        visible y el compositor del chat caía fuera de pantalla. `dvh` sigue al
        alto real y en escritorio se comporta igual que `vh`. */
     <div className="flex h-full overflow-hidden bg-[#0B1B2C] dark:bg-zinc-900">
+
+      {/* Selector de portada de proyecto: vive en la RAÍZ, no dentro del bloque
+          de escritorio. Colgado de un contenedor `hidden md:flex` el navegador
+          móvil no llegaba a abrirlo y por eso la foto solo se podía cambiar
+          desde la laptop. Aquí lo comparten escritorio, carrusel móvil y la
+          lista de "Todos los Proyectos". */}
+      <input
+        type="file"
+        ref={portadaProyectoRef}
+        onChange={handlePortadaProyecto}
+        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+        className="hidden"
+      />
 
       {/* ════════════════════════════════════════════════
           SIDEBAR IZQUIERDO (solo desktop)
@@ -3261,6 +3326,9 @@ export default function Dashboard({ user, onLogout }) {
               isEditMode={isEditMode}
               isAdmin={isAdmin}
               onNuevoProyecto={() => changeView('new-project')}
+              onCambiarPortada={pedirPortadaProyecto}
+              subiendoPortadaId={subiendoPortadaId}
+              portadaMsg={portadaMsg}
             />
           ) : currentView === 'profile' ? (
             <ProfileView
@@ -3333,18 +3401,33 @@ export default function Dashboard({ user, onLogout }) {
                     <div className="grid grid-cols-4 gap-1.5 mt-2">
                       {[
                         { icono: Building2, valor: loading ? '–' : String(PROJECTS.length), etiqueta: t('dash.proyectosActivos') },
-                        { icono: DollarSign, valor: loading ? '–' : formatMoney(totalCapital), etiqueta: t('dash.capitalTotal') },
+                        // El Capital Total es la ÚNICA cifra escrita a mano de
+                        // este bloque, así que es la única con lápiz.
+                        { icono: DollarSign, valor: loading ? '–' : formatMoney(totalCapital), etiqueta: t('dash.capitalTotal'), editable: true },
                         { icono: TrendingUp, valor: loading ? '–' : `${avanceProm}%`, etiqueta: t('dash.avancePromedioMin'), pie: !loading && t('dash.ejecAbrev') },
                         // Mismo dato que el KPI 4 del escritorio: la suma de
                         // TODAS las inversiones registradas, no el gasto del mes.
                         { icono: Wallet, valor: loading ? '–' : formatMoney(egresosTotales), etiqueta: t('dash.egresosTotales') }
                       ].map((kpi, i) => {
                         const IconoKpi = kpi.icono;
+                        const puedeEditarKpi = kpi.editable && isAdmin && isEditMode;
                         return (
                           <div
                             key={i}
-                            className="min-w-0 bg-[#16273B] dark:bg-zinc-700 rounded-xl px-1 py-2 flex flex-col items-center justify-start text-center border border-white/5 dark:border-zinc-600"
+                            className="relative min-w-0 bg-[#16273B] dark:bg-zinc-700 rounded-xl px-1 py-2 flex flex-col items-center justify-start text-center border border-white/5 dark:border-zinc-600"
                           >
+                            {/* El lápiz solo cabe como sello en la esquina: la
+                                caja de escritura se abre debajo de la rejilla,
+                                donde sí hay ancho para escribir con el pulgar. */}
+                            {puedeEditarKpi && (
+                              <button
+                                onClick={abrirEdicionCapital}
+                                aria-label={t('dash.editarCapital')}
+                                className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-[#C5A059] text-[#0B1B2C] flex items-center justify-center shadow-md active:scale-90 transition-transform z-10"
+                              >
+                                <Edit2 size={11} />
+                              </button>
+                            )}
                             <div className="w-6 h-6 rounded-full border border-[#C5A059]/30 flex items-center justify-center mb-1.5 flex-shrink-0">
                               <IconoKpi size={11} className="text-[#C5A059]" />
                             </div>
@@ -3359,6 +3442,47 @@ export default function Dashboard({ user, onLogout }) {
                         );
                       })}
                     </div>
+
+                    {/* Edición del Capital Total en móvil (misma función que en
+                        escritorio: `guardarCapital` escribe en configuración). */}
+                    {editandoCapital && (
+                      <form onSubmit={guardarCapital} className="mt-3 flex items-center gap-2 bg-[#16273B] dark:bg-zinc-700 border border-[#C5A059]/50 rounded-xl px-2.5 py-2">
+                        <span className="text-xs font-bold text-white/70 flex-shrink-0">{t('dash.capitalTotal')}</span>
+                        <span className="text-sm font-black text-white/80">$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          autoFocus
+                          value={capitalBorrador}
+                          onChange={(e) => setCapitalBorrador(e.target.value)}
+                          className="flex-1 min-w-0 bg-transparent border-b border-[#C5A059] text-sm font-bold text-white focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          disabled={guardandoCapital}
+                          aria-label={t('comun.guardar')}
+                          className="p-1.5 rounded-lg text-emerald-300 active:bg-white/10 disabled:opacity-40 flex-shrink-0"
+                        >
+                          {guardandoCapital ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditandoCapital(false)}
+                          aria-label={t('comun.cancelar')}
+                          className="p-1.5 rounded-lg text-white/60 active:bg-white/10 flex-shrink-0"
+                        >
+                          <X size={16} />
+                        </button>
+                      </form>
+                    )}
+
+                    {capitalMsg && (
+                      <p className={`mt-2 text-[10px] font-bold ${
+                        capitalMsg.tipo === 'exito' ? 'text-emerald-400' : 'text-red-400'
+                      }`}>
+                        {capitalMsg.texto}
+                      </p>
+                    )}
                   </div>
 
                   {/* Los botones "Nuevo Proyecto" / "Todos los Proyectos" se
@@ -3369,6 +3493,18 @@ export default function Dashboard({ user, onLogout }) {
                       MÓVIL · Proyectos destacados (carrusel táctil)
                   ══════════════════════════════════════════════ */}
                   <div className="md:hidden mt-5">
+                    {/* El aviso de "portada actualizada" también en móvil: antes
+                        solo existía en el bloque de escritorio y desde el
+                        teléfono la subida no daba señal de vida. */}
+                    {portadaMsg && (
+                      <div className={`mb-2.5 text-[11px] font-bold px-3 py-2 rounded-xl border ${
+                        portadaMsg.tipo === 'exito'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                          : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30'
+                      }`}>
+                        {portadaMsg.texto}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between mb-3">
                       <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span className="text-[#C5A059]">★</span> {t('dash.proyectoDestacado')}
@@ -3421,6 +3557,28 @@ export default function Dashboard({ user, onLogout }) {
                                       <div className="absolute inset-0 flex items-center justify-center">
                                         <Building2 size={30} className="text-slate-300 dark:text-zinc-300" />
                                       </div>
+                                    )}
+                                    {/* Cambiar la portada DESDE EL TELÉFONO. Sin hover
+                                        que valga: con el Modo Edición encendido el
+                                        control está siempre a la vista y es tocable.
+                                        `stopPropagation` para que tocarlo no abra
+                                        además la ficha del proyecto. */}
+                                    {isEditMode && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); pedirPortadaProyecto(p.id); }}
+                                        disabled={subiendoPortadaId === p.id}
+                                        aria-label={t('dash.cambiarPortada')}
+                                        className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1.5 active:bg-black/60 transition-colors"
+                                      >
+                                        <span className="bg-white/90 p-2 rounded-full text-slate-900">
+                                          {subiendoPortadaId === p.id
+                                            ? <Loader2 size={16} className="animate-spin" />
+                                            : <Camera size={16} />}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-white tracking-wide px-1 text-center leading-tight">
+                                          {subiendoPortadaId === p.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
+                                        </span>
+                                      </button>
                                     )}
                                   </div>
 
@@ -3897,14 +4055,8 @@ export default function Dashboard({ user, onLogout }) {
                             arriba y los detalles ocupan el ancho completo en vez
                             de comprimirse hasta romperse. */}
                         <div className="flex flex-wrap gap-5 mb-5">
-                          {/* Selector de portada del proyecto (modo edición) */}
-                          <input
-                            type="file"
-                            ref={portadaProyectoRef}
-                            onChange={handlePortadaProyecto}
-                            accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-                            className="hidden"
-                          />
+                          {/* El selector de portada vive en la raíz del Dashboard:
+                              lo comparten escritorio y móvil. */}
 
                           {/* Imagen Grande */}
                           <div
@@ -3926,18 +4078,18 @@ export default function Dashboard({ user, onLogout }) {
                                 actualiza proyectos.imagen_url */}
                             {isEditMode && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); portadaProyectoRef.current?.click(); }}
-                                disabled={subiendoPortada}
+                                onClick={(e) => { e.stopPropagation(); pedirPortadaProyecto(fp.id); }}
+                                disabled={subiendoPortadaId === fp.id}
                                 className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer disabled:opacity-100"
                                 title={t('dash.cambiarPortada')}
                               >
                                 <span className="bg-white/90 p-2.5 rounded-full text-slate-900">
-                                  {subiendoPortada
+                                  {subiendoPortadaId === fp.id
                                     ? <Loader2 size={18} className="animate-spin" />
                                     : <Camera size={18} />}
                                 </span>
                                 <span className="text-[10px] font-bold text-white tracking-wide">
-                                  {subiendoPortada ? t('comun.subiendo') : t('dash.cambiarPortada')}
+                                  {subiendoPortadaId === fp.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
                                 </span>
                               </button>
                             )}

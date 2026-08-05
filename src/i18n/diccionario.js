@@ -577,6 +577,24 @@ export const DICCIONARIO = {
     'proy.ayudaGuardado': 'Nada se escribe en Supabase hasta presionar {boton}: puedes marcar, editar y quitar tareas para ver cómo queda el avance, y salir del Modo Edición si te arrepientes.',
     'proy.porEliminar': '{n} por eliminar al guardar',
     'proy.checklistSoloEdicion': 'Activa Modo Edición para marcar, editar o quitar tareas',
+
+    // ── Orden y numeración automática del checklist ──
+    'proy.moverArriba': 'Subir una posición',
+    'proy.moverAbajo': 'Bajar una posición',
+    'proy.arrastrarHito': 'Arrastrar para reordenar',
+    'proy.ayudaOrden': 'La numeración es automática: mueve las tareas con las flechas (o arrastrándolas por el asa) y se renumeran solas.',
+
+    // ── Facturas como borrador: nada se guarda hasta "Guardar Cambios" ──
+    'fac.ayudaGuardado': 'Nada se escribe en Supabase hasta presionar {boton}: puedes agregar, corregir y quitar facturas para ver cómo queda el costo ejecutado, y cancelar si te arrepientes.',
+    'fac.cambiosGuardados': 'Facturas guardadas en Supabase: {creadas} nueva(s), {actualizadas} corregida(s), {eliminadas} eliminada(s).',
+    'fac.editadaSinGuardar': 'Editada, sin guardar',
+    'fac.faltaProveedor': 'Indica el proveedor de la factura.',
+    'fac.faltaMonto': 'Indica un monto mayor que cero.',
+    'fac.sinProveedor': 'Factura sin proveedor',
+    'modal.agregarFactura': 'Agregar a la lista',
+    'comun.aplicar': 'Aplicar',
+    'dlg.eliminarFacturasTitulo': 'Se eliminarán {n} factura(s) permanentemente',
+    'dlg.eliminarFacturasAviso': 'Al guardar, estas facturas se borran de la tabla gastos y no se pueden recuperar. El resto de los cambios se guarda igual.',
     'chatDemo.1': '¿Ya se revisó el presupuesto de Chalchuapa?',
     'chatDemo.2': 'Sí, está aprobado ✅',
     'chatDemo.3': 'Perfecto. Actualizado en la bóveda de docs.',
@@ -1189,6 +1207,24 @@ export const DICCIONARIO = {
     'proy.ayudaGuardado': 'Nothing is written to Supabase until you press {boton}: check, edit and remove tasks to see how progress looks, and leave Edit Mode if you change your mind.',
     'proy.porEliminar': '{n} to delete on save',
     'proy.checklistSoloEdicion': 'Turn on Edit Mode to check, edit or remove tasks',
+
+    // ── Checklist order and automatic numbering ──
+    'proy.moverArriba': 'Move up one position',
+    'proy.moverAbajo': 'Move down one position',
+    'proy.arrastrarHito': 'Drag to reorder',
+    'proy.ayudaOrden': 'Numbering is automatic: move tasks with the arrows (or drag them by the handle) and they renumber themselves.',
+
+    // ── Invoices as a draft: nothing is saved until "Save Changes" ──
+    'fac.ayudaGuardado': 'Nothing is written to Supabase until you press {boton}: add, correct and remove invoices to see how the executed cost looks, and cancel if you change your mind.',
+    'fac.cambiosGuardados': 'Invoices saved to Supabase: {creadas} new, {actualizadas} corrected, {eliminadas} deleted.',
+    'fac.editadaSinGuardar': 'Edited, not saved',
+    'fac.faltaProveedor': 'Enter the invoice supplier.',
+    'fac.faltaMonto': 'Enter an amount greater than zero.',
+    'fac.sinProveedor': 'Invoice with no supplier',
+    'modal.agregarFactura': 'Add to the list',
+    'comun.aplicar': 'Apply',
+    'dlg.eliminarFacturasTitulo': '{n} invoice(s) will be permanently deleted',
+    'dlg.eliminarFacturasAviso': 'On save, these invoices are removed from the gastos table and cannot be recovered. Every other change is saved as usual.',
     'chatDemo.1': 'Has the Chalchuapa budget been reviewed yet?',
     'chatDemo.2': 'Yes, it is approved ✅',
     'chatDemo.3': 'Great. Updated in the document vault.',

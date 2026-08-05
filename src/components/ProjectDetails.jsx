@@ -3,7 +3,7 @@ import {
   ArrowLeft, CheckSquare, Square, Circle, Upload, Image, TrendingUp, FileText, LayoutGrid,
   ChevronDown, ChevronUp, Edit2, Save, Plus, Trash2, AlertTriangle, Loader2, CheckCircle2,
   ExternalLink, Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert, Building,
-  Sparkles, FileImage, ZoomIn, ZoomOut, Lock
+  Sparkles, FileImage, ZoomIn, ZoomOut, Lock, GripVertical
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
@@ -40,6 +40,17 @@ const TABS = [
   { id: 'gallery',   claveLabel: 'proy.tab.galeria',  icon: LayoutGrid },
 ];
 
+/* La numeración del checklist es AUTOMÁTICA: la posición manda y se pinta
+   "1., 2., 3." según el orden actual de la lista. Los títulos que ya traían el
+   número escrito a mano (las plantillas semilla y lo guardado antes de esto)
+   se limpian al mostrarlos y al guardarlos, para que mover una tarea nunca
+   deje un "3." arriba del todo ni un "1. 1." duplicado. */
+const RE_NUMERACION = /^\s*\d+\s*[.)\-–—]\s*/;
+
+export function sinNumeracion(texto) {
+  return String(texto || '').replace(RE_NUMERACION, '').trim();
+}
+
 /**
  * Tarjeta de monto financiero. En modo lectura muestra la cifra formateada;
  * en modo edición se convierte en un input controlado.
@@ -71,8 +82,11 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
           />
         </div>
       ) : (
+        /* Formato SIEMPRE en notación de dólar (coma para los miles, punto
+           para los centavos). `toLocaleString()` a secas usaba el idioma del
+           navegador y en español pintaba "$18.685,36", que se lee como $18. */
         <p className={`text-2xl md:text-3xl font-black ${colorValor}`}>
-          ${Number(valor || 0).toLocaleString()}
+          {formatearMoneda(valor)}
         </p>
       )}
 
@@ -93,9 +107,20 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(null);
 
-  // Facturas de proveedores: filas REALES de la tabla `gastos` de Supabase
+  /* Facturas de proveedores: filas REALES de la tabla `gastos` de Supabase.
+     Igual que el checklist, `facturas` es un BORRADOR en pantalla: registrar,
+     corregir o quitar una factura solo cambia esta lista, y nada toca Supabase
+     hasta que se presiona "Guardar Cambios". Las que aún no existen en la base
+     llevan `_nueva` (y su archivo pendiente de subir en `_archivo`), las
+     corregidas llevan `_editada`, y las quitadas se apuntan en
+     `facturasPorEliminar` hasta confirmar el borrado definitivo. */
   const [facturas, setFacturas] = useState([]);
   const [facturasMsg, setFacturasMsg] = useState(null);
+  const [facturasOkMsg, setFacturasOkMsg] = useState(null);
+  const [facturasPorEliminar, setFacturasPorEliminar] = useState([]);
+  const [hayCambiosFacturas, setHayCambiosFacturas] = useState(false);
+  const [guardandoFacturas, setGuardandoFacturas] = useState(false);
+  const [confirmandoBorradoFacturas, setConfirmandoBorradoFacturas] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [newInvoice, setNewInvoice] = useState({ proveedor: '', concepto: '', monto: '' });
   // Comprobante adjunto: archivo elegido + previsualización local antes de subir
@@ -103,13 +128,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [comprobantePreview, setComprobantePreview] = useState(null);
   const [arrastrandoComprobante, setArrastrandoComprobante] = useState(false);
   const [extrayendoIA, setExtrayendoIA] = useState(false);
-  const [guardandoFactura, setGuardandoFactura] = useState(false);
   const [facturaEnVisor, setFacturaEnVisor] = useState(null);
   // Edición y borrado de una factura ya registrada (solo en Modo Edición)
   const [facturaEditando, setFacturaEditando] = useState(null);
   const [edicionFactura, setEdicionFactura] = useState({ proveedor: '', concepto: '', monto: '' });
-  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
-  const [facturaEliminando, setFacturaEliminando] = useState(null);
   const [visorAmpliado, setVisorAmpliado] = useState(false);
   const [descargandoVisor, setDescargandoVisor] = useState(false);
   const comprobanteInputRef = useRef(null);
@@ -146,6 +168,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [newHitoDetail, setNewHitoDetail] = useState('');
   const [newHitoDate, setNewHitoDate] = useState('');
   const [newHitoValor, setNewHitoValor] = useState('');
+
+  /* Reordenamiento del checklist. `hitoArrastrado` es la tarea que viaja y
+     `hitoSobre` la posición donde se soltaría: con las dos se pinta la guía de
+     dónde va a caer. `handleActivo` existe porque el <li> solo se vuelve
+     arrastrable mientras el dedo/ratón está sobre el asa, así escribir un
+     monto dentro de la tarjeta no arranca un arrastre por accidente. */
+  const [hitoArrastrado, setHitoArrastrado] = useState(null);
+  const [hitoSobre, setHitoSobre] = useState(null);
+  const [handleActivo, setHandleActivo] = useState(null);
 
   // Edit Hito State
   const [editingHitoIndex, setEditingHitoIndex] = useState(null);
@@ -203,14 +234,16 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         setChecklist(items);
         setChecklistPersistido(true);
       } else {
-        setChecklist(getChecklistSeed(project.id, project.nombre || project.title).map((item, i) => ({ ...item, id: null, orden: i })));
+        setChecklist(getChecklistSeed(project.id, project.nombre || project.title)
+          .map((item, i) => ({ ...item, text: sinNumeracion(item.text), id: null, orden: i })));
         setChecklistPersistido(false);
       }
       setHayCambiosSinGuardar(false);
       setHitosPorEliminar([]);
     } catch (err) {
       console.error('Error cargando el checklist desde Supabase:', err);
-      setChecklist(getChecklistSeed(project?.id, project?.nombre || project?.title).map((item, i) => ({ ...item, id: null, orden: i })));
+      setChecklist(getChecklistSeed(project?.id, project?.nombre || project?.title)
+        .map((item, i) => ({ ...item, text: sinNumeracion(item.text), id: null, orden: i })));
       setChecklistPersistido(false);
     } finally {
       setIsLoadingChecklist(false);
@@ -222,6 +255,43 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
+  /* ── Facturas como paso propio del historial ────────────────────────────────
+     El subpanel de Facturas vive dentro de la pestaña Finanzas, así que sin
+     esto el botón "Atrás" del teléfono (y el "Volver" del header) saltaban
+     hasta el Dashboard y había que volver a entrar al proyecto. Al abrirlo se
+     empuja una entrada de historial propia: retroceder cierra las facturas y
+     deja al usuario justo donde estaba, en Finanzas.
+
+     La entrada CONSERVA el `state` del Dashboard (`view`/`activeProject`), así
+     que su propio `popstate` sigue viendo el mismo proyecto y no cambia nada. */
+  const abrirFacturas = () => {
+    setShowExpenses(true);
+    window.history.pushState(
+      { ...(window.history.state || {}), subvista: 'facturas' },
+      ''
+    );
+  };
+
+  const cerrarFacturas = () => {
+    // Si la apertura dejó su marca en el historial se retrocede de verdad (así
+    // no queda una entrada huérfana); si no, basta con cerrar el panel.
+    if (window.history.state?.subvista === 'facturas') window.history.back();
+    else setShowExpenses(false);
+  };
+
+  useEffect(() => {
+    if (!showExpenses) return;
+    const alRetroceder = () => setShowExpenses(false);
+    window.addEventListener('popstate', alRetroceder);
+    return () => window.removeEventListener('popstate', alRetroceder);
+  }, [showExpenses]);
+
+  /** "Volver" del header: primero cierra Facturas, y solo después sale al panel. */
+  const handleVolver = () => {
+    if (showExpenses) cerrarFacturas();
+    else onBack?.();
+  };
+
   /* Apagar el Modo Edición equivale a cancelar: se relee el checklist de
      Supabase y se descarta lo que no llegó a guardarse. Sin esto quedarían
      tareas "borradas" en pantalla que ya nadie puede confirmar, porque el
@@ -231,6 +301,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setEditingHitoIndex(null);
     setConfirmandoBorrado(false);
     if (hayCambiosSinGuardar) cargarChecklist();
+    // Las facturas siguen la misma regla: salir del Modo Edición es cancelar,
+    // así que el borrador se descarta y vuelve lo que hay en Supabase.
+    if (hayCambiosFacturas) descartarCambiosFacturas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode]);
 
@@ -263,6 +336,41 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   /**
+   * Mueve una tarea a otra posición de la lista.
+   *
+   * La numeración (1., 2., 3.) sale de la posición, así que reordenar renumera
+   * solo: lo que quede de primero SIEMPRE es el 1. El nuevo orden viaja a
+   * Supabase en la columna `orden` con el mismo "Guardar Cambios" que todo lo
+   * demás, así que un arrastre por error se descarta saliendo del Modo Edición.
+   */
+  const moverHito = (desde, hacia) => {
+    if (!puedeEditarChecklist) return;
+    if (desde === hacia) return;
+    if (desde < 0 || desde >= safeChecklist.length) return;
+    if (hacia < 0 || hacia >= safeChecklist.length) return;
+
+    const lista = [...safeChecklist];
+    const [movido] = lista.splice(desde, 1);
+    lista.splice(hacia, 0, movido);
+
+    // El acordeón y la edición apuntan a índices: tras mover señalarían a otra
+    // tarea, así que se cierran en vez de quedar apuntando a lo que no es.
+    setOpenAccordion(null);
+    setEditingHitoIndex(null);
+    setChecklist(lista.map((item, i) => ({ ...item, orden: i })));
+    setHayCambiosSinGuardar(true);
+    limpiarMensajes();
+  };
+
+  /** Suelta la tarea arrastrada sobre la posición `destino`. */
+  const soltarHito = (destino) => {
+    if (hitoArrastrado !== null) moverHito(hitoArrastrado, destino);
+    setHitoArrastrado(null);
+    setHitoSobre(null);
+    setHandleActivo(null);
+  };
+
+  /**
    * Quita el hito de la LISTA, no de la base.
    *
    * Así se puede sacar una tarea y ver al instante cómo queda el avance y la
@@ -283,7 +391,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       setHitosPorEliminar(prev => (
         prev.some(h => String(h.id) === String(item.id))
           ? prev
-          : [...prev, { id: item.id, text: item.text || t('proy.hitoSinTitulo') }]
+          : [...prev, { id: item.id, text: sinNumeracion(item.text) || t('proy.hitoSinTitulo') }]
       ));
     }
     setHayCambiosSinGuardar(true);
@@ -294,7 +402,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     const item = safeChecklist[index];
     if (!item) return;
     setEditingHitoIndex(index);
-    setEditHitoText(item.text || item.titulo || '');
+    // El número lo pone la posición: no se edita a mano ni viaja en el título.
+    setEditHitoText(sinNumeracion(item.text || item.titulo || ''));
     setEditHitoDetail(item.detail || item.descripcion || '');
     setEditHitoDate(item.fecha || item.fecha_vencimiento || '');
     setEditHitoValor(aMonto(item.valor) || '');
@@ -312,7 +421,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
     const actualizado = {
       ...safeChecklist[editingHitoIndex],
-      text: editHitoText.trim(),
+      text: sinNumeracion(editHitoText),
       detail: editHitoDetail.trim() || t('fb.hitoActualizadoBitacora'),
       fecha: editHitoDate.trim() || 'Proyectado',
       valor: aMonto(editHitoValor)
@@ -333,7 +442,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     const newItem = {
       id: null,
       done: false,
-      text: newItemText.trim(),
+      text: sinNumeracion(newItemText),
       detail: newHitoDetail.trim() || t('fb.hitoBitacora'),
       fecha: newHitoDate.trim() || 'Proyectado',
       valor: aMonto(newHitoValor),
@@ -394,14 +503,21 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     limpiarMensajes();
 
     try {
-      const { success, items, porcentaje, error } = await saveChecklist(project.id, safeChecklist);
+      /* El ORDEN de la lista es el que se persiste (`orden` = posición) y los
+         títulos van sin el número escrito a mano: la numeración se pinta sola
+         desde la posición, así que guardarla dentro del texto solo generaría
+         "3. 1. Adquisición" la próxima vez que se mueva la tarea. */
+      const listaAGuardar = safeChecklist.map((item, i) => ({
+        ...item, text: sinNumeracion(item.text), orden: i
+      }));
+      const { success, items, porcentaje, error } = await saveChecklist(project.id, listaAGuardar);
 
       if (!success) {
         setSaveErrorMsg(t('msg.errorGuardarCambios', { error: error || t('msg.errorDesconocido') }));
         return;
       }
 
-      const listaFinal = Array.isArray(items) && items.length > 0 ? items : safeChecklist;
+      const listaFinal = Array.isArray(items) && items.length > 0 ? items : listaAGuardar;
       setChecklist(listaFinal);
       setChecklistPersistido(true);
       setHayCambiosSinGuardar(false);
@@ -545,16 +661,35 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setTimeout(() => setUploadMessage(null), 5000);
   };
 
-  /** Carga las facturas reales del proyecto desde `gastos`. */
-  const cargarFacturas = async () => {
+  /* ── Identidad y estado de una factura del borrador ────────────────────────
+     Las facturas nuevas todavía no tienen `id` de Supabase, así que se las
+     distingue con la clave temporal `_key`; y su comprobante aún no está en el
+     bucket, así que la miniatura se pinta con la URL local del archivo. */
+  const claveFactura = (fac) => fac?.id ?? fac?._key ?? null;
+  const urlComprobante = (fac) => fac?._preview || fac?.comprobante || '';
+  const tieneComprobante = (fac) => !!fac?._archivo || esComprobanteArchivo(fac?.comprobante);
+  const comprobanteEsPdf = (fac) => (
+    fac?._archivo ? fac._archivo.type === 'application/pdf' : esComprobantePdf(fac?.comprobante)
+  );
+
+  /**
+   * Carga las facturas reales del proyecto desde `gastos`.
+   * Con cambios sin guardar NO se relee: pisar el borrador borraría lo que el
+   * administrador acaba de registrar o corregir. `forzar` es para los momentos
+   * en que sí se quiere descartar el borrador (guardar o cancelar).
+   */
+  const cargarFacturas = async (forzar = false) => {
     if (!project?.id) { setFacturas([]); return; }
+    if (hayCambiosFacturas && !forzar) return;
     const { facturas: lista, error } = await getFacturas(project.id);
     setFacturas(Array.isArray(lista) ? lista : []);
     setFacturasMsg(error ? { tipo: 'error', texto: error } : null);
   };
 
   useEffect(() => {
-    cargarFacturas();
+    cargarFacturas(true);
+    setFacturasPorEliminar([]);
+    setHayCambiosFacturas(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
@@ -563,11 +698,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     if (!project?.id) return;
     const canal = supabase
       .channel(`gastos-proyecto-${project.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' }, cargarFacturas)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' }, () => cargarFacturas())
       .subscribe();
     return () => { supabase.removeChannel(canal); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id]);
+  }, [project?.id, hayCambiosFacturas]);
 
   /* ── Modal de registro de factura ──────────────────────────────────────── */
 
@@ -581,7 +716,6 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setComprobanteFile(null);
     setArrastrandoComprobante(false);
     setExtrayendoIA(false);
-    setGuardandoFactura(false);
   };
 
   const cerrarModalFactura = () => {
@@ -655,41 +789,47 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     }));
   };
 
-  const handleCreateInvoice = async (e) => {
+  /**
+   * Registra la factura en el BORRADOR, no en Supabase.
+   *
+   * Ni la fila ni el archivo se suben aquí: el comprobante se queda en memoria
+   * (`_archivo`) con una URL local para la miniatura, y todo viaja junto al
+   * presionar "Guardar Cambios". Así se pueden encolar varias facturas, revisar
+   * cómo queda el costo ejecutado y arrepentirse sin haber tocado la base.
+   */
+  const handleCreateInvoice = (e) => {
     e.preventDefault();
-    if (!newInvoice.proveedor || !newInvoice.monto || guardandoFactura) return;
-
-    setGuardandoFactura(true);
-
-    // 1. El comprobante viaja primero: sin URL la factura quedaría sin respaldo
-    let urlComprobante = '';
-    if (comprobanteFile) {
-      const subida = await subirComprobanteFactura(comprobanteFile, project?.id);
-      if (!subida.success) {
-        setFacturasMsg({ tipo: 'error', texto: subida.error });
-        setGuardandoFactura(false);
-        return;
-      }
-      urlComprobante = subida.url;
+    if (!String(newInvoice.proveedor || '').trim()) {
+      setFacturasMsg({ tipo: 'error', texto: t('fac.faltaProveedor') });
+      return;
     }
-
-    // 2. Fila en `gastos` con la URL pública en `comprobante`
-    const { success, error } = await crearFactura(project?.id, {
-      proveedor: newInvoice.proveedor,
-      concepto: newInvoice.concepto || t('fb.comprobantePago'),
-      monto: newInvoice.monto,
-      comprobante: urlComprobante
-    });
-
-    if (!success) {
-      setFacturasMsg({ tipo: 'error', texto: error });
-      setGuardandoFactura(false);
+    if (aNumero(newInvoice.monto) <= 0) {
+      setFacturasMsg({ tipo: 'error', texto: t('fac.faltaMonto') });
       return;
     }
 
-    cerrarModalFactura();
+    const archivo = comprobanteFile || null;
+    const nueva = {
+      id: null,
+      _key: `nueva-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      _nueva: true,
+      _archivo: archivo,
+      // URL local propia: la del modal se libera al cerrarlo
+      _preview: archivo ? URL.createObjectURL(archivo) : '',
+      proveedor: String(newInvoice.proveedor).trim(),
+      concepto: String(newInvoice.concepto || '').trim() || t('fb.comprobantePago'),
+      monto: aNumero(newInvoice.monto),
+      comprobante: '',
+      fecha: new Date().toISOString().slice(0, 10)
+    };
+
+    // Arriba del todo: la lista del servidor llega de la más reciente a la más
+    // antigua, y una factura recién escrita es lo más reciente que hay.
+    setFacturas(prev => [nueva, ...(Array.isArray(prev) ? prev : [])]);
+    setHayCambiosFacturas(true);
     setFacturasMsg(null);
-    await cargarFacturas();
+    setFacturasOkMsg(null);
+    cerrarModalFactura();
   };
 
   /* ── Edición y borrado de facturas ya registradas ──────────────────────── */
@@ -707,49 +847,206 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   const cerrarEdicionFactura = () => {
     setFacturaEditando(null);
-    setGuardandoEdicion(false);
   };
 
-  const handleActualizarFactura = async (e) => {
+  /** Aplica la corrección al BORRADOR; el UPDATE real espera a "Guardar Cambios". */
+  const handleActualizarFactura = (e) => {
     e.preventDefault();
-    if (!facturaEditando || guardandoEdicion) return;
+    if (!facturaEditando) return;
 
-    setGuardandoEdicion(true);
-    const { success, error } = await actualizarFactura(facturaEditando.id, edicionFactura);
-
-    if (!success) {
-      setFacturasMsg({ tipo: 'error', texto: error });
-      setGuardandoEdicion(false);
+    if (!String(edicionFactura.proveedor || '').trim()) {
+      setFacturasMsg({ tipo: 'error', texto: t('fac.faltaProveedor') });
+      return;
+    }
+    if (aNumero(edicionFactura.monto) <= 0) {
+      setFacturasMsg({ tipo: 'error', texto: t('fac.faltaMonto') });
       return;
     }
 
+    const clave = claveFactura(facturaEditando);
+    setFacturas(prev => (Array.isArray(prev) ? prev : []).map(f => (
+      claveFactura(f) === clave
+        ? {
+            ...f,
+            proveedor: String(edicionFactura.proveedor).trim(),
+            concepto: String(edicionFactura.concepto || '').trim(),
+            monto: aNumero(edicionFactura.monto),
+            // Una factura nueva sigue siendo nueva: no hay nada que "actualizar"
+            _editada: f._nueva ? false : true
+          }
+        : f
+    )));
+
+    setHayCambiosFacturas(true);
+    setFacturasMsg(null);
+    setFacturasOkMsg(null);
     cerrarEdicionFactura();
-    setFacturasMsg(null);
-    await cargarFacturas();
   };
 
-  const handleEliminarFactura = async (fac) => {
-    if (facturaEliminando) return;
-    if (!confirm(t('dlg.eliminarFactura', { proveedor: fac.proveedor }))) return;
+  /**
+   * Quita la factura de la LISTA, no de la base.
+   *
+   * Las que ya existen en Supabase se anotan en `facturasPorEliminar` y se
+   * enumeran al guardar para confirmar el borrado definitivo; las que solo
+   * estaban en el borrador desaparecen sin más.
+   */
+  const handleEliminarFactura = (fac) => {
+    const clave = claveFactura(fac);
+    if (clave === null) return;
 
-    setFacturaEliminando(fac.id);
-    const { success, error } = await eliminarFactura(fac.id);
-    setFacturaEliminando(null);
+    if (fac._preview) URL.revokeObjectURL(fac._preview);
 
-    if (!success) {
-      setFacturasMsg({ tipo: 'error', texto: error });
-      return;
+    setFacturas(prev => (Array.isArray(prev) ? prev : []).filter(f => claveFactura(f) !== clave));
+
+    if (fac.id !== null && fac.id !== undefined) {
+      setFacturasPorEliminar(prev => (
+        prev.some(x => String(x.id) === String(fac.id))
+          ? prev
+          : [...prev, { id: fac.id, proveedor: fac.proveedor || t('fac.sinProveedor') }]
+      ));
     }
 
-    // El visor no puede quedar mostrando un comprobante que ya no existe
-    setFacturaEnVisor((previa) => (previa?.id === fac.id ? null : previa));
+    // El visor no puede quedar mostrando un comprobante que ya no está en la lista
+    setFacturaEnVisor((previa) => (claveFactura(previa) === clave ? null : previa));
+    setHayCambiosFacturas(true);
     setFacturasMsg(null);
-    await cargarFacturas();
+    setFacturasOkMsg(null);
   };
 
-  /** Descarga el comprobante abierto en el visor. */
+  /** Libera las URL locales de los comprobantes que aún no se han subido. */
+  const liberarPreviasFacturas = (lista) => {
+    (Array.isArray(lista) ? lista : []).forEach(f => { if (f?._preview) URL.revokeObjectURL(f._preview); });
+  };
+
+  /** Cancela el borrador completo y vuelve a lo que hay en Supabase. */
+  const descartarCambiosFacturas = async () => {
+    liberarPreviasFacturas(facturas);
+    setFacturasPorEliminar([]);
+    setHayCambiosFacturas(false);
+    setConfirmandoBorradoFacturas(false);
+    setFacturasMsg(null);
+    setFacturasOkMsg(null);
+    setFacturaEnVisor(null);
+    await cargarFacturas(true);
+  };
+
+  /**
+   * "Guardar Cambios" de Facturas: vuelca el borrador entero contra Supabase.
+   *   · DELETE de las quitadas (previa confirmación, como los hitos).
+   *   · Subida del comprobante + INSERT de cada factura nueva.
+   *   · UPDATE de las corregidas.
+   * Al terminar se relee la base y se vuelven a colocar encima los pendientes
+   * que hayan fallado, para que un error de red no borre trabajo ni duplique
+   * lo que sí se guardó al reintentar.
+   */
+  const handleGuardarFacturas = async () => {
+    if (!isAdmin || guardandoFacturas) return;
+    if (!hayCambiosFacturas) return;
+
+    // Único punto sin retorno: se enumeran las facturas que se van de verdad.
+    if (facturasPorEliminar.length > 0 && !confirmandoBorradoFacturas) {
+      setConfirmandoBorradoFacturas(true);
+      return;
+    }
+    setConfirmandoBorradoFacturas(false);
+
+    setGuardandoFacturas(true);
+    setFacturasMsg(null);
+    setFacturasOkMsg(null);
+
+    let primerError = null;
+    let creadas = 0;
+    let actualizadas = 0;
+    let eliminadas = 0;
+
+    const borrado = [...facturasPorEliminar];
+    const borradoPendiente = [];
+    const nuevasPendientes = [];
+    const edicionesPendientes = new Map();
+
+    try {
+      // 1. Borrados confirmados
+      for (const f of borrado) {
+        const { success, error } = await eliminarFactura(f.id);
+        if (success) eliminadas += 1;
+        else { primerError = primerError || error; borradoPendiente.push(f); }
+      }
+
+      // 2. Altas (comprobante primero: sin URL la factura quedaría sin respaldo)
+      // 3. Correcciones de las que ya existían
+      for (const fac of (Array.isArray(facturas) ? facturas : [])) {
+        if (fac._nueva) {
+          let url = '';
+          if (fac._archivo) {
+            const subida = await subirComprobanteFactura(fac._archivo, project?.id);
+            if (!subida.success) {
+              primerError = primerError || subida.error;
+              nuevasPendientes.push(fac);
+              continue;
+            }
+            url = subida.url;
+          }
+
+          const { success, error } = await crearFactura(project?.id, {
+            proveedor: fac.proveedor,
+            concepto: fac.concepto,
+            monto: fac.monto,
+            comprobante: url
+          });
+
+          if (success) {
+            creadas += 1;
+            if (fac._preview) URL.revokeObjectURL(fac._preview);
+          } else {
+            primerError = primerError || error;
+            nuevasPendientes.push(fac);
+          }
+        } else if (fac._editada && fac.id) {
+          const { success, error } = await actualizarFactura(fac.id, fac);
+          if (success) {
+            actualizadas += 1;
+          } else {
+            primerError = primerError || error;
+            edicionesPendientes.set(String(fac.id), fac);
+          }
+        }
+      }
+
+      // 4. Se relee la base y encima se reponen los pendientes que fallaron
+      const { facturas: enBase, error: errorLectura } = await getFacturas(project?.id);
+      const base = (Array.isArray(enBase) ? enBase : [])
+        .filter(f => !borradoPendiente.some(x => String(x.id) === String(f.id)))
+        .map(f => edicionesPendientes.get(String(f.id)) || f);
+
+      setFacturas([...nuevasPendientes, ...base]);
+      setFacturasPorEliminar(borradoPendiente);
+
+      const quedanPendientes = borradoPendiente.length > 0 || nuevasPendientes.length > 0 || edicionesPendientes.size > 0;
+      setHayCambiosFacturas(quedanPendientes);
+
+      if (primerError || errorLectura) {
+        setFacturasMsg({ tipo: 'error', texto: primerError || errorLectura });
+        return;
+      }
+
+      setFacturasOkMsg(t('fac.cambiosGuardados', { creadas, actualizadas, eliminadas }));
+      setTimeout(() => setFacturasOkMsg(null), 6000);
+
+      // El costo ejecutado del panel depende de estas cifras
+      if (typeof onUpdateProject === 'function') {
+        try { await onUpdateProject(); } catch (err) { console.warn('Aviso refrescando el dashboard:', err); }
+      }
+    } catch (err) {
+      console.error('Error guardando las facturas:', err);
+      setFacturasMsg({ tipo: 'error', texto: String(err?.message || err) });
+    } finally {
+      setGuardandoFacturas(false);
+    }
+  };
+
+  /** Descarga el comprobante abierto en el visor (solo los ya subidos al bucket). */
   const handleDescargarComprobante = async () => {
-    if (!facturaEnVisor?.comprobante || descargandoVisor) return;
+    if (!esComprobanteArchivo(facturaEnVisor?.comprobante) || descargandoVisor) return;
     setDescargandoVisor(true);
     await descargarArchivo(facturaEnVisor.comprobante, nombreArchivoFactura(facturaEnVisor));
     setDescargandoVisor(false);
@@ -1108,7 +1405,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             el distintivo de estado se sale del panel en pantallas medianas. */}
         <div className="flex items-center gap-5 min-w-0 flex-1">
           <button
-            onClick={onBack}
+            onClick={handleVolver}
             className="flex items-center gap-2 flex-shrink-0 text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white text-base font-medium transition-colors rounded-xl px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 -ml-3"
           >
             <ArrowLeft size={20} />
@@ -1299,13 +1596,37 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <ul className="space-y-3.5">
                 {!isLoadingChecklist && safeChecklist.map((item, i) => {
                   const isDone = !!item.done;
-                  const title = item.text || item.titulo || t('proy.hitoSinTitulo');
+                  // El número NO se guarda en el título: lo pone la posición.
+                  const title = sinNumeracion(item.text || item.titulo) || t('proy.hitoSinTitulo');
                   const detail = item.detail || item.descripcion || t('proy.sinDetalle');
                   const dateStr = item.fecha || item.fecha_vencimiento || t('proy.sinFecha');
                   const valorHito = aMonto(item.valor);
+                  const arrastrando = hitoArrastrado === i;
+                  const esDestino = hitoSobre === i && hitoArrastrado !== null && hitoArrastrado !== i;
 
                   return (
-                    <li key={item.id ?? `nuevo-${i}`} className="border border-gray-100 dark:border-zinc-700 rounded-[20px] bg-white dark:bg-zinc-800 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                    <li
+                      key={item.id ?? `nuevo-${i}`}
+                      /* Solo es arrastrable mientras el dedo está sobre el asa:
+                         de lo contrario seleccionar el texto o teclear el monto
+                         arrancaría un arrastre. */
+                      draggable={puedeEditarChecklist && handleActivo === i}
+                      onDragStart={() => setHitoArrastrado(i)}
+                      onDragOver={(e) => {
+                        if (hitoArrastrado === null) return;
+                        e.preventDefault();
+                        setHitoSobre(i);
+                      }}
+                      onDrop={(e) => { e.preventDefault(); soltarHito(i); }}
+                      onDragEnd={() => { setHitoArrastrado(null); setHitoSobre(null); setHandleActivo(null); }}
+                      className={`border rounded-[20px] bg-white dark:bg-zinc-800 shadow-sm hover:shadow-md transition-all overflow-hidden ${
+                        arrastrando
+                          ? 'opacity-50 border-[#C5A059]'
+                          : esDestino
+                          ? 'border-[#C5A059] ring-2 ring-[#C5A059]/40'
+                          : 'border-gray-100 dark:border-zinc-700'
+                      }`}
+                    >
                       <div className="w-full flex items-start justify-between gap-4 p-5 hover:bg-slate-50/50 dark:hover:bg-zinc-700/30 transition-colors text-left">
                         <div className="flex items-start gap-4 flex-1 min-w-0">
                           {/* Administrador: casilla real que marca y desmarca.
@@ -1340,7 +1661,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
                           <div className="flex-1 min-w-0">
                             <div className="cursor-pointer" onClick={() => setOpenAccordion(openAccordion === i ? null : i)}>
-                              <div className="flex flex-wrap items-center gap-2">
+                              {/* Numeración AUTOMÁTICA: sale de la posición en
+                                  la lista, así que mover una tarea renumera
+                                  todas al instante y el primero siempre es 1. */}
+                              <div className="flex flex-wrap items-baseline gap-2">
+                                <span className="text-base md:text-lg font-black text-[#C5A059] tabular-nums flex-shrink-0">
+                                  {i + 1}.
+                                </span>
                                 <span className={`text-base md:text-lg font-bold ${isDone ? 'text-slate-900 dark:text-white' : 'text-slate-800 dark:text-zinc-100'}`}>
                                   {title}
                                 </span>
@@ -1411,6 +1738,42 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {/* Mover la tarea: las flechas funcionan en teléfono
+                              (donde arrastrar no existe) y el asa permite el
+                              arrastre completo en escritorio. Ambas hacen lo
+                              mismo: cambiar la posición y, con ella, el número. */}
+                          {puedeEditarChecklist && (
+                            <div className="flex flex-col items-center -my-1">
+                              <button
+                                type="button"
+                                onClick={() => moverHito(i, i - 1)}
+                                disabled={i === 0 || isSavingChanges}
+                                title={t('proy.moverArriba')}
+                                aria-label={t('proy.moverArriba')}
+                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-[#C5A059] rounded disabled:opacity-25 disabled:hover:text-slate-400"
+                              >
+                                <ChevronUp size={15} />
+                              </button>
+                              <span
+                                onMouseDown={() => setHandleActivo(i)}
+                                onMouseUp={() => setHandleActivo(null)}
+                                title={t('proy.arrastrarHito')}
+                                className="hidden sm:block text-slate-300 dark:text-zinc-500 hover:text-[#C5A059] cursor-grab active:cursor-grabbing"
+                              >
+                                <GripVertical size={14} />
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => moverHito(i, i + 1)}
+                                disabled={i === safeChecklist.length - 1 || isSavingChanges}
+                                title={t('proy.moverAbajo')}
+                                aria-label={t('proy.moverAbajo')}
+                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-[#C5A059] rounded disabled:opacity-25 disabled:hover:text-slate-400"
+                              >
+                                <ChevronDown size={15} />
+                              </button>
+                            </div>
+                          )}
                           {puedeEditarChecklist && (
                             <>
                               <button
@@ -1471,6 +1834,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
                     <p className="text-[11px] text-slate-400 dark:text-zinc-200 font-medium">
                       {t('proy.ayudaGuardado', { boton: t('proy.guardarCambios') })}
+                      {' '}
+                      {t('proy.ayudaOrden')}
                     </p>
                     <button
                       type="button"
@@ -1568,7 +1933,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   )
                 )}
                 <button
-                  onClick={() => setShowExpenses(true)}
+                  onClick={abrirFacturas}
                   className="inline-flex items-center gap-2 bg-[#0B1B2C] text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm hover:bg-[#16273B] transition-all shadow-sm"
                 >
                   <Receipt size={16} className="text-[#C5A059]" /> {t('fin.verFacturas')} ({facturas.length})
@@ -1586,9 +1951,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <h4 className="text-sm font-bold uppercase tracking-wider text-red-800 dark:text-red-300">{t('fin.alertaSobrecosto')}</h4>
                   <p className="text-xs md:text-sm text-red-700 mt-1 font-medium">
                     {t('fin.sobrecostoDetalle', {
-                      gastado: `$${totalSpent.toLocaleString()} USD`,
-                      presupuesto: `$${totalBudget.toLocaleString()} USD`,
-                      exceso: `$${overBudgetAmount.toLocaleString()} USD`
+                      gastado: `${formatearMoneda(totalSpent)} USD`,
+                      presupuesto: `${formatearMoneda(totalBudget)} USD`,
+                      exceso: `${formatearMoneda(overBudgetAmount)} USD`
                     })}
                   </p>
                 </div>
@@ -1690,7 +2055,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       <Tooltip
                         cursor={{ fill: '#f8fafc' }}
                         contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}
-                        formatter={(value) => [`$${Number(value || 0).toLocaleString()}`, t('fin.gasto')]}
+                        formatter={(value) => [formatearMoneda(value), t('fin.gasto')]}
                       />
                       <Bar dataKey="value" fill="#0B1B2C" radius={[6, 6, 0, 0]} maxBarSize={44} />
                     </BarChart>
@@ -1704,9 +2069,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         {/* SUBPANEL DE FACTURAS DE PROVEEDORES */}
         {activeTab === 'finances' && showExpenses && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-zinc-700">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-200 dark:border-zinc-700">
               <div className="flex items-center gap-3">
-                <button onClick={() => setShowExpenses(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm">
+                <button onClick={cerrarFacturas} className="text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm">
                   <ArrowLeft size={18} />
                 </button>
                 <div>
@@ -1714,15 +2079,62 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <p className="text-xs text-slate-400 dark:text-zinc-200 font-medium">{t('fin.facturasSub')}</p>
                 </div>
               </div>
-              {isAdmin && (
-                <button
-                  onClick={() => setShowInvoiceModal(true)}
-                  className="flex items-center gap-2 bg-[#0B1B2C] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
-                >
-                  <Plus size={14} className="text-[#C5A059]" /> {t('fin.registrarFactura')}
-                </button>
-              )}
+
+              {/* Mismo trato que el checklist: registrar, corregir o quitar solo
+                  mueve el borrador, y aquí está el único botón que escribe en
+                  Supabase. Mientras haya pendientes se avisa con distintivos. */}
+              <div className="flex flex-wrap items-center gap-2">
+                {hayCambiosFacturas && (
+                  <span className="text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-200 dark:border-amber-500/30 flex items-center gap-1.5">
+                    <AlertTriangle size={13} className="text-amber-600" />
+                    {t('proy.cambiosSinGuardar')}
+                  </span>
+                )}
+                {facturasPorEliminar.length > 0 && (
+                  <span className="text-xs font-bold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/10 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-500/30 flex items-center gap-1.5">
+                    <Trash2 size={13} className="text-red-500" />
+                    {t('proy.porEliminar', { n: facturasPorEliminar.length })}
+                  </span>
+                )}
+
+                {isAdmin && hayCambiosFacturas && (
+                  <>
+                    <button
+                      onClick={descartarCambiosFacturas}
+                      disabled={guardandoFacturas}
+                      className="inline-flex items-center gap-1.5 bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 border border-gray-200 dark:border-zinc-700 text-xs font-bold px-3.5 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                    >
+                      <X size={14} /> {t('comun.cancelar')}
+                    </button>
+                    <button
+                      onClick={handleGuardarFacturas}
+                      disabled={guardandoFacturas}
+                      className="flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 text-xs font-bold px-3.5 py-2.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                    >
+                      {guardandoFacturas
+                        ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {t('proy.guardando')}</>
+                        : <><Save size={14} className="text-[#C5A059]" /> {t('proy.guardarCambios')}</>}
+                    </button>
+                  </>
+                )}
+
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowInvoiceModal(true)}
+                    disabled={guardandoFacturas}
+                    className="flex items-center gap-2 bg-[#0B1B2C] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    <Plus size={14} className="text-[#C5A059]" /> {t('fin.registrarFactura')}
+                  </button>
+                )}
+              </div>
             </div>
+
+            {isAdmin && (
+              <p className="text-[11px] text-slate-400 dark:text-zinc-200 font-medium -mt-3">
+                {t('fac.ayudaGuardado', { boton: t('proy.guardarCambios') })}
+              </p>
+            )}
 
             {/* Gráfica de gastos agrupados por mes */}
             {gastosPorMes.length > 0 && (
@@ -1774,6 +2186,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               </div>
             )}
 
+            {facturasOkMsg && (
+              <div className="p-4 rounded-2xl border flex items-start gap-3 text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">
+                <CheckCircle2 size={16} className="flex-shrink-0 mt-px" />
+                <span>{facturasOkMsg}</span>
+              </div>
+            )}
+
             {facturas.length === 0 && !facturasMsg && (
               <div className="border border-dashed border-gray-300 dark:border-zinc-600 rounded-2xl bg-slate-50/60 dark:bg-zinc-800/60 py-12 px-6 text-center">
                 <Receipt size={28} className="text-slate-300 dark:text-zinc-200 mx-auto mb-3" />
@@ -1787,13 +2206,20 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             {/* Lista de documentos: miniatura cuadrada a la izquierda, datos a la derecha */}
             <div className="flex flex-col gap-3">
               {facturas.map((fac) => {
-                const tieneArchivo = esComprobanteArchivo(fac.comprobante);
-                const esPdf = esComprobantePdf(fac.comprobante);
+                const tieneArchivo = tieneComprobante(fac);
+                const esPdf = comprobanteEsPdf(fac);
+                // Una factura del borrador se puede quitar aunque el Modo
+                // Edición esté apagado: nunca llegó a existir en Supabase.
+                const puedeTocarla = isAdmin && (puedeEditarFacturas || !!fac._nueva);
 
                 return (
                   <div
-                    key={fac.id}
-                    className="group flex items-stretch gap-4 p-3 sm:p-4 bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm hover:shadow-md hover:border-[#C5A059]/50 transition-all"
+                    key={claveFactura(fac)}
+                    className={`group flex items-stretch gap-4 p-3 sm:p-4 bg-white dark:bg-zinc-800 border rounded-2xl shadow-sm hover:shadow-md hover:border-[#C5A059]/50 transition-all ${
+                      fac._nueva || fac._editada
+                        ? 'border-amber-300 dark:border-amber-500/40'
+                        : 'border-gray-100 dark:border-zinc-700'
+                    }`}
                   >
                     {/* Miniatura cuadrada */}
                     <button
@@ -1808,7 +2234,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       {tieneArchivo && !esPdf ? (
                         <>
                           <img
-                            src={fac.comprobante}
+                            src={urlComprobante(fac)}
                             alt={fac.proveedor}
                             loading="lazy"
                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -1831,11 +2257,19 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{fac.proveedor}</h4>
                         <p className="text-xs text-slate-500 dark:text-zinc-200 mt-0.5 line-clamp-2">{fac.concepto}</p>
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1.5">
+                        <span className="inline-flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1.5">
                           <Calendar size={11} /> {fac.fecha}
                           {tieneArchivo && (
                             <span className="inline-flex items-center gap-1 text-[#8B6914] dark:text-[#E3C77B]">
                               • <Receipt size={11} /> {t('fac.conComprobante')}
+                            </span>
+                          )}
+                          {/* Lo que todavía no existe en Supabase se marca:
+                              así se sabe qué se pierde si se cancela. */}
+                          {(fac._nueva || fac._editada) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/30">
+                              <AlertTriangle size={10} className="text-amber-600" />
+                              {fac._nueva ? t('proy.sinGuardarSupabase') : t('fac.editadaSinGuardar')}
                             </span>
                           )}
                         </span>
@@ -1855,25 +2289,24 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             </button>
                           )}
 
-                          {/* Editar / Eliminar: solo con el Modo Edición encendido */}
-                          {puedeEditarFacturas && (
+                          {/* Editar / Quitar: cambian el borrador, no la base */}
+                          {puedeTocarla && (
                             <>
                               <button
                                 onClick={() => abrirEdicionFactura(fac)}
+                                disabled={guardandoFacturas}
                                 title={t('fac.editar')}
-                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-[#8B6914] dark:hover:text-[#E3C77B] hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors"
+                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-[#8B6914] dark:hover:text-[#E3C77B] hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-50"
                               >
                                 <Edit2 size={13} />
                               </button>
                               <button
                                 onClick={() => handleEliminarFactura(fac)}
-                                disabled={facturaEliminando === fac.id}
+                                disabled={guardandoFacturas}
                                 title={t('fac.eliminar')}
-                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"
                               >
-                                {facturaEliminando === fac.id
-                                  ? <Loader2 size={13} className="animate-spin" />
-                                  : <Trash2 size={13} />}
+                                <Trash2 size={13} />
                               </button>
                             </>
                           )}
@@ -2442,6 +2875,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             </div>
             <form onSubmit={handleCreateInvoice} className="space-y-4">
 
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200 leading-relaxed">
+                {t('fac.ayudaGuardado', { boton: t('proy.guardarCambios') })}
+              </p>
+
               {/* ── Comprobante: arrastrar y soltar o seleccionar ── */}
               <input
                 type="file"
@@ -2557,11 +2994,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 </button>
                 <button
                   type="submit"
-                  disabled={guardandoFactura || extrayendoIA}
+                  disabled={extrayendoIA}
                   className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
-                  {guardandoFactura && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
-                  {guardandoFactura ? t('modal.guardandoFactura') : t('modal.guardarFactura')}
+                  {t('modal.agregarFactura')}
                 </button>
               </div>
             </form>
@@ -2583,8 +3019,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             </div>
 
             <form onSubmit={handleActualizarFactura} className="space-y-4">
-              <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200">
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200 leading-relaxed">
                 {t('modal.editarFacturaNota')}
+                {' '}
+                {t('fac.ayudaGuardado', { boton: t('proy.guardarCambios') })}
               </p>
 
               <div>
@@ -2628,11 +3066,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 </button>
                 <button
                   type="submit"
-                  disabled={guardandoEdicion}
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm flex items-center gap-2"
                 >
-                  {guardandoEdicion && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
-                  {guardandoEdicion ? t('modal.guardandoFactura') : t('comun.guardar')}
+                  {t('comun.aplicar')}
                 </button>
               </div>
             </form>
@@ -2681,6 +3117,56 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 type="button"
                 onClick={handleSaveAllChanges}
                 className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm"
+              >
+                <Trash2 size={13} />
+                {t('dlg.eliminarHitosConfirmar')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ CONFIRMACIÓN DEL BORRADO DEFINITIVO DE FACTURAS ════
+          Quitar una factura de la lista es reversible; guardar no lo es. Se
+          enumeran por proveedor las que van a desaparecer de `gastos`. */}
+      {confirmandoBorradoFacturas && facturasPorEliminar.length > 0 && (
+        <div className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-10 h-10 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-500" />
+              </span>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {t('dlg.eliminarFacturasTitulo', { n: facturasPorEliminar.length })}
+              </h3>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-zinc-300">
+              {t('dlg.eliminarFacturasAviso')}
+            </p>
+
+            <ul className="mt-3 max-h-44 overflow-y-auto space-y-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 p-3">
+              {facturasPorEliminar.map(f => (
+                <li key={f.id} className="flex items-start gap-2 text-[13px] text-slate-700 dark:text-zinc-200 font-medium">
+                  <Trash2 size={12} className="text-red-400 flex-shrink-0 mt-1" />
+                  <span className="break-words">{f.proveedor}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="pt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmandoBorradoFacturas(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl"
+              >
+                {t('comun.cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={handleGuardarFacturas}
+                disabled={guardandoFacturas}
+                className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm disabled:opacity-60"
               >
                 <Trash2 size={13} />
                 {t('dlg.eliminarHitosConfirmar')}
@@ -2783,7 +3269,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
-              {!esComprobantePdf(facturaEnVisor.comprobante) && (
+              {!comprobanteEsPdf(facturaEnVisor) && (
                 <button
                   onClick={() => setVisorAmpliado(v => !v)}
                   title={visorAmpliado ? t('fac.ajustarPantalla') : t('fac.tamanoReal')}
@@ -2792,14 +3278,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   {visorAmpliado ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
                 </button>
               )}
-              <button
-                onClick={handleDescargarComprobante}
-                disabled={descargandoVisor}
-                className="flex items-center gap-2 text-xs font-bold text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
-              >
-                {descargandoVisor ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                <span className="hidden sm:inline">{t('fac.descargar')}</span>
-              </button>
+              {/* Solo se descarga lo que ya está en el bucket: un comprobante
+                  del borrador todavía vive en el dispositivo del usuario. */}
+              {esComprobanteArchivo(facturaEnVisor.comprobante) && (
+                <button
+                  onClick={handleDescargarComprobante}
+                  disabled={descargandoVisor}
+                  className="flex items-center gap-2 text-xs font-bold text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {descargandoVisor ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  <span className="hidden sm:inline">{t('fac.descargar')}</span>
+                </button>
+              )}
               <button
                 onClick={() => setFacturaEnVisor(null)}
                 className="p-2 rounded-xl text-white/80 bg-white/10 hover:bg-white/20 transition-colors"
@@ -2816,15 +3306,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             className={`flex-1 min-h-0 p-3 sm:p-6 ${visorAmpliado ? 'overflow-auto' : 'overflow-hidden flex items-center justify-center'}`}
             onClick={(e) => e.stopPropagation()}
           >
-            {esComprobantePdf(facturaEnVisor.comprobante) ? (
+            {comprobanteEsPdf(facturaEnVisor) ? (
               <iframe
-                src={facturaEnVisor.comprobante}
+                src={urlComprobante(facturaEnVisor)}
                 title={facturaEnVisor.proveedor}
                 className="w-full h-full rounded-xl bg-white shadow-2xl"
               />
             ) : (
               <img
-                src={facturaEnVisor.comprobante}
+                src={urlComprobante(facturaEnVisor)}
                 alt={facturaEnVisor.proveedor}
                 onClick={() => setVisorAmpliado(v => !v)}
                 className={`rounded-xl shadow-2xl bg-white ${
