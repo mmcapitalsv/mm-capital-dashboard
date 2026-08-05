@@ -11,6 +11,20 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      /* Sin esto, el teléfono se queda con la versión vieja guardada por el
+         Service Worker: la app instalada en la pantalla de inicio sigue
+         sirviendo el paquete anterior hasta que se cierran TODAS sus
+         ventanas, y por eso una función nueva "no aparece" en el celular
+         aunque ya esté desplegada.
+           · skipWaiting        — la versión nueva toma el control enseguida.
+           · clientsClaim       — y se aplica a la pestaña ya abierta.
+           · cleanupOutdatedCaches — borra los paquetes viejos en vez de
+             acumularlos. */
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true
+      },
       manifest: {
         name: 'MM Capital Dashboard',
         short_name: 'MM Capital',

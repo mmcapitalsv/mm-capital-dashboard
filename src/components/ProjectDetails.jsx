@@ -2357,8 +2357,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               type="file"
               ref={docInputRef}
               onChange={(e) => handleFileUpload(e, 'documento_pdf')}
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
-              className="hidden"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.heic"
+              className="archivo-oculto"
             />
 
             <div className="flex items-center justify-between mb-5">
@@ -2620,8 +2620,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               ref={albumPhotoInputRef}
               multiple
               onChange={(e) => handleSubirFoto(e, activeAlbumModal.id)}
-              accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-              className="hidden"
+              accept="image/*"
+              className="archivo-oculto"
             />
 
             <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -2718,8 +2718,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               ref={photoInputRef}
               multiple
               onChange={(e) => { setShowDestinoModal(false); handleSubirFoto(e, destinoFoto); }}
-              accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-              className="hidden"
+              accept="image/*"
+              className="archivo-oculto"
             />
 
             <div className="pt-5 flex flex-col sm:flex-row justify-end gap-2">
@@ -2782,7 +2782,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('gal.portadaAlbum')}</label>
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                  accept="image/*"
                   onChange={(e) => setPortadaFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#0B1B2C] file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
                 />
@@ -2860,7 +2860,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 )}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                  accept="image/*"
                   onChange={(e) => setNuevaPortadaFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#0B1B2C] file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
                 />
@@ -2918,7 +2918,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 type="file"
                 ref={comprobanteInputRef}
                 accept="image/*,application/pdf"
-                className="hidden"
+                className="archivo-oculto"
                 onChange={(e) => { adjuntarComprobante(e.target.files?.[0]); e.target.value = ''; }}
               />
 

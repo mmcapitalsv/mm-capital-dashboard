@@ -11,6 +11,13 @@ import { motion } from 'framer-motion';
 /** Dorado de marca para el resaltado del menú lateral. */
 const NAV_DORADO = '#C5A059';
 
+/* Id del único selector de portada de la aplicación.
+   Los botones "Cambiar portada" son <label htmlFor> apuntando aquí: abrir el
+   selector con la etiqueta es la forma NATIVA y funciona en todos los
+   teléfonos, mientras que llamar a `input.click()` desde JavaScript lo
+   bloquean varios navegadores móviles. */
+const ID_INPUT_PORTADA = 'input-portada-proyecto';
+
 /**
  * Quita la numeración inicial de un hito ("4. Losa de entrepiso" -> "Losa de
  * entrepiso"). Solo la usa la tarjeta "Próximos hitos" del Dashboard: el dato
@@ -1194,7 +1201,7 @@ function AIChatView({ onBack }) {
               multiple
               accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
               onChange={(e) => agregarAdjuntos(e.target.files)}
-              className="hidden"
+              className="archivo-oculto"
             />
             <button
               type="button"
@@ -1303,16 +1310,16 @@ function AllProjectsView({
                     </div>
                   )}
                   {puedeEditar && typeof onCambiarPortada === 'function' && (
-                    <button
+                    <label
+                      htmlFor={ID_INPUT_PORTADA}
                       onClick={(e) => { e.stopPropagation(); onCambiarPortada(p.id); }}
-                      disabled={subiendoPortadaId === p.id}
-                      className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition-transform disabled:opacity-60"
+                      className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition-transform cursor-pointer"
                     >
                       {subiendoPortadaId === p.id
                         ? <Loader2 size={12} className="animate-spin" />
                         : <Camera size={12} className="text-[#C5A059]" />}
                       {subiendoPortadaId === p.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
-                    </button>
+                    </label>
                   )}
                 </div>
                 <div className={`inline-flex px-2 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase border mb-2 ${statusColor(p.estado)}`}>
@@ -1786,8 +1793,8 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                 type="file"
                 ref={avatarInputRef}
                 onChange={handleArchivoAvatar}
-                accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-                className="hidden"
+                accept="image/*"
+                className="archivo-oculto"
               />
 
               {/* Vista previa: la temporal mientras sube, si no la guardada */}
@@ -2551,11 +2558,18 @@ export default function Dashboard({ user, onLogout }) {
   const [subiendoPortadaId, setSubiendoPortadaId] = useState(null);
   const [portadaMsg, setPortadaMsg] = useState(null);
 
-  /** Abre el selector de imagen para un proyecto concreto (solo modo edición). */
+  /**
+   * Apunta el selector de portada al proyecto tocado.
+   *
+   * NO abre el selector: de eso se encarga la propia etiqueta `<label>` del
+   * botón, que es el mecanismo nativo del navegador. Llamar a `.click()` desde
+   * JavaScript funciona en la laptop pero varios navegadores de teléfono lo
+   * ignoran por seguridad, y era la razón por la que en el celular el botón
+   * "Cambiar portada" no abría la galería.
+   */
   const pedirPortadaProyecto = (proyectoId) => {
     if (!proyectoId) return;
     proyectoPortadaRef.current = proyectoId;
-    portadaProyectoRef.current?.click();
   };
 
   /** Sube la imagen elegida y la deja como portada del proyecto marcado. */
@@ -3000,12 +3014,17 @@ export default function Dashboard({ user, onLogout }) {
           móvil no llegaba a abrirlo y por eso la foto solo se podía cambiar
           desde la laptop. Aquí lo comparten escritorio, carrusel móvil y la
           lista de "Todos los Proyectos". */}
+      {/* `accept="image/*"`: la lista larga de tipos hacía que algunas galerías
+          de Android mostraran las fotos en gris y no dejaran elegir ninguna.
+          `archivo-oculto` en vez de `hidden` porque Safari de iPhone no abre
+          el selector de un input con `display:none` (ver index.css). */}
       <input
         type="file"
+        id={ID_INPUT_PORTADA}
         ref={portadaProyectoRef}
         onChange={handlePortadaProyecto}
-        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-        className="hidden"
+        accept="image/*"
+        className="archivo-oculto"
       />
 
       {/* ════════════════════════════════════════════════
@@ -3695,11 +3714,11 @@ export default function Dashboard({ user, onLogout }) {
                                         `stopPropagation` para que tocarlo no abra
                                         además la ficha del proyecto. */}
                                     {isEditMode && (
-                                      <button
+                                      <label
+                                        htmlFor={ID_INPUT_PORTADA}
                                         onClick={(e) => { e.stopPropagation(); pedirPortadaProyecto(p.id); }}
-                                        disabled={subiendoPortadaId === p.id}
                                         aria-label={t('dash.cambiarPortada')}
-                                        className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1.5 active:bg-black/60 transition-colors"
+                                        className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1.5 active:bg-black/60 transition-colors cursor-pointer"
                                       >
                                         <span className="bg-white/90 p-2 rounded-full text-slate-900">
                                           {subiendoPortadaId === p.id
@@ -3709,7 +3728,7 @@ export default function Dashboard({ user, onLogout }) {
                                         <span className="text-[9px] font-bold text-white tracking-wide px-1 text-center leading-tight">
                                           {subiendoPortadaId === p.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
                                         </span>
-                                      </button>
+                                      </label>
                                     )}
                                   </div>
 
@@ -4206,10 +4225,10 @@ export default function Dashboard({ user, onLogout }) {
                             {/* Cambiar la portada del proyecto: sube a Storage y
                                 actualiza proyectos.imagen_url */}
                             {isEditMode && (
-                              <button
+                              <label
+                                htmlFor={ID_INPUT_PORTADA}
                                 onClick={(e) => { e.stopPropagation(); pedirPortadaProyecto(fp.id); }}
-                                disabled={subiendoPortadaId === fp.id}
-                                className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer disabled:opacity-100"
+                                className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer"
                                 title={t('dash.cambiarPortada')}
                               >
                                 <span className="bg-white/90 p-2.5 rounded-full text-slate-900">
@@ -4220,7 +4239,7 @@ export default function Dashboard({ user, onLogout }) {
                                 <span className="text-[10px] font-bold text-white tracking-wide">
                                   {subiendoPortadaId === fp.id ? t('comun.subiendo') : t('dash.cambiarPortada')}
                                 </span>
-                              </button>
+                              </label>
                             )}
                           </div>
 

@@ -80,6 +80,24 @@ body {
   display: none;
 }
 
+/* Selectores de archivo escondidos.
+   NO se usa `display:none` (la clase `hidden` de Tailwind): Safari de iPhone
+   se niega a abrir el selector de fotos de un <input type="file"> que no está
+   dibujado, así que en el teléfono el botón "Cambiar portada" no hacía nada.
+   Aquí el input SÍ existe y ocupa un píxel invisible, que es lo que el
+   navegador necesita para abrir la galería. */
+.archivo-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
 /* Barra inferior fija: respeta el área segura del iPhone. */
 .safe-bottom {
   padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
