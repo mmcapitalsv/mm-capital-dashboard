@@ -9,6 +9,7 @@ import {
   getInversionistas, registrarInversion, actualizarInversion, eliminarInversion, getUsuarios
 } from '../services/inversionesService';
 import { supabase } from '../supabaseClient';
+import InputMonto from './ui/InputMonto';
 
 const PALETA = ['#C5A059', '#0B1B2C', '#7C8DA6', '#8B6914'];
 
@@ -358,11 +359,9 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                                       <form key={ap.id} onSubmit={handleGuardarEdicion} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2">
                                         <div className="flex items-center gap-1 flex-shrink-0">
                                           <span className="text-xs font-black text-slate-500 dark:text-zinc-200">$</span>
-                                          <input
-                                            type="text"
-                                            inputMode="decimal"
+                                          <InputMonto
                                             value={editandoAp.monto}
-                                            onChange={(e) => setEditandoAp({ ...editandoAp, monto: e.target.value })}
+                                            onChange={(v) => setEditandoAp({ ...editandoAp, monto: v })}
                                             className="w-24 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
                                             autoFocus
                                           />
@@ -502,14 +501,11 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('inv.monto')}</label>
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-black text-slate-500 dark:text-zinc-200">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <InputMonto
                     required
-                    placeholder="5000"
+                    placeholder="5,000.00"
                     value={form.monto}
-                    onChange={(e) => setForm({ ...form, monto: e.target.value })}
+                    onChange={(v) => setForm({ ...form, monto: v })}
                     className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
                   />
                 </div>

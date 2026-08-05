@@ -54,6 +54,38 @@ export function tituloCase(texto) {
 }
 
 /**
+ * Da formato de dólar a lo que se está ESCRIBIENDO en una casilla de dinero:
+ * coma para los miles y punto para los centavos.
+ *
+ *   "5000"      -> "5,000"
+ *   "5000.5"    -> "5,000.5"      (se respeta el decimal a medio teclear)
+ *   "1234567.8" -> "1,234,567.8"
+ *
+ * Se conserva el punto final mientras se escribe ("5000." sigue siendo "5,000.")
+ * para que no sea imposible teclear los centavos, y se limitan a dos dígitos.
+ * El texto resultante lo entienden `aNumero`, `aAjuste` y `aMonto`, que quitan
+ * las comas antes de guardar: a la base de datos siempre viaja un número.
+ */
+export function formatearMontoEntrada(entrada) {
+  if (entrada === null || entrada === undefined || entrada === '') return '';
+
+  const bruto = String(entrada);
+  const negativo = bruto.trim().startsWith('-');
+  const limpio = bruto.replace(/[^\d.]/g, '');
+  if (!limpio) return negativo ? '-' : '';
+
+  const tieneDecimal = limpio.includes('.');
+  const [primero, ...resto] = limpio.split('.');
+  const decimales = resto.join('').slice(0, 2);
+
+  // Sin ceros a la izquierda ("007" -> "7"), pero "0.5" conserva su cero
+  const entero = (primero.replace(/^0+(?=\d)/, '') || '0');
+  const conComas = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return `${negativo ? '-' : ''}${conComas}${tieneDecimal ? `.${decimales}` : ''}`;
+}
+
+/**
  * Estado legible: quita guiones bajos y deja solo la primera letra en mayúscula.
  * "en_progreso" -> "En progreso" · "FASE-INICIAL" -> "Fase inicial"
  */

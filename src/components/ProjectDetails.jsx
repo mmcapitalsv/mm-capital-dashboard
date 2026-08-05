@@ -21,6 +21,7 @@ import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
 } from '../services/galeriaService';
 import { usePrefs } from '../context/PreferenciasContext';
+import InputMonto from './ui/InputMonto';
 import {
   // El lápiz y el basurero ya no escriben solos: todo el checklist viaja a
   // Supabase en un único `saveChecklist` al presionar "Guardar Cambios".
@@ -69,15 +70,11 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
       {editando ? (
         <div className="flex items-center gap-1">
           <span className={`text-2xl md:text-3xl font-black ${colorValor}`}>$</span>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            inputMode="decimal"
+          {/* Se escribe con comas de miles, igual que se lee */}
+          <InputMonto
             value={valor}
-            onChange={(e) => onChange(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            onWheel={(e) => e.currentTarget.blur()}
+            onChange={onChange}
+            placeholder="0.00"
             className={`w-full min-w-0 bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-2xl md:text-3xl font-black ${colorValor}`}
           />
         </div>
@@ -145,6 +142,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [portadaFile, setPortadaFile] = useState(null);
   const [albumEditando, setAlbumEditando] = useState(null);
   const [subiendoGaleria, setSubiendoGaleria] = useState(false);
+  // {actual, total} mientras se sube un lote de fotos; null si no hay subida
+  const [progresoFotos, setProgresoFotos] = useState(null);
   const [galeriaMsg, setGaleriaMsg] = useState(null);
   const [showDestinoModal, setShowDestinoModal] = useState(false);
   const [destinoFoto, setDestinoFoto] = useState('');
@@ -1160,29 +1159,58 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     }
   };
 
-  /** Sube una foto al álbum abierto. */
+  /**
+   * Sube al álbum TODAS las fotos seleccionadas, una tras otra.
+   *
+   * Antes solo se tomaba `files[0]` y había que repetir el proceso foto a
+   * foto. Ahora el input acepta selección múltiple y aquí se recorren en
+   * orden, avisando por cuál va (`progresoFotos`). Si una falla, las demás
+   * siguen subiendo y al final se dice cuántas entraron y cuántas no.
+   */
   const handleSubirFoto = async (e, albumId) => {
-    const file = e.target.files?.[0];
+    const archivos = Array.from(e.target.files || []);
     e.target.value = '';
-    if (!file) return;
+    if (archivos.length === 0) return;
 
     setSubiendoGaleria(true);
     setGaleriaMsg(null);
 
-    const { success, error } = await subirFotoAlbum(file, project?.id, albumId);
+    let subidas = 0;
+    let primerError = null;
 
+    for (let i = 0; i < archivos.length; i += 1) {
+      setProgresoFotos({ actual: i + 1, total: archivos.length });
+      const { success, error } = await subirFotoAlbum(archivos[i], project?.id, albumId);
+      if (success) subidas += 1;
+      else primerError = primerError || error;
+    }
+
+    setProgresoFotos(null);
     setSubiendoGaleria(false);
 
-    if (success) {
-      setGaleriaMsg({ tipo: 'exito', texto: t('gal.fotoSubida') });
+    // Lo que sí entró se refleja aunque alguna foto haya fallado
+    if (subidas > 0) {
       const { albumes } = await getAlbumes(project.id);
       setAlbums(albumes);
       // Mantener abierto el mismo álbum con sus fotos ya actualizadas
       if (albumId) setActiveAlbumModal(albumes.find(a => String(a.id) === String(albumId)) || null);
-      setTimeout(() => setGaleriaMsg(null), 5000);
-    } else {
-      setGaleriaMsg({ tipo: 'error', texto: error });
     }
+
+    if (primerError) {
+      setGaleriaMsg({
+        tipo: 'error',
+        texto: subidas > 0
+          ? t('gal.fotosParciales', { subidas, total: archivos.length, error: primerError })
+          : primerError
+      });
+      return;
+    }
+
+    setGaleriaMsg({
+      tipo: 'exito',
+      texto: subidas === 1 ? t('gal.fotoSubida') : t('gal.fotosSubidas', { n: subidas })
+    });
+    setTimeout(() => setGaleriaMsg(null), 5000);
   };
 
   /** Elimina una foto concreta dentro del álbum. */
@@ -1389,6 +1417,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     : avancePct > 0
     ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
     : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-600';
+
+  /* Con varias fotos en fila el botón dice por cuál va ("Subiendo 2 de 7"):
+     una subida larga sin cifras parece congelada. */
+  const textoSubiendoFotos = progresoFotos
+    ? t('gal.subiendoLote', { actual: progresoFotos.actual, total: progresoFotos.total })
+    : t('comun.subiendo');
 
   const distintivoEstado = (visibilidad) => (
     <span className={`normal-case tracking-normal text-[11px] font-bold px-2.5 py-0.5 rounded-full border whitespace-nowrap flex-shrink-0 ${claseEstado} ${visibilidad}`}>
@@ -1702,18 +1736,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                     title={t('proy.valorHitoTooltip')}
                                   >
                                     <DollarSign size={11} className="flex-shrink-0 opacity-70" />
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      inputMode="decimal"
+                                    {/* El monto del hito también se escribe con
+                                        comas de miles: 5000 se ve "5,000". */}
+                                    <InputMonto
                                       value={valorHito || ''}
                                       placeholder="0"
                                       aria-label={t('proy.valorHito')}
-                                      onChange={(e) => handleValorHito(i, e.target.value)}
-                                      onFocus={(e) => e.target.select()}
-                                      onWheel={(e) => e.currentTarget.blur()}
-                                      className="w-16 bg-transparent border-none outline-none focus:ring-0 p-0 text-[11px] font-bold placeholder-slate-300 dark:placeholder-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                      onChange={(v) => handleValorHito(i, v)}
+                                      className="w-20 bg-transparent border-none outline-none focus:ring-0 p-0 text-[11px] font-bold placeholder-slate-300 dark:placeholder-zinc-500"
                                     />
                                   </span>
                                 ) : valorHito > 0 && (
@@ -2464,12 +2494,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     {subiendoGaleria ? (
                       <>
                         <Loader2 size={15} className="animate-spin text-[#C5A059]" />
-                        {t('comun.subiendo')}
+                        {textoSubiendoFotos}
                       </>
                     ) : (
                       <>
                         <Upload size={15} className="text-[#C5A059]" />
-                        {t('gal.subirFoto')}
+                        {t('gal.subirFotos')}
                       </>
                     )}
                   </button>
@@ -2571,8 +2601,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     className="flex items-center gap-1.5 bg-[#0B1B2C] text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
                   >
                     {subiendoGaleria
-                      ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {t('comun.subiendo')}</>
-                      : <><Upload size={14} className="text-[#C5A059]" /> {t('gal.subirFoto')}</>}
+                      ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {textoSubiendoFotos}</>
+                      : <><Upload size={14} className="text-[#C5A059]" /> {t('gal.subirFotos')}</>}
                   </button>
                 )}
                 <button
@@ -2584,9 +2614,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               </div>
             </div>
 
+            {/* `multiple`: se eligen varias fotos de una vez y se suben en fila */}
             <input
               type="file"
               ref={albumPhotoInputRef}
+              multiple
               onChange={(e) => handleSubirFoto(e, activeAlbumModal.id)}
               accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
               className="hidden"
@@ -2668,6 +2700,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             ) : (
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 uppercase">{t('gal.elegirAlbum')}</label>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-300">{t('gal.variasFotos')}</p>
                 <select
                   value={destinoFoto}
                   onChange={(e) => setDestinoFoto(e.target.value)}
@@ -2683,6 +2716,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             <input
               type="file"
               ref={photoInputRef}
+              multiple
               onChange={(e) => { setShowDestinoModal(false); handleSubirFoto(e, destinoFoto); }}
               accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
               className="hidden"
@@ -2702,7 +2736,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 disabled={!destinoFoto || albums.length === 0}
                 className="flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-40"
               >
-                <Upload size={14} className="text-[#C5A059]" /> {t('gal.elegirFoto')}
+                <Upload size={14} className="text-[#C5A059]" /> {t('gal.elegirFotos')}
               </button>
             </div>
           </div>
@@ -2979,12 +3013,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.monto')}</label>
-                <input
-                  type="number"
+                <InputMonto
                   required
-                  placeholder="42500"
+                  placeholder="42,500.00"
                   value={newInvoice.monto}
-                  onChange={(e) => setNewInvoice({ ...newInvoice, monto: e.target.value })}
+                  onChange={(v) => setNewInvoice({ ...newInvoice, monto: v })}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
               </div>
@@ -3048,14 +3081,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.monto')}</label>
-                <input
-                  type="number"
+                <InputMonto
                   required
-                  step="0.01"
-                  min="0"
-                  placeholder="42500"
+                  placeholder="42,500.00"
                   value={edicionFactura.monto}
-                  onChange={(e) => setEdicionFactura({ ...edicionFactura, monto: e.target.value })}
+                  onChange={(v) => setEdicionFactura({ ...edicionFactura, monto: v })}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"
                 />
               </div>
@@ -3224,14 +3254,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
                 <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
                   <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    placeholder="0.00"
+                  <InputMonto
                     value={newHitoValor}
-                    onChange={(e) => setNewHitoValor(e.target.value)}
+                    onChange={setNewHitoValor}
                     className="w-full bg-transparent border-none outline-none focus:ring-0 p-0 text-sm"
                   />
                 </div>
@@ -3376,14 +3401,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
                 <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
                   <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    placeholder="0.00"
+                  <InputMonto
                     value={editHitoValor}
-                    onChange={(e) => setEditHitoValor(e.target.value)}
+                    onChange={setEditHitoValor}
                     className="w-full bg-transparent border-none outline-none focus:ring-0 p-0 text-sm"
                   />
                 </div>

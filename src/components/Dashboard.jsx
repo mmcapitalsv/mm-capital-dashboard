@@ -27,7 +27,7 @@ import ListaCompletaModal from './ListaCompletaModal';
 import {
   Activity, AlertTriangle, ArrowUp, Bell, Bot, Building2, Briefcase, Calendar, Camera, CheckCircle2, ChevronDown,
   ChevronLeft, ChevronRight, Headset, Landmark, DollarSign, Download, Edit2, Edit3, ExternalLink, FileText, FolderLock, Globe,
-  Layers, LayoutDashboard, Loader2, Lock, LogOut, MapPin, MessageSquare, Moon, Paperclip, Plus, Send, Settings,
+  Image as ImageIcon, Layers, LayoutDashboard, Loader2, Lock, LogOut, MapPin, MessageSquare, Moon, Paperclip, Plus, Send, Settings,
   Save, Sparkles, Sun, Trash2, TrendingUp, Upload, UserCheck, Users, Wallet, X
 } from 'lucide-react';
 import {
@@ -48,6 +48,8 @@ import {
 import {
   claveSaludo, nombreMostrado, inicialesUsuario, cargoUsuario
 } from '../lib/perfilUsuario';
+import { formatoArchivo, claveFormato, ACEPTA_BOVEDA } from '../lib/archivos';
+import InputMonto from './ui/InputMonto';
 
 // ─── Vistas secundarias ───────────────────────────────────────────────────────
 
@@ -66,6 +68,12 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [cambiosPendientes, setCambiosPendientes] = useState(false);
   const [confirmandoVault, setConfirmandoVault] = useState(false);
+  /* Archivo elegido en el modal: se guarda para poder decir QUÉ es (imagen,
+     PDF o documento) y enseñar la miniatura antes de subirlo. */
+  const [archivoElegido, setArchivoElegido] = useState(null);
+  const [previaArchivo, setPreviaArchivo] = useState(null);
+  // Documento de tipo imagen abierto a pantalla completa desde la lista
+  const [imagenAmpliada, setImagenAmpliada] = useState(null);
 
   /** Relee la bóveda desde Supabase y confirma visualmente los cambios. */
   const handleConfirmarCambiosVault = async () => {
@@ -112,6 +120,26 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
     if (!isEditMode) setEditingDoc(null);
   }, [isEditMode]);
 
+  /** Recuerda el archivo elegido y prepara la miniatura si es una imagen. */
+  const handleElegirArchivoVault = (e) => {
+    const file = e.target.files?.[0] || null;
+    setPreviaArchivo((previa) => {
+      if (previa) URL.revokeObjectURL(previa);
+      return file && formatoArchivo(file.name, '') === 'imagen' ? URL.createObjectURL(file) : null;
+    });
+    setArchivoElegido(file);
+  };
+
+  /** Deja el modal de subida como recién abierto. */
+  const cerrarModalSubida = () => {
+    setPreviaArchivo((previa) => {
+      if (previa) URL.revokeObjectURL(previa);
+      return null;
+    });
+    setArchivoElegido(null);
+    setShowUploadModal(false);
+  };
+
   const handleUploadVaultDoc = async (e) => {
     e.preventDefault();
     const file = fileInputRef.current?.files?.[0];
@@ -150,7 +178,7 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
       }
       setUploadMsg({ type: 'success', text: t('msg.docRegistrado', { nombre: nombreFinal || file.name }) });
       setNewDocName('');
-      setShowUploadModal(false);
+      cerrarModalSubida();
       setCambiosPendientes(true);
       await loadVaultFiles();
     } else {
@@ -195,10 +223,14 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
     await loadVaultFiles();
   };
 
+  /* `categoria` es lo que eligió el administrador (Legal, Fiscal...) y
+     `formato` es lo que el archivo ES (imagen, PDF o documento), deducido de
+     su extensión: así una foto se ve como foto y no como un PDF genérico. */
   const allVaultDocs = dbFiles.map(f => ({
     id: f.id,
     nombre_archivo: f.nombre_archivo,
     categoria: f.tipo || t('fb.docEnStorage'),
+    formato: formatoArchivo(f.nombre_archivo, f.url_archivo),
     subido_por: t('fb.administracion'),
     created_at: f.created_at,
     url_archivo: f.url_archivo,
@@ -295,15 +327,45 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
               ) : allVaultDocs.map((doc, idx) => (
                 <div key={doc.id || idx} className="p-4 bg-slate-50/70 dark:bg-zinc-800/70 border border-gray-100 dark:border-zinc-700 rounded-2xl hover:bg-white dark:hover:bg-zinc-700 hover:shadow-md transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
                   <div className="flex items-start sm:items-center gap-3.5 flex-1 min-w-0">
-                    <div className="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 flex items-center justify-center flex-shrink-0 text-blue-600 dark:text-blue-400 mt-0.5 sm:mt-0">
-                      <FileText size={20} />
-                    </div>
+                    {/* Una imagen se ve: miniatura real en vez del icono
+                        genérico, y al pulsarla se abre a pantalla completa.
+                        Un PDF lleva su icono rojo y el resto, el azul. */}
+                    {doc.formato === 'imagen' && doc.url_archivo && doc.url_archivo !== '#' ? (
+                      <button
+                        type="button"
+                        onClick={() => setImagenAmpliada(doc)}
+                        title={t('vault.verImagen')}
+                        className="w-11 h-11 rounded-xl overflow-hidden border border-gray-200 dark:border-zinc-600 flex-shrink-0 mt-0.5 sm:mt-0 bg-slate-100 dark:bg-zinc-900 cursor-zoom-in hover:border-[#C5A059] transition-colors"
+                      >
+                        <img src={doc.url_archivo} alt={doc.nombre_archivo} loading="lazy" className="w-full h-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className={`w-11 h-11 rounded-xl border flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0 ${
+                        doc.formato === 'pdf'
+                          ? 'bg-red-50 dark:bg-red-500/10 border-red-100 dark:border-red-500/30 text-red-600 dark:text-red-400'
+                          : doc.formato === 'imagen'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-blue-50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-500/30 text-blue-600 dark:text-blue-400'
+                      }`}>
+                        {doc.formato === 'imagen' ? <ImageIcon size={20} /> : <FileText size={20} />}
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       {/* Nombre de archivo COMPLETO: parte en varias líneas
                           antes que recortarse con puntos suspensivos. */}
                       <h4 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-[#C5A059] transition-colors break-all leading-snug">{doc.nombre_archivo}</h4>
                       <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className="text-[10px] font-bold text-[#8B6914] dark:text-[#E3C77B] bg-[#FAF4EA] dark:bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-[#F0E2CD] dark:border-amber-500/30">{etiquetaCategoria(doc.categoria, t)}</span>
+                        {/* Qué ES el archivo, no en qué carpeta va */}
+                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                          doc.formato === 'pdf'
+                            ? 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
+                            : doc.formato === 'imagen'
+                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
+                            : 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30'
+                        }`}>
+                          {t(claveFormato(doc.formato))}
+                        </span>
                         <span className="text-[10px] text-slate-400 dark:text-zinc-200 font-medium">{t('vault.subido')} {new Date(doc.created_at || Date.now()).toLocaleDateString(locale)}</span>
                       </div>
                     </div>
@@ -371,7 +433,7 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Upload size={18} className="text-[#C5A059]" /> {t('vault.subirDoc')}
               </h3>
-              <button onClick={() => setShowUploadModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
+              <button onClick={cerrarModalSubida} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 ✕
               </button>
             </div>
@@ -382,9 +444,37 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
                   type="file"
                   ref={fileInputRef}
                   required
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  accept={ACEPTA_BOVEDA}
+                  onChange={handleElegirArchivoVault}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs focus:outline-none"
                 />
+                {/* La bóveda no es solo de PDF: aquí se dice en voz alta */}
+                <p className="text-[11px] text-slate-400 dark:text-zinc-400 mt-1.5 leading-relaxed">
+                  {t('vault.formatosAdmitidos')}
+                </p>
+
+                {/* Qué se eligió y QUÉ ES, antes de subirlo */}
+                {archivoElegido && (
+                  <div className="mt-2 flex items-center gap-3 p-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900">
+                    {previaArchivo ? (
+                      <img src={previaArchivo} alt={archivoElegido.name} className="w-12 h-12 rounded-lg object-cover border border-gray-200 dark:border-zinc-600 flex-shrink-0" />
+                    ) : (
+                      <div className={`w-12 h-12 rounded-lg border flex items-center justify-center flex-shrink-0 ${
+                        formatoArchivo(archivoElegido.name) === 'pdf'
+                          ? 'bg-red-50 dark:bg-red-500/10 border-red-100 dark:border-red-500/30 text-red-600 dark:text-red-400'
+                          : 'bg-blue-50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-500/30 text-blue-600 dark:text-blue-400'
+                      }`}>
+                        <FileText size={20} />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-white break-all leading-snug">{archivoElegido.name}</p>
+                      <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-300 mt-0.5">
+                        {t(claveFormato(formatoArchivo(archivoElegido.name)))} · {(archivoElegido.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('vault.nombreDoc')}</label>
@@ -434,7 +524,7 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
               )}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setShowUploadModal(false)} disabled={isUploading} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-40">
+                <button type="button" onClick={cerrarModalSubida} disabled={isUploading} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-40">
                   {t('comun.cancelar')}
                 </button>
                 <button
@@ -449,6 +539,49 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Visor de una imagen guardada en la bóveda (a pantalla completa) */}
+      {imagenAmpliada && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex flex-col"
+          onClick={() => setImagenAmpliada(null)}
+        >
+          <div className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-white/10 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white break-all leading-snug">{imagenAmpliada.nombre_archivo}</h3>
+              <p className="text-[11px] font-semibold text-white/50">
+                {t(claveFormato(imagenAmpliada.formato))} · {etiquetaCategoria(imagenAmpliada.categoria, t)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <a
+                href={imagenAmpliada.url_archivo}
+                download={imagenAmpliada.nombre_archivo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-xs font-bold text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] px-4 py-2 rounded-xl transition-colors"
+              >
+                <Download size={14} />
+                <span className="hidden sm:inline">{t('comun.descargar')}</span>
+              </a>
+              <button
+                onClick={() => setImagenAmpliada(null)}
+                className="p-2 rounded-xl text-white/80 bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 p-3 sm:p-6 flex items-center justify-center">
+            <img
+              src={imagenAmpliada.url_archivo}
+              alt={imagenAmpliada.nombre_archivo}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl bg-white"
+            />
           </div>
         </div>
       )}
@@ -3449,12 +3582,10 @@ export default function Dashboard({ user, onLogout }) {
                       <form onSubmit={guardarCapital} className="mt-3 flex items-center gap-2 bg-[#16273B] dark:bg-zinc-700 border border-[#C5A059]/50 rounded-xl px-2.5 py-2">
                         <span className="text-xs font-bold text-white/70 flex-shrink-0">{t('dash.capitalTotal')}</span>
                         <span className="text-sm font-black text-white/80">$</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
+                        <InputMonto
                           autoFocus
                           value={capitalBorrador}
-                          onChange={(e) => setCapitalBorrador(e.target.value)}
+                          onChange={setCapitalBorrador}
                           className="flex-1 min-w-0 bg-transparent border-b border-[#C5A059] text-sm font-bold text-white focus:outline-none"
                         />
                         <button
@@ -3909,12 +4040,10 @@ export default function Dashboard({ user, onLogout }) {
                         {editandoCapital ? (
                           <form onSubmit={guardarCapital} className="flex items-center gap-1.5">
                             <span className="text-sm font-black text-slate-500 dark:text-zinc-200">$</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
+                            <InputMonto
                               autoFocus
                               value={capitalBorrador}
-                              onChange={(e) => setCapitalBorrador(e.target.value)}
+                              onChange={setCapitalBorrador}
                               className="w-full min-w-0 bg-slate-50 dark:bg-zinc-900 border border-[#C5A059] rounded-lg px-2 py-1 text-sm font-bold text-slate-900 dark:text-white focus:outline-none"
                             />
                             <button
