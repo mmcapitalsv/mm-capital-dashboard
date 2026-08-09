@@ -6,6 +6,7 @@ import InvestorsView from './InvestorsView';
 import ChatModule from './ChatModule';
 import NombreAjustado from './ui/NombreAjustado';
 import { VideoBackground } from './ui/VideoBackground';
+import { HyperText } from './ui/hyper-text';
 import { useChat } from '../context/ChatContext';
 import { motion } from 'framer-motion';
 
@@ -4476,7 +4477,20 @@ export default function Dashboard({ user, onLogout }) {
                           trabaja. No es dorado decorativo, es identidad. */}
                       <div className="mb-8">
                         <h1 className="text-[32px] lg:text-4xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
-                          {t(saludo)} <span className="text-mm-oro-tinta dark:text-mm-oro-claro">{nombreUsuario}</span>
+                          {/* El nombre se descifra en vez de cambiar de golpe.
+                              Antes, al recargar, se leía durante un instante el
+                              nombre sacado del correo ("Ing. Pana") y acto
+                              seguido saltaba al de la ficha de `usuarios`: un
+                              parpadeo que parecía un fallo. Ahora, mientras la
+                              consulta viaja, las letras giran sin resolverse
+                              —nunca se llega a leer el provisional— y cuando
+                              llega el nombre real se descifra encima.
+                              Tamaño y color son los de siempre: los hereda del
+                              `<span>` dorado que lo envuelve. */}
+                          {t(saludo)}{' '}
+                          <span className="text-mm-oro-tinta dark:text-mm-oro-claro">
+                            <HyperText text={nombreUsuario} esperando={loading} duration={900} />
+                          </span>
                         </h1>
                         <p className="text-slate-500 dark:text-zinc-200 text-sm mt-1 font-medium flex items-center gap-2">
                           {t('dash.panelEjec')} <span className="text-slate-300 dark:text-zinc-500">•</span> {t('dash.accesoSocios')}

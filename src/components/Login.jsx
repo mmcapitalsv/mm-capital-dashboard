@@ -49,8 +49,12 @@ export default function Login() {
         <TubesCursor />
       </div>
 
-      {/* Velo suave para que el láser no compita con el texto */}
-      <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none" />
+      {/* Velo suave para que el láser no compita con el texto.
+          Se aligeró (40/60 → 20/40): sumado a la luz corta de los tubos, el
+          velo anterior dejaba el escritorio prácticamente negro. Sigue
+          bastando para que el texto de la tarjeta no pelee con el láser,
+          porque la tarjeta ya aporta su propio `bg-black/40`. */}
+      <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/20 via-transparent to-black/40 pointer-events-none" />
 
       {/* Tarjeta glassmorphism.
           Medidas propias para el teléfono: esta pantalla se veía más contenida
@@ -60,7 +64,13 @@ export default function Login() {
           comerse la pantalla. El código de aquí no había cambiado; cambió su
           base. Se recupera la proporción con valores explícitos en móvil, sin
           tocar el escritorio ni volver a encoger la letra. */}
-      <div className="relative z-10 w-full max-w-[19rem] sm:max-w-sm bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl rounded-3xl px-6 py-8 sm:px-8 sm:py-10">
+      {/* `bg-black/50`, antes `/40`. Con los tubos a intensidad 500 el láser
+          cruza POR DETRÁS de la tarjeta, y a `/40` los marcadores de posición
+          caían sobre una banda verde brillante. A `/60` el formulario ganaba
+          contraste pero la tarjeta se tragaba la luz justo donde vive el
+          puntero mientras se escribe, que es la mitad del efecto. `/50` es el
+          punto en que se leen las dos cosas. */}
+      <div className="relative z-10 w-full max-w-[19rem] sm:max-w-sm bg-black/50 backdrop-blur-md border border-white/10 shadow-2xl rounded-3xl px-6 py-8 sm:px-8 sm:py-10">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8 sm:mb-10">

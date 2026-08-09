@@ -59,11 +59,17 @@ export default function TubesCursor() {
           // Ensure the canvas element is still available before initializing
           if (canvasRef.current) {
             // Initialize the TubesCursor animation
+            /* Intensidad 500, no 200. El valor del demo se eligió sobre un
+               lienzo pequeño; en un monitor de escritorio el halo alcanzaba
+               apenas unos centenares de píxeles alrededor del puntero y el
+               resto de la pantalla quedaba negra — el efecto existía pero no
+               se veía. Con 500 la luz llega al borde del lienzo y la pantalla
+               de acceso vuelve a leerse como una sola pieza iluminada. */
             const app = TubesCursor(canvasRef.current, {
               tubes: {
                 colors: ['#5e72e4', '#8965e0', '#f5365c'],
                 lights: {
-                  intensity: 200,
+                  intensity: 500,
                   colors: ['#21d4fd', '#b721ff', '#f4d03f', '#11cdef']
                 }
               }
