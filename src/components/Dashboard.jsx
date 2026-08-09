@@ -5,6 +5,7 @@ import RecorteAvatar from './RecorteAvatar';
 import InvestorsView from './InvestorsView';
 import ChatModule from './ChatModule';
 import NombreAjustado from './ui/NombreAjustado';
+import { VideoBackground } from './ui/VideoBackground';
 import { useChat } from '../context/ChatContext';
 import { motion } from 'framer-motion';
 
@@ -354,7 +355,7 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
   const puedeModificarDocs = adminAccess && !!isEditMode;
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 md:px-8 py-4 md:py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm flex-shrink-0">
         <button onClick={onBack} className="w-9 h-9 rounded-full border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-slate-700 dark:hover:text-zinc-100 hover:border-gray-300 dark:hover:border-zinc-600 transition-all flex-shrink-0 active:scale-95">
@@ -759,7 +760,7 @@ function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
 function NewProjectView({ onBack }) {
   const { t } = usePrefs();
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       <div className="flex items-center gap-3 px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
         <button onClick={onBack} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 transition-colors">
           <ChevronLeft size={20} />
@@ -925,7 +926,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
   };
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       <div className="flex items-center justify-between px-6 md:px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 transition-colors">
@@ -1219,7 +1220,7 @@ function AIChatView({ onBack }) {
   };
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       <div className="flex items-center justify-between px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 transition-colors">
@@ -1358,7 +1359,7 @@ function AllProjectsView({
      ficha: en móvil no hay hover, así que el control va siempre visible. */
   const puedeEditar = isAdmin && isEditMode;
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       <div className="flex items-center gap-4 px-6 md:px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
         <button onClick={onBack} className="w-8 h-8 rounded-full border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 hover:border-gray-300 dark:hover:border-zinc-600 transition-all">
           <ChevronLeft size={18} />
@@ -1672,7 +1673,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
   };
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
       {/* Header */}
       <div className="flex items-center gap-4 px-6 md:px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
         <button onClick={onBack} className="w-8 h-8 rounded-full border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 hover:border-gray-300 dark:hover:border-zinc-600 transition-all">
@@ -2380,7 +2381,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
    que se desincronice con el escritorio. */
 
 function PanelNotificaciones({
-  t, notificaciones, chatNoLeido, noLeidosChat,
+  t, notificaciones, idsLeidos = [], chatNoLeido, noLeidosChat,
   marcarChatLeido, onAbrirNotificacion, onAbrirChat, onVerTodas, className = ''
 }) {
   return (
@@ -2405,19 +2406,31 @@ function PanelNotificaciones({
             </p>
           </button>
         )}
-        {notificaciones && notificaciones.length > 0 ? notificaciones.map(n => (
-          <button
-            key={n.id}
-            onClick={() => onAbrirNotificacion(n)}
-            className="w-full text-left px-4 py-3 border-b border-gray-50 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-700/50 cursor-pointer transition-colors"
-          >
-            <p className="text-[11px] font-bold text-red-500 flex items-center gap-1.5"><AlertTriangle size={12} /> {t('notif.vencimientoCritico')}</p>
-            <p className="text-[11px] text-slate-500 dark:text-zinc-200 mt-0.5">
-              {t('notif.tareaProyecto', { tarea: n.tarea, proyecto: n.proyectoNombre || t('inv.proyectoNoDisponible') })}
-            </p>
-            <p className="text-[11px] text-slate-400 dark:text-zinc-200 mt-1">{t('notif.vence')} {n.fecha_vencimiento}</p>
-          </button>
-        )) : !chatNoLeido && (
+        {notificaciones && notificaciones.length > 0 ? notificaciones.map(n => {
+          /* No leída = fondo resaltado. Leída = fondo neutro. La diferencia es
+             lo único que distingue "esto es nuevo" de "esto ya lo revisaste"
+             ahora que abrir la bandeja dejó de marcarlas todas. */
+          const leida = idsLeidos.includes(String(n.id));
+          return (
+            <button
+              key={n.id}
+              onClick={() => onAbrirNotificacion(n)}
+              className={`w-full text-left px-4 py-3 border-b border-gray-50 dark:border-zinc-700 cursor-pointer transition-colors ${
+                leida
+                  ? 'bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700/50'
+                  : 'bg-mm-oro-lavado dark:bg-amber-500/10 hover:bg-mm-oro-lavado/70 dark:hover:bg-amber-500/20'
+              }`}
+            >
+              <p className={`text-[11px] font-bold flex items-center gap-1.5 ${leida ? 'text-slate-400 dark:text-zinc-400' : 'text-red-500'}`}>
+                <AlertTriangle size={12} /> {t('notif.vencimientoCritico')}
+              </p>
+              <p className={`text-[11px] mt-0.5 ${leida ? 'text-slate-400 dark:text-zinc-400' : 'text-slate-600 dark:text-zinc-100 font-semibold'}`}>
+                {t('notif.tareaProyecto', { tarea: n.tarea, proyecto: n.proyectoNombre || t('inv.proyectoNoDisponible') })}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1">{t('notif.vence')} {n.fecha_vencimiento}</p>
+            </button>
+          );
+        }) : !chatNoLeido && (
           <div className="px-4 py-3 text-center text-xs text-slate-500 dark:text-zinc-200">{t('notif.sinNotificaciones')}</div>
         )}
       </div>
@@ -2636,6 +2649,8 @@ export default function Dashboard({ user, onLogout }) {
     gastos,
     hitos,
     archivos,
+    // Aportaciones de los socios: son el "Capital Inyectado" de cada ficha.
+    aportaciones,
     loading,
     notificaciones,
     isAdmin,
@@ -3062,20 +3077,38 @@ export default function Dashboard({ user, onLogout }) {
     guardarAvisosVistos(user?.id, idsAvisosActuales);
   };
 
+  /** Marca UNA notificación como leída y lo persiste. */
+  const marcarAvisoLeido = (id) => {
+    const clave = String(id ?? '');
+    if (!clave || avisosVistos.includes(clave)) return;
+    const siguiente = [...avisosVistos, clave];
+    setAvisosVistos(siguiente);
+    guardarAvisosVistos(user?.id, siguiente);
+  };
+
+  /* ── Qué se pinta en la bandeja ──────────────────────────────────────────
+     Todas las NO leídas, más un rastro de hasta 5 leídas antiguas. Sin el
+     tope, un panel que ya no se vacía solo acabaría siendo un archivo
+     histórico; con él sigue siendo una bandeja. */
+  const MAX_LEIDAS_VISIBLES = 5;
+
+  const notificacionesPanel = React.useMemo(() => {
+    const lista = Array.isArray(notificaciones) ? notificaciones : [];
+    const noLeidas = lista.filter(n => !avisosVistos.includes(String(n?.id ?? '')));
+    const leidas = lista
+      .filter(n => avisosVistos.includes(String(n?.id ?? '')))
+      .slice(0, MAX_LEIDAS_VISIBLES);
+    return [...noLeidas, ...leidas];
+  }, [notificaciones, avisosVistos]);
+
   /**
-   * Abre o cierra la bandeja. Abrirla YA cuenta como haberlas visto: en cuanto
-   * el usuario despliega la lista, el punto rojo y el campaneo se apagan.
-   *
-   * Antes había que pulsar además "Marcar leídas", así que se podía leer el
-   * vencimiento con la campana temblando encima — la señal seguía pidiendo
-   * atención sobre algo que ya se estaba mirando.
+   * Abre o cierra la bandeja. Abrirla NO marca nada: desplegar la lista no es
+   * lo mismo que haber leído cada aviso, y apagarlos todos de golpe borraba la
+   * única señal de qué quedaba pendiente. Cada aviso se apaga al pulsarlo.
    */
   const alternarNotificaciones = () => {
     setShowMenuAvatar(false);
-    setShowNotifications(abierto => {
-      if (!abierto) marcarTodoLeido();
-      return !abierto;
-    });
+    setShowNotifications(abierto => !abierto);
   };
 
   const handleCardClick = (proyecto) => {
@@ -3087,8 +3120,9 @@ export default function Dashboard({ user, onLogout }) {
     if (proyecto) changeView('project-details', proyecto);
   };
 
-  /** Clic en una notificación: abre el detalle del proyecto de ese hito. */
+  /** Clic en una notificación: la marca leída y abre el proyecto de ese hito. */
   const abrirNotificacion = (n) => {
+    marcarAvisoLeido(n?.id);
     setShowNotifications(false);
     const proyecto = n?.proyecto
       || PROJECTS.find(p => String(p.id) === String(n?.proyecto_id));
@@ -3574,7 +3608,30 @@ export default function Dashboard({ user, onLogout }) {
       {/* ════════════════════════════════════════════════
           CONTENEDOR PRINCIPAL DERECHO (Header Estático + Vistas)
       ════════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+      {/* `relative isolate`: abre un contexto de apilamiento propio para que el
+          fondo animado pueda colgarse en `-z-10`. Con un z-index negativo el
+          video se pinta POR ENCIMA del color de fondo de este contenedor pero
+          POR DEBAJO de todo el contenido en flujo, que es justo lo que se
+          quiere: el fondo abajo y las tarjetas encima, sin tener que tocar el
+          z-index de cada vista.
+          El color de fondo se mantiene como red de seguridad: el video se ve
+          ENCIMA de él (va al 15-20% de opacidad), así que si el archivo no
+          carga el panel se ve con el lienzo de siempre. */}
+      <div className="relative isolate flex-1 flex flex-col h-full overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+
+        {/* ── Fondo animado (solo con sesión iniciada) ──
+            La pantalla de acceso NO lo usa: allí sigue mandando la animación de
+            tubos. `aria-hidden` + `pointer-events-none` porque es decoración
+            pura: ni el lector de pantalla ni el ratón deben tropezar con él.
+
+            El mismo video en los dos temas: lo que cambia es el color con el
+            que se funde (piedra clara de día, navy de noche) y la opacidad.
+            El video ya es oscuro de base —su color medio es RGB (74, 78, 86)
+            con destellos hasta 248—, así que de noche sus estelas se leen como
+            hilos de luz sobre el navy en vez de aclarar el fondo. */}
+        <div className="absolute inset-0 -z-10 pointer-events-none" aria-hidden="true">
+          <VideoBackground oscuro={modoOscuro} />
+        </div>
 
         {/* ── HEADER SUPERIOR GLOBAL Y ESTÁTICO (Desktop) ── */}
         <header className="hidden md:flex items-center justify-between px-8 py-3.5 bg-white dark:bg-zinc-800 border-b border-gray-200 dark:border-zinc-700 flex-shrink-0 z-30 shadow-sm">
@@ -3630,7 +3687,8 @@ export default function Dashboard({ user, onLogout }) {
               {showNotifications && (
                 <PanelNotificaciones
                   t={t}
-                  notificaciones={notificaciones}
+                  notificaciones={notificacionesPanel}
+                  idsLeidos={avisosVistos}
                   chatNoLeido={chatNoLeido}
                   noLeidosChat={noLeidosChat}
                   marcarChatLeido={marcarTodoLeido}
@@ -3745,7 +3803,8 @@ export default function Dashboard({ user, onLogout }) {
               {showNotifications && (
                 <PanelNotificaciones
                   t={t}
-                  notificaciones={notificaciones}
+                  notificaciones={notificacionesPanel}
+                  idsLeidos={avisosVistos}
                   chatNoLeido={chatNoLeido}
                   noLeidosChat={noLeidosChat}
                   marcarChatLeido={marcarTodoLeido}
@@ -3810,7 +3869,7 @@ export default function Dashboard({ user, onLogout }) {
             ninguna vista quede tapada por ella. */}
         <div className="flex-1 flex flex-col overflow-hidden relative pb-[68px] md:pb-0">
           {currentView === 'project-details' && activeProject ? (
-            <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} isEditMode={isEditMode} onUpdateProject={refetchData} />
+            <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} isEditMode={isEditMode} onUpdateProject={refetchData} aportaciones={aportaciones} />
           ) : currentView === 'project-details' && proyectoPendiente ? (
             /* Recarga sobre un proyecto: se espera a que Supabase devuelva la
                lista. Sin esto asomaría el Dashboard un instante, que es
@@ -3864,11 +3923,11 @@ export default function Dashboard({ user, onLogout }) {
             />
           ) : (
             /* ── Vista Portfolio (Principal) ── */
-            <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+            <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
 
               {/* La barra superior móvil ya no vive aquí: subió al contenedor
                   principal para acompañar a todas las vistas. */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar w-full pb-6 md:pb-20 bg-mm-lienzo dark:bg-zinc-900">
+              <div className="flex-1 overflow-y-auto custom-scrollbar w-full pb-6 md:pb-20 bg-transparent">
 
                 {/* ── Saludo móvil + reloj dual ──
                     El reloj bajó aquí desde la barra azul: aprovecha el hueco

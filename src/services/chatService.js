@@ -29,6 +29,11 @@ export const AVISO_MIGRACION_010 =
   'Ejecuta supabase/migrations/010_valor_hitos_y_chat_editable.sql en el ' +
   'SQL Editor de Supabase.';
 
+export const AVISO_MIGRACION_012 =
+  'No se pudo enviar el archivo: faltan las columnas de adjuntos. ' +
+  'Ejecuta supabase/migrations/012_adjuntos_chat.sql en el ' +
+  'SQL Editor de Supabase.';
+
 /** Solo el Administrador puede vaciar el historial del canal General. */
 export function puedeLimpiarChat(rol) {
   return String(rol || '') === 'admin';
@@ -43,6 +48,10 @@ const CAMPOS = 'id, canal, usuario_id, receptor_id, autor, contenido, created_at
 /** `editado_en` la agrega la migración 010; puede no existir todavía. */
 const CAMPOS_CON_EDICION = `${CAMPOS}, editado_en`;
 
+/** Las columnas del adjunto las agrega la 012; también pueden faltar. */
+const CAMPOS_ADJUNTO = 'adjunto_url, adjunto_nombre, adjunto_tipo, adjunto_tamano';
+const CAMPOS_COMPLETOS = `${CAMPOS_CON_EDICION}, ${CAMPOS_ADJUNTO}`;
+
 const UNION_REMITENTE =
   ', remitente:usuarios!mensajes_usuario_id_fkey ( id, nombre_completo, avatar_url )';
 
@@ -52,6 +61,8 @@ const UNION_REMITENTE =
  * la consulta cae al siguiente juego en vez de fallar.
  */
 const VARIANTES = [
+  CAMPOS_COMPLETOS + UNION_REMITENTE,
+  CAMPOS_COMPLETOS,
   CAMPOS_CON_EDICION + UNION_REMITENTE,
   CAMPOS_CON_EDICION,
   CAMPOS + UNION_REMITENTE,
@@ -71,16 +82,44 @@ function faltaColumnaEdicion(error) {
   return /editado_en/i.test(msg);
 }
 
+/** ¿El error se debe a que las columnas de adjunto todavía no existen? */
+function faltaColumnaAdjunto(error) {
+  if (!error) return false;
+  const msg = `${error.message || ''} ${error.details || ''}`;
+  return /adjunto_/i.test(msg);
+}
+
 /**
  * Ejecuta una consulta probando los juegos de columnas hasta que uno funcione.
  * Solo reintenta ante fallos de esquema; cualquier otro error se devuelve tal cual.
  */
+/* Juego de columnas que funcionó la última vez. Sin esta memoria, una base a
+   la que le falte una migración paga los MISMOS intentos fallidos en cada
+   consulta: con la 012 sin aplicar eran 3 peticiones por consulta (dos 400 y
+   la buena), y el chat se consulta varias veces por carga. Recordando el
+   índice, solo la primera consulta de la sesión hace el descarte.
+   Se reinicia al recargar la página, que es justo cuando conviene volver a
+   probar el juego completo: es lo que pasa después de aplicar una migración. */
+let indicePreferido = 0;
+
+function esFalloDeEsquema(error) {
+  return falloDeUnion(error) || faltaColumnaEdicion(error) || faltaColumnaAdjunto(error);
+}
+
 async function consultarTolerante(hacer) {
   let ultimo = { data: null, error: null };
-  for (const columnas of VARIANTES) {
-    ultimo = await hacer(columnas);
-    if (!ultimo.error) return ultimo;
-    if (!falloDeUnion(ultimo.error) && !faltaColumnaEdicion(ultimo.error)) return ultimo;
+  const indices = VARIANTES.map((_, i) => i);
+  // Se arranca por el juego recordado; si ninguno de ahí en adelante sirve,
+  // se da la vuelta y se prueban los anteriores.
+  const orden = [...indices.slice(indicePreferido), ...indices.slice(0, indicePreferido)];
+
+  for (const i of orden) {
+    ultimo = await hacer(VARIANTES[i]);
+    if (!ultimo.error) {
+      indicePreferido = i;
+      return ultimo;
+    }
+    if (!esFalloDeEsquema(ultimo.error)) return ultimo;
   }
   return ultimo;
 }
@@ -115,6 +154,17 @@ export function normalizarMensaje(fila, uid) {
     receptorId: fila?.receptor_id || null,
     propio: !!uid && String(fila?.usuario_id) === String(uid),
     texto: fila?.contenido || '',
+    /* `adjunto` es null cuando el mensaje es solo texto, que es lo normal.
+       Así la burbuja decide con un simple `if` y no tiene que mirar cuatro
+       columnas sueltas. */
+    adjunto: fila?.adjunto_url
+      ? {
+          url: fila.adjunto_url,
+          nombre: fila.adjunto_nombre || 'archivo',
+          tipo: fila.adjunto_tipo || '',
+          tamano: fila.adjunto_tamano ?? null
+        }
+      : null,
     editadoEn: fila?.editado_en || null,
     creadoEn: fila?.created_at || new Date().toISOString(),
     hora: fecha.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -139,20 +189,43 @@ export async function listarMensajes(uid) {
   return { mensajes: (data || []).map(f => normalizarMensaje(f, uid)), error: null };
 }
 
+/**
+ * Columnas del adjunto listas para el insert. Devuelve un objeto vacío cuando
+ * no hay archivo, para que el mensaje de solo texto se siga insertando igual
+ * en una base donde la migración 012 todavía no se ejecutó.
+ */
+function columnasAdjunto(adjunto) {
+  if (!adjunto?.url) return {};
+  return {
+    adjunto_url: adjunto.url,
+    adjunto_nombre: adjunto.nombre || 'archivo',
+    adjunto_tipo: adjunto.tipo || '',
+    adjunto_tamano: adjunto.tamano ?? null
+  };
+}
+
 /** Inserta un mensaje. Devuelve el mensaje ya normalizado. */
-export async function enviarMensajeSocios({ texto, uid, autor }) {
+export async function enviarMensajeSocios({ texto, uid, autor, adjunto = null }) {
   const contenido = String(texto || '').trim();
-  if (!contenido) return { mensaje: null, error: null };
+  // Con adjunto el texto es opcional: mandar solo una foto es válido.
+  if (!contenido && !adjunto?.url) return { mensaje: null, error: null };
   if (!uid) return { mensaje: null, error: 'Sesión no válida.' };
 
   const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
-    .insert({ canal: CANAL_SOCIOS, usuario_id: uid, autor: autor || '', contenido })
+    .insert({
+      canal: CANAL_SOCIOS,
+      usuario_id: uid,
+      autor: autor || '',
+      contenido,
+      ...columnasAdjunto(adjunto)
+    })
     .select(columnas)
     .single());
 
   if (error) {
     if (faltaTabla(error)) return { mensaje: null, error: AVISO_MIGRACION_006 };
+    if (faltaColumnaAdjunto(error)) return { mensaje: null, error: AVISO_MIGRACION_012 };
     if (String(error.code) === '42501') {
       return { mensaje: null, error: 'Solo los socios pueden escribir en este canal.' };
     }
@@ -300,9 +373,10 @@ export async function listarMensajesDirectos(uid, otroId) {
 }
 
 /** Inserta un mensaje privado dirigido a `receptorId`. */
-export async function enviarMensajeDirecto({ texto, uid, autor, receptorId }) {
+export async function enviarMensajeDirecto({ texto, uid, autor, receptorId, adjunto = null }) {
   const contenido = String(texto || '').trim();
-  if (!contenido) return { mensaje: null, error: null };
+  // Con adjunto el texto es opcional: mandar solo una foto es válido.
+  if (!contenido && !adjunto?.url) return { mensaje: null, error: null };
   if (!uid) return { mensaje: null, error: 'Sesión no válida.' };
   if (!receptorId) return { mensaje: null, error: 'Falta el destinatario del mensaje.' };
 
@@ -313,13 +387,15 @@ export async function enviarMensajeDirecto({ texto, uid, autor, receptorId }) {
       usuario_id: uid,
       receptor_id: receptorId,
       autor: autor || '',
-      contenido
+      contenido,
+      ...columnasAdjunto(adjunto)
     })
     .select(columnas)
     .single());
 
   if (error) {
     if (faltaTabla(error)) return { mensaje: null, error: AVISO_MIGRACION_006 };
+    if (faltaColumnaAdjunto(error)) return { mensaje: null, error: AVISO_MIGRACION_012 };
     if (faltaColumna(error)) return { mensaje: null, error: AVISO_MIGRACION_009 };
     return { mensaje: null, error: error.message };
   }

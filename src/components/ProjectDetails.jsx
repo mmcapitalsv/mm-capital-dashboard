@@ -21,6 +21,7 @@ import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
 } from '../services/galeriaService';
 import { usePrefs } from '../context/PreferenciasContext';
+import { VideoBackground } from './ui/VideoBackground';
 import InputMonto from './ui/InputMonto';
 import {
   // El lápiz y el basurero ya no escriben solos: todo el checklist viaja a
@@ -98,8 +99,8 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
   );
 }
 
-export default function ProjectDetails({ project, onBack, userRole, isEditMode, onUpdateProject }) {
-  const { t, locale, language } = usePrefs();
+export default function ProjectDetails({ project, onBack, userRole, isEditMode, onUpdateProject, aportaciones = [] }) {
+  const { t, locale, language, modoOscuro } = usePrefs();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   const [activeTab, setActiveTab] = useState('summary');
   const [openAccordion, setOpenAccordion] = useState(null);
@@ -1462,6 +1463,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const isOverBudget = totalSpent > totalBudget;
   const overBudgetAmount = isOverBudget ? totalSpent - totalBudget : 0;
 
+  /* Saldo por ejecutar: lo que queda del presupuesto para terminar la obra.
+     Puede ser negativo — y se muestra en rojo — porque ocultar el sobregiro
+     sería justamente esconder el dato que hay que ver. */
+  const saldoPorEjecutar = totalBudget - totalSpent;
+
+  /* Capital inyectado: suma REAL de las aportaciones registradas para este
+     proyecto en la sección de Inversionistas. Nunca es una cifra escrita a
+     mano: si se registra o corrige una aportación, esto se mueve solo. */
+  const capitalInyectado = (Array.isArray(aportaciones) ? aportaciones : [])
+    .filter(a => String(a?.proyecto_id ?? '') === String(project?.id ?? ''))
+    .reduce((suma, a) => suma + (Number(a?.monto) || 0), 0);
+
   /* Estado del proyecto: NO es texto fijo, sale del % de hitos completados.
      0% = Planificación · 1–99% = En progreso · 100% = Finalizado. */
   const estadoAutomatico = safeChecklist.length === 0 || avancePct === 0
@@ -1496,7 +1509,17 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   );
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-900 relative">
+    <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-900 relative isolate">
+
+      {/* ── Fondo animado de marca ──
+          El mismo video del panel, detrás de todo: header, pestañas (Resumen,
+          Finanzas, Docs, Galería) y contenido. Va con `-z-10` dentro de un
+          `isolate`, así que se pinta sobre el lienzo blanco/navy pero por
+          debajo de cualquier contenido, y las tarjetas opacas siguen legibles.
+          `pointer-events-none` para que no robe ni un clic. */}
+      <div className="absolute inset-0 -z-10 pointer-events-none" aria-hidden="true">
+        <VideoBackground oscuro={modoOscuro} />
+      </div>
 
       {/* ── Header ── */}
       <header className="flex-shrink-0 px-6 md:px-10 pt-8 pb-5 border-b border-gray-100 dark:border-zinc-700 flex items-center justify-between gap-5">
@@ -2084,21 +2107,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 colorValor="text-mm-1"
               />
 
+              {/* Saldo por ejecutar y Capital inyectado son cifras DERIVADAS
+                  (presupuesto − ejecutado, y la suma de aportaciones reales):
+                  no se editan ni en Modo Edición, porque escribirlas a mano
+                  las desconectaría de los datos que las producen. */}
               <TarjetaMonto
-                etiqueta={t('fin.anticipo')}
-                pie={t('fin.anticipoDesc')}
-                valor={finanzas.anticipo}
-                editando={modoEdicionFinanzas}
-                onChange={(v) => handleCampoFinanzas('anticipo', v)}
-                colorValor="text-mm-1"
+                etiqueta={t('fin.saldoEjecutar')}
+                pie={t('fin.saldoEjecutarDesc')}
+                valor={saldoPorEjecutar}
+                editando={false}
+                colorValor={saldoPorEjecutar < 0 ? 'text-red-700 dark:text-red-400' : 'text-mm-1'}
               />
 
               <TarjetaMonto
-                etiqueta={t('fin.cuotaAsignada')}
-                pie={t('fin.cuotaAsignadaDesc')}
-                valor={finanzas.cuota}
-                editando={modoEdicionFinanzas}
-                onChange={(v) => handleCampoFinanzas('cuota', v)}
+                etiqueta={t('fin.capitalInyectado')}
+                pie={t('fin.capitalInyectadoDesc')}
+                valor={capitalInyectado}
+                editando={false}
                 colorValor="text-mm-1"
               />
 

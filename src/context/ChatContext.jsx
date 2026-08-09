@@ -181,12 +181,13 @@ export function ChatProvider({ children, user }) {
    * Supabase; si Realtime lo repite, el filtro por id evita el duplicado.
    * @returns {Promise<boolean>} false si el texto estaba vacío o hubo error
    */
-  const enviarMensaje = useCallback(async (texto) => {
+  const enviarMensaje = useCallback(async (texto, adjunto = null) => {
     const limpio = String(texto || '').trim();
-    if (!limpio || !uid || !tieneAcceso) return false;
+    // Con adjunto el texto puede ir vacío: se manda solo el archivo.
+    if ((!limpio && !adjunto?.url) || !uid || !tieneAcceso) return false;
 
     const { mensaje, error: errEnvio } = await enviarMensajeSocios({
-      texto: limpio, uid, autor: nombreAutor
+      texto: limpio, uid, autor: nombreAutor, adjunto
     });
 
     if (errEnvio) { setError(errEnvio); return false; }

@@ -487,6 +487,105 @@ export async function descargarArchivo(url, nombreSugerido = 'archivo') {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Adjuntos del chat · bucket `archivos_mmcapital`, carpeta `chat/<uid>/`
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** Un adjunto de chat puede ser una foto, un PDF o un documento de oficina. */
+export const ADJUNTO_CHAT_MAX_MB = 15;
+
+/** Lo que acepta el selector del clip. Mismo criterio que la bóveda. */
+export const ACEPTA_ADJUNTO_CHAT =
+  'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+
+/** Valida el adjunto antes de gastar red. Devuelve null si está bien. */
+export function validarAdjuntoChat(file) {
+  if (!file) return 'No se seleccionó ningún archivo.';
+  if (file.size > ADJUNTO_CHAT_MAX_MB * 1024 * 1024) {
+    return `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el máximo es ${ADJUNTO_CHAT_MAX_MB} MB.`;
+  }
+  return null;
+}
+
+/**
+ * Sube un adjunto del chat y devuelve lo que se guarda en el mensaje.
+ *
+ * La ruta DEBE ser `chat/<uid>/...`: así la reconocen las políticas de la
+ * migración 012 y cada quien solo puede subir bajo su propia carpeta. Con
+ * cualquier otra ruta, un socio que no sea administrador recibiría
+ * «new row violates row-level security policy».
+ *
+ * Las fotos se comprimen a 1600 px antes de viajar — una foto de móvil pesa
+ * 12 MB y el bucket la rechazaría con 413. Los PDF y los documentos viajan
+ * intactos: comprimir un PDF rasterizaría su texto.
+ *
+ * @returns {Promise<{success: boolean, adjunto?: object, error?: string}>}
+ */
+export async function subirAdjuntoChat(file, usuarioId) {
+  const invalido = validarAdjuntoChat(file);
+  if (invalido) return { success: false, error: invalido };
+  if (!esIdValidoDeSupabase(usuarioId)) {
+    return { success: false, error: 'No se pudo identificar tu usuario para subir el archivo.' };
+  }
+
+  const esImagenComprimible = TIPOS_COMPRIMIBLES.includes(file.type);
+  const archivo = esImagenComprimible
+    ? await comprimirImagen(file, {
+        ladoMax: 1600,
+        pesoObjetivoKB: 700,
+        nombre: file.name || 'adjunto.jpg'
+      })
+    : file;
+
+  const filePath = `chat/${usuarioId}/${Date.now()}_${rutaSegura(file.name || 'adjunto')}`;
+
+  try {
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(filePath, archivo, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: archivo.type || file.type || 'application/octet-stream'
+      });
+
+    if (upErr) {
+      if (esErrorDeTamano(upErr)) {
+        return { success: false, error: 'El archivo es demasiado grande para el servidor.' };
+      }
+      return { success: false, error: `No se pudo subir el archivo: ${upErr.message}` };
+    }
+
+    const url = supabase.storage.from(BUCKET).getPublicUrl(filePath).data?.publicUrl || null;
+    if (!url) {
+      await supabase.storage.from(BUCKET).remove([filePath]);
+      return { success: false, error: 'El archivo subió pero no se pudo obtener su enlace.' };
+    }
+
+    return {
+      success: true,
+      adjunto: {
+        // El nombre que se guarda es el ORIGINAL, no el saneado de la ruta:
+        // es el que va a leer la persona en la burbuja.
+        url,
+        nombre: file.name || 'adjunto',
+        tipo: archivo.type || file.type || 'application/octet-stream',
+        tamano: archivo.size ?? file.size ?? null,
+        path: filePath
+      }
+    };
+  } catch (err) {
+    return { success: false, error: err.message || 'Error inesperado subiendo el archivo.' };
+  }
+}
+
+/** Borra un adjunto ya subido (se usa al descartar antes de enviar). */
+export async function eliminarAdjuntoChat(path) {
+  if (!path) return { success: true };
+  const { error } = await supabase.storage.from(BUCKET).remove([path]);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
 /**
  * Sube la imagen de portada de un proyecto y actualiza `proyectos.imagen_url`.
  * @returns {Promise<{success: boolean, url?: string, error?: string}>}

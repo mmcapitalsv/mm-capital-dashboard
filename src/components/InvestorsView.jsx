@@ -152,7 +152,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
   };
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
 
       {/* Cabecera */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 md:px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex-shrink-0">

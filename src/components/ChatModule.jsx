@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  AlertTriangle, Check, ChevronLeft, Lock, MessageSquare, Paperclip, Pencil, Send,
-  Trash2, User, Users, X
+  AlertTriangle, Check, ChevronLeft, Download, FileText, Loader2, Lock,
+  MessageSquare, Paperclip, Pencil, Send, Trash2, User, Users, X
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useChat } from '../context/ChatContext';
@@ -11,6 +11,10 @@ import {
   editarMensaje, eliminarMensaje
 } from '../services/chatService';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import {
+  ACEPTA_ADJUNTO_CHAT, subirAdjuntoChat, eliminarAdjuntoChat, descargarArchivo
+} from '../services/storageService';
+import { esImagen } from '../lib/archivos';
 
 /**
  * Chat interno corporativo.
@@ -46,8 +50,16 @@ export default function ChatModule({ onBack, isEditMode }) {
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const [confirmarLimpieza, setConfirmarLimpieza] = useState(false);
   const [limpiando, setLimpiando] = useState(false);
+  /* Adjunto en preparación. El archivo se sube al bucket EN CUANTO se elige,
+     no al pulsar Enviar: así la espera ocurre mientras la persona escribe el
+     texto y el envío es instantáneo. `adjunto` guarda ya la URL pública. */
+  const [adjunto, setAdjunto] = useState(null);
+  const [subiendoAdjunto, setSubiendoAdjunto] = useState(false);
+  const [errorAdjunto, setErrorAdjunto] = useState(null);
+
   const finRef = useRef(null);
   const composerRef = useRef(null);
+  const clipRef = useRef(null);
 
   const enDirectos = pestana === 'directos';
 
@@ -125,15 +137,43 @@ export default function ChatModule({ onBack, isEditMode }) {
     finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [conversacion.length, pestana, destinatario?.id]);
 
+  /* El archivo se sube nada más elegirlo. Si la subida falla, no se deja un
+     adjunto a medias colgando del compositor: se limpia y se avisa. */
+  const handleElegirAdjunto = async (e) => {
+    const archivo = e.target.files?.[0];
+    // El input se vacía SIEMPRE: sin esto, elegir dos veces el mismo archivo
+    // no dispara `change` la segunda vez.
+    e.target.value = '';
+    if (!archivo) return;
+
+    setErrorAdjunto(null);
+    setSubiendoAdjunto(true);
+    const { success, adjunto: subido, error: err } = await subirAdjuntoChat(archivo, uid);
+    setSubiendoAdjunto(false);
+
+    if (!success) { setErrorAdjunto(err); return; }
+    setAdjunto(subido);
+  };
+
+  /* Descartar antes de enviar borra el binario del bucket: si no, cada archivo
+     que alguien elige y se arrepiente se queda ahí para siempre. */
+  const quitarAdjunto = async () => {
+    const path = adjunto?.path;
+    setAdjunto(null);
+    setErrorAdjunto(null);
+    if (path) await eliminarAdjuntoChat(path);
+  };
+
   const handleEnviar = async (e) => {
     e.preventDefault();
-    if (!borrador.trim() || enviando) return;
+    // Se puede enviar solo el archivo, sin escribir nada.
+    if ((!borrador.trim() && !adjunto) || enviando || subiendoAdjunto) return;
     setEnviando(true);
 
     let ok = false;
     if (enDirectos) {
       const { mensaje, error: err } = await enviarMensajeDirecto({
-        texto: borrador, uid, autor: nombreAutor, receptorId: destinatario?.id
+        texto: borrador, uid, autor: nombreAutor, receptorId: destinatario?.id, adjunto
       });
       if (err) setErrorDirectos(err);
       if (mensaje) {
@@ -142,12 +182,15 @@ export default function ChatModule({ onBack, isEditMode }) {
         ok = true;
       }
     } else {
-      ok = await enviarMensaje(borrador);
+      ok = await enviarMensaje(borrador, adjunto);
     }
 
     setEnviando(false);
     if (ok) {
       setBorrador('');
+      // El adjunto ya viajó con el mensaje: se suelta sin borrarlo del bucket
+      setAdjunto(null);
+      setErrorAdjunto(null);
       // El textarea crece con el texto: al vaciarlo vuelve a una sola línea
       if (composerRef.current) composerRef.current.style.height = 'auto';
     }
@@ -274,7 +317,7 @@ export default function ChatModule({ onBack, isEditMode }) {
   return (
     /* `min-h-0` es lo que permite que el historial sea el ÚNICO que hace
        scroll y que el compositor quede siempre anclado abajo, a la vista. */
-    <main className="flex-1 flex flex-col overflow-hidden min-h-0 bg-mm-lienzo dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden min-h-0 bg-transparent">
 
       {/* Cabecera: compacta en móvil para no robarle alto a la conversación */}
       <div className="flex items-center gap-3 px-4 md:px-8 py-3 md:py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex-shrink-0">
@@ -485,7 +528,60 @@ export default function ChatModule({ onBack, isEditMode }) {
                             </div>
                           </form>
                         ) : (
-                          <p className="text-[15px] leading-[1.45] break-words whitespace-pre-wrap">{m.texto}</p>
+                          <>
+                            {/* El adjunto va ARRIBA del texto: en un chat el
+                                archivo es el mensaje y el texto lo comenta. */}
+                            {m.adjunto && (
+                              esImagen(m.adjunto.nombre, m.adjunto.url) ? (
+                                <a
+                                  href={m.adjunto.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={m.adjunto.nombre}
+                                  className="block mb-1.5 rounded-xl overflow-hidden border border-black/10 dark:border-white/10"
+                                >
+                                  <img
+                                    src={m.adjunto.url}
+                                    alt={m.adjunto.nombre}
+                                    loading="lazy"
+                                    className="max-h-64 w-auto max-w-full object-cover"
+                                  />
+                                </a>
+                              ) : (
+                                /* No es un <a download>: apuntando a otro origen
+                                   el navegador lo ignora y abre el archivo en una
+                                   pestaña. `descargarArchivo` lo baja como blob. */
+                                <button
+                                  type="button"
+                                  onClick={() => descargarArchivo(m.adjunto.url, m.adjunto.nombre)}
+                                  title={m.adjunto.nombre}
+                                  className={`w-full flex items-center gap-2.5 mb-1.5 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                                    m.propio
+                                      ? 'bg-white/10 hover:bg-white/15'
+                                      : 'bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700/50'
+                                  }`}
+                                >
+                                  <FileText size={18} className="text-mm-oro flex-shrink-0" />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-[13px] font-semibold truncate">
+                                      {m.adjunto.nombre}
+                                    </span>
+                                    {m.adjunto.tamano != null && (
+                                      <span className={`block text-[11px] tabular-nums ${
+                                        m.propio ? 'text-white/50' : 'text-slate-400 dark:text-zinc-400'
+                                      }`}>
+                                        {(m.adjunto.tamano / 1024 / 1024).toFixed(2)} MB
+                                      </span>
+                                    )}
+                                  </span>
+                                  <Download size={15} className="flex-shrink-0 opacity-60" />
+                                </button>
+                              )
+                            )}
+                            {m.texto && (
+                              <p className="text-[15px] leading-[1.45] break-words whitespace-pre-wrap">{m.texto}</p>
+                            )}
+                          </>
                         )}
 
                         <p className={`text-[11px] mt-1 ${m.propio ? 'text-white/50' : 'text-slate-400 dark:text-zinc-300'}`}>
@@ -512,16 +608,90 @@ export default function ChatModule({ onBack, isEditMode }) {
                   fuera de la zona de scroll), nunca hay que desplazarse para
                   escribir. El input va a 16px: por debajo de eso iOS hace zoom
                   automático al enfocarlo. */}
+              {/* ── Vista previa del adjunto, encima del compositor ──
+                  Aparece en cuanto el archivo termina de subir y se puede
+                  descartar antes de enviar. */}
+              {(adjunto || subiendoAdjunto || errorAdjunto) && (
+                <div className="px-3 md:px-4 pt-2 flex-shrink-0">
+                  {errorAdjunto ? (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-3 py-2">
+                      <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+                      <p className="min-w-0 flex-1 text-[12px] text-red-600 dark:text-red-300 leading-relaxed break-words">
+                        {errorAdjunto}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setErrorAdjunto(null)}
+                        title={t('comun.cancelar')}
+                        className="p-0.5 rounded-full text-red-400 hover:text-red-600 flex-shrink-0"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : subiendoAdjunto ? (
+                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 px-3 py-2">
+                      <Loader2 size={14} className="text-mm-oro flex-shrink-0 animate-spin" />
+                      <p className="text-[12px] font-semibold text-slate-500 dark:text-zinc-300">
+                        {t('chat.subiendoAdjunto')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 pl-2 pr-1.5 py-1.5">
+                      {esImagen(adjunto.nombre, adjunto.url) ? (
+                        <img
+                          src={adjunto.url}
+                          alt=""
+                          className="w-9 h-9 rounded-lg object-cover flex-shrink-0 border border-gray-200 dark:border-zinc-700"
+                        />
+                      ) : (
+                        <span className="w-9 h-9 rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 flex items-center justify-center flex-shrink-0">
+                          <FileText size={16} className="text-mm-oro" />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12px] font-semibold text-slate-700 dark:text-zinc-200 truncate">
+                          {adjunto.nombre}
+                        </p>
+                        {adjunto.tamano != null && (
+                          <p className="text-[11px] text-slate-400 dark:text-zinc-400 tabular-nums">
+                            {(adjunto.tamano / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={quitarAdjunto}
+                        title={t('chat.quitarAdjunto')}
+                        className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex-shrink-0 active:scale-90"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <form
                 onSubmit={handleEnviar}
                 className="px-3 py-2.5 md:p-4 border-t border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-end gap-2 flex-shrink-0"
               >
+                {/* `archivo-oculto` en vez de `hidden`: Safari de iPhone no abre
+                    el selector de un input con `display:none` (ver index.css). */}
+                <input
+                  type="file"
+                  ref={clipRef}
+                  onChange={handleElegirAdjunto}
+                  accept={ACEPTA_ADJUNTO_CHAT}
+                  className="archivo-oculto"
+                />
                 <button
                   type="button"
-                  title={t('nav.adjuntar')}
-                  className="w-10 h-10 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded-full hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors flex-shrink-0 active:scale-90"
+                  onClick={() => clipRef.current?.click()}
+                  disabled={subiendoAdjunto || !!adjunto}
+                  title={adjunto ? t('chat.adjuntoUnico') : t('nav.adjuntar')}
+                  className="w-10 h-10 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded-full hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors flex-shrink-0 active:scale-90 disabled:opacity-30 disabled:hover:text-slate-400 disabled:active:scale-100"
                 >
-                  <Paperclip size={19} />
+                  {subiendoAdjunto ? <Loader2 size={19} className="animate-spin" /> : <Paperclip size={19} />}
                 </button>
 
                 {/* Textarea, no input: Enter inserta un salto de línea y el
@@ -545,7 +715,7 @@ export default function ChatModule({ onBack, isEditMode }) {
 
                 <button
                   type="submit"
-                  disabled={!borrador.trim() || enviando}
+                  disabled={(!borrador.trim() && !adjunto) || enviando || subiendoAdjunto}
                   title={t('comun.enviar')}
                   className="w-11 h-11 flex items-center justify-center bg-mm-oro text-white rounded-full shadow-sm hover:bg-mm-oro-hondo transition-all disabled:opacity-30 disabled:hover:bg-mm-oro flex-shrink-0 active:scale-90"
                 >
