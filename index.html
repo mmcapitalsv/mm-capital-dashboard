@@ -1,13 +1,21 @@
 <!doctype html>
-<html lang="en">
+<!-- El script de abajo ajusta `lang` a la preferencia guardada; el valor
+     inicial es español porque es el idioma por defecto de la aplicación. -->
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon2.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover" />
+    <!-- Sin `maximum-scale` ni `user-scalable`: bloquear el zoom con dos dedos
+         incumple WCAG 1.4.4 y deja sin recurso a quien necesita agrandar. El
+         zoom automático de iOS al enfocar un campo se evita poniendo los
+         `input` a 16px, no desactivando el zoom de todo el mundo. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MM Capital" />
-    <meta name="theme-color" content="#0f172a" />
+    <!-- Navy de marca, no el slate-900 de Tailwind: instalada como PWA, la
+         barra de estado del teléfono debe empalmar con la cabecera. -->
+    <meta name="theme-color" content="#0B1B2C" />
     <title>Portal Ejecutivo - MM Capital</title>
     <script>
       // Aplica el tema guardado ANTES del primer pintado para evitar el

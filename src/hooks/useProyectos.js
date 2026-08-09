@@ -3,71 +3,7 @@ import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
-
-const DEFAULT_PROJECTS = [
-  {
-    id: '1',
-    nombre: 'Proyecto San Martín',
-    title: 'Proyecto San Martín',
-    ubicacion: 'Colonia Santa María, San Martín',
-    location: 'Colonia Santa María, San Martín',
-    descripcion: 'Desarrollo residencial de lujo con acabados premium y amenidades exclusivas.',
-    estado: 'En Progreso',
-    status: 'EN PROGRESO',
-    tag: 'Desarrollo Residencial',
-    presupuesto_total: 1480000,
-    totalGastado: 527000,
-    presupuesto: '$1.48M',
-    fecha_entrega: '2025-11-30',
-    entrega: '30 Nov 2025',
-    imagen_url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
-    img: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    id: '2',
-    nombre: 'Proyecto Chalchuapa',
-    title: 'Proyecto Chalchuapa',
-    ubicacion: 'Chalchuapa, Santa Ana',
-    location: 'Chalchuapa',
-    descripcion: 'Complejo residencial accesible. Terreno adquirido por $32,000 USD (100% pagado e inyectado en gastos ejecutados). Tarea crítica: Registro CNR y factibilidad de agua/luz.',
-    estado: 'En Ejecución',
-    status: 'EN EJECUCIÓN',
-    tag: 'Residencial Accesible',
-    presupuesto_total: 850000,
-    costo_terreno: 32000,
-    terreno_pagado: true,
-    totalGastado: 590000,
-    tarea_critica: 'Registro del terreno en el CNR y validación de permisos de agua y luz',
-    presupuesto: '$850K',
-    fecha_entrega: '2025-12-15',
-    entrega: '15 Dic 2025',
-    imagen_url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-    img: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    id: '3',
-    nombre: 'Proyecto San Juan Opico',
-    title: 'Proyecto San Juan Opico',
-    ubicacion: 'San Juan Opico, La Libertad',
-    location: 'San Juan Opico',
-    descripcion: 'Desarrollo industrial y comercial estratégico. Terreno: $55,000 USD (Anticipo de $5,000 USD pagado). ¡ALERTA CRÍTICA! Saldo pendiente de $50,000 USD vence el 2 de agosto de 2026.',
-    estado: 'Fase Inicial',
-    status: 'FASE INICIAL',
-    tag: 'Industrial / Comercial',
-    presupuesto_total: 100000,
-    costo_terreno: 55000,
-    anticipo_terreno: 5000,
-    saldo_terreno: 50000,
-    fecha_vencimiento_saldo: '2026-08-02',
-    alerta_critica: '🔴 ¡ALERTA CRÍTICA! Plazo para pagar el saldo restante del terreno ($50,000 USD) vence el 2 de agosto de 2026.',
-    totalGastado: 55000,
-    presupuesto: '$100K',
-    fecha_entrega: '2026-03-30',
-    entrega: '30 Mar 2026',
-    imagen_url: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80',
-    img: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80'
-  }
-];
+import { montoCorto } from '../lib/formato';
 
 /**
  * Estado del proyecto derivado del avance real de hitos.
@@ -81,16 +17,11 @@ export function estadoPorAvance(porcentaje, totalHitos = 1) {
   return 'En progreso';
 }
 
-function formatMoney(amount) {
-  const n = Number(amount);
-  if (isNaN(n) || n === 0) return '$0';
-  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
-  if (n >= 1_000) return '$' + (n / 1_000).toFixed(0) + 'K';
-  return '$' + n.toLocaleString('es-SV');
-}
-
 export function useProyectos(user) {
-  const [proyectos, setProyectos] = useState(DEFAULT_PROJECTS);
+  const [proyectos, setProyectos] = useState([]);
+  // Mensaje de error real de Supabase: la interfaz lo muestra en vez de
+  // fingir que hay datos cuando la lectura falló.
+  const [errorCarga, setErrorCarga] = useState(null);
   const [gastos, setGastos] = useState([]);
   const [hitos, setHitos] = useState([]);
   const [archivos, setArchivos] = useState([]);
@@ -106,11 +37,15 @@ export function useProyectos(user) {
     try {
       setLoading(true);
 
-      // 1. Ficha del usuario autenticado: nombre, cargo y rol reales.
-      //    De aquí salen el saludo, la tarjeta del sidebar y los permisos.
-      const esAdminPorCorreo =
-        user?.email === 'luisp.bomel@gmail.com' || user?.email === 'luis@mmcapital.com';
+      /* 1. Ficha del usuario autenticado: nombre, cargo y rol reales.
+            De aquí salen el saludo, la tarjeta del sidebar y los permisos.
 
+            El rol sale ÚNICAMENTE de la columna `usuarios.rol`. Antes había una
+            lista de correos escrita aquí que concedía `admin`: eso viajaba en el
+            paquete publicado (cualquiera podía leer los correos) y además decidía
+            un permiso en el navegador, que es territorio del usuario. Quien manda
+            es la base de datos, y las políticas RLS la respaldan del lado del
+            servidor. */
       if (user?.id) {
         try {
           const { data: userData, error: userError } = await supabase
@@ -121,24 +56,28 @@ export function useProyectos(user) {
 
           if (!userError && userData) {
             setPerfil(userData);
-            if (userData.rol) setRol(esAdminPorCorreo ? 'admin' : userData.rol);
+            if (userData.rol) setRol(userData.rol);
           }
         } catch (e) {
           console.warn("User profile fetch warning:", e);
         }
       }
 
-      if (esAdminPorCorreo) setRol('admin');
-
       // 2. Fetch Projects from Supabase
       const { data: proyectosData, error: proyectosError } = await supabase
         .from('proyectos')
         .select('*');
 
-      if (!proyectosError && Array.isArray(proyectosData) && proyectosData.length > 0) {
-        setProyectos(proyectosData);
+      /* Sin proyectos NO se inventan proyectos: la lista queda vacía y la
+         interfaz dice que está vacía. Antes se caía a tres proyectos de ejemplo
+         con montos que parecían reales, indistinguibles de los verdaderos. */
+      if (proyectosError) {
+        console.error('Error al leer proyectos:', proyectosError);
+        setErrorCarga(proyectosError.message || 'No se pudieron leer los proyectos.');
+        setProyectos([]);
       } else {
-        setProyectos(DEFAULT_PROJECTS);
+        setErrorCarga(null);
+        setProyectos(Array.isArray(proyectosData) ? proyectosData : []);
       }
 
       // 3. Fetch Gastos from Supabase
@@ -191,7 +130,9 @@ export function useProyectos(user) {
 
     } catch (error) {
       console.error("Error fetching data from Supabase:", error);
-      setProyectos(DEFAULT_PROJECTS);
+      // Un fallo se dice, no se disimula con datos de ejemplo.
+      setErrorCarga(error?.message || 'No se pudo conectar con la base de datos.');
+      setProyectos([]);
     } finally {
       setLoading(false);
     }
@@ -237,16 +178,15 @@ export function useProyectos(user) {
   }, [user?.id]);
 
   // Safe collections
-  const safeProyectos = Array.isArray(proyectos) && proyectos.length > 0 ? proyectos : DEFAULT_PROJECTS;
+  // Una lista vacía se queda vacía: es una respuesta válida, no un fallo.
+  const safeProyectos = Array.isArray(proyectos) ? proyectos : [];
   const safeGastos = Array.isArray(gastos) ? gastos : [];
   const safeHitos = Array.isArray(hitos) ? hitos : [];
   const safeArchivos = Array.isArray(archivos) ? archivos : [];
   const safeAportaciones = Array.isArray(aportaciones) ? aportaciones : [];
 
   // Derived Data: Normalize fields and calculate financial metrics
-  const proyectosConFinanzas = safeProyectos.map((proyecto) => {
-    if (!proyecto) return DEFAULT_PROJECTS[0];
-
+  const proyectosConFinanzas = safeProyectos.filter(Boolean).map((proyecto) => {
     const pIdStr = String(proyecto.id || '');
 
     // ── Avance FÍSICO de obra: se lee del checklist real guardado en Supabase ──
@@ -292,24 +232,28 @@ export function useProyectos(user) {
     // El estado NO es texto fijo: sale del % de hitos completados.
     // 0% = Planificación · 1–99% = En progreso · 100% = Finalizado.
     const estadoFinal = estadoPorAvance(avanceFisico, checklistFinal.length);
-    const imagenFinal = proyecto.imagen_url || proyecto.img || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80';
-    const fechaFinal = proyecto.fecha_entrega || proyecto.entrega || '2025-11-30';
+    /* Sin portada NO se pone una foto de archivo: `null` y la interfaz dibuja
+       su propio marcador de marca. Antes todos los proyectos sin foto salían
+       con la misma imagen de Unsplash, que además no funciona sin conexión. */
+    const imagenFinal = proyecto.imagen_url || proyecto.img || null;
+    // Sin fecha cargada no se inventa una: la interfaz mostrará "—".
+    const fechaFinal = proyecto.fecha_entrega || proyecto.entrega || null;
 
     return {
       ...proyecto,
-      id: proyecto.id || '1',
+      id: proyecto.id,
       nombre: nombreFinal,
       title: nombreFinal,
       ubicacion: ubicacionFinal,
       location: ubicacionFinal,
-      descripcion: proyecto.descripcion || 'Desarrollo inmobiliario exclusivo.',
+      descripcion: proyecto.descripcion || '',
       estado: estadoFinal,
       status: estadoFinal,
       tag: proyecto.tag || estadoFinal,
       imagen_url: imagenFinal,
       img: imagenFinal,
       presupuesto_total: presupuestoTotal,
-      presupuesto: formatMoney(presupuestoTotal),
+      presupuesto: montoCorto(presupuestoTotal),
       fecha_entrega: fechaFinal,
       entrega: fechaFinal,
       // Cifras financieras reales de Supabase (editables por el Administrador)
@@ -317,12 +261,17 @@ export function useProyectos(user) {
       gastosSumados,
       ejecucion_mensual: Array.isArray(proyecto.ejecucion_mensual) ? proyecto.ejecucion_mensual : [],
       totalGastado,
-      ejecutado: formatMoney(totalGastado),
+      ejecutado: montoCorto(totalGastado),
       balance,
-      porcentajeGastado: porcentajeGastado,
+      /* ── Las DOS métricas del proyecto, deliberadamente separadas ──────────
+         No miden lo mismo y no deben presentarse juntas:
+         · avanceFisico     = % de hitos del checklist completados (obra)
+         · porcentajeGastado = % del presupuesto consumido (dinero)
+         Mezclarlas hacía que "Ejecutado $32K (15%)" se leyera como si $32K
+         fueran el 15% del presupuesto, cuando en realidad eran el 40%. */
+      porcentajeGastado,
       progress: porcentajeGastado.toFixed(0),
       ejecutadoPct: `${porcentajeGastado.toFixed(0)}%`,
-      // Avance físico de obra (checklist), independiente del avance financiero
       checklist: checklistFinal,
       avanceFisico,
       avanceObra: `${avanceFisico}%`,
@@ -331,33 +280,48 @@ export function useProyectos(user) {
     };
   });
 
-  // Derived Data: Notifications for close milestones (<= 7 days)
+  /* ── Vencimientos: UN SOLO criterio para toda la aplicación ───────────────
+     Antes había dos. La campana filtraba `diffDays >= 0`, así que lo ya
+     vencido —justo lo urgente— nunca avisaba; y "Tareas Críticas" no tenía
+     límite inferior, así que iba acumulando hitos vencidos hace años mezclados
+     con los de esta semana. Ahora ambos leen de aquí, con grado explícito. */
   const today = new Date();
-  const notificaciones = safeHitos
-    .filter(hito => {
-      if (!hito || !hito.fecha_vencimiento) return false;
-      try {
-        const dueDate = new Date(hito.fecha_vencimiento);
-        if (isNaN(dueDate.getTime())) return false;
-        const diffTime = dueDate.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        // La columna real es `completado` (bool), no `estado`
-        return diffDays >= 0 && diffDays <= 7 && !hito.completado;
-      } catch (e) {
-        return false;
-      }
-    })
-    // Se resuelve aquí el nombre del proyecto y el título del hito para que la
-    // UI nunca tenga que pintar un UUID crudo.
-    .map(hito => {
-      const proyecto = safeProyectos.find(p => p && String(p.id) === String(hito.proyecto_id)) || null;
-      return {
-        ...hito,
-        tarea: hito.titulo || hito.tarea || 'Hito sin título',
-        proyectoNombre: proyecto?.nombre || proyecto?.title || '',
-        proyecto
-      };
-    });
+  const MS_DIA = 1000 * 60 * 60 * 24;
+  // Un hito vencido deja de ser accionable pasado un tiempo: más allá de este
+  // margen ya no es una alerta, es historia.
+  const DIAS_GRACIA_VENCIDO = 30;
+
+  const diasHasta = (fecha) => {
+    if (!fecha) return null;
+    const d = new Date(fecha);
+    if (isNaN(d.getTime())) return null;
+    return Math.ceil((d.getTime() - today.getTime()) / MS_DIA);
+  };
+
+  const conProyecto = (hito) => {
+    const proyecto = safeProyectos.find(p => p && String(p.id) === String(hito.proyecto_id)) || null;
+    const dias = diasHasta(hito.fecha_vencimiento);
+    return {
+      ...hito,
+      tarea: hito.titulo || hito.tarea || 'Hito sin título',
+      proyectoNombre: proyecto?.nombre || proyecto?.title || '',
+      proyecto,
+      dias,
+      // Grado explícito: la interfaz pinta el color a partir de esto, no
+      // recalculando el umbral por su cuenta en cada tarjeta.
+      grado: dias === null ? 'sin_fecha' : dias < 0 ? 'vencido' : dias <= 7 ? 'urgente' : 'al_dia'
+    };
+  };
+
+  /** Hitos pendientes que merecen atención: vencidos (recientes) o ≤7 días. */
+  const vencimientos = safeHitos
+    .filter(h => h && !h.completado && h.fecha_vencimiento)
+    .map(conProyecto)
+    .filter(h => h.dias !== null && h.dias <= 7 && h.dias >= -DIAS_GRACIA_VENCIDO)
+    .sort((a, b) => a.dias - b.dias);
+
+  // La campana muestra lo mismo que "Tareas Críticas": un solo concepto.
+  const notificaciones = vencimientos;
 
   /* ── Finanzas globales del portafolio ────────────────────────────────────
      Egresos totales = suma de TODAS las inversiones registradas en la sección
@@ -379,6 +343,15 @@ export function useProyectos(user) {
     ? Math.min(100, Math.max(0, (egresosTotales / capitalTotal) * 100))
     : 0;
   const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
+  /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
+     vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
+  const saludCapital = capitalTotal <= 0
+    ? 'sin_dato'
+    : capitalDisponible < 0
+      ? 'sobregiro'
+      : pctDisponible < 20
+        ? 'ajustado'
+        : 'holgado';
 
   /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
   const actualizarCapitalTotal = async (monto) => {
@@ -399,7 +372,9 @@ export function useProyectos(user) {
     rol,
     perfil,
     loading,
+    errorCarga,
     notificaciones,
+    vencimientos,
     refetchData: fetchData,
     // Finanzas reactivas del portafolio
     capitalTotal,
@@ -409,6 +384,7 @@ export function useProyectos(user) {
     capitalDisponible,
     pctEjecutado,
     pctDisponible,
+    saludCapital,
     actualizarCapitalTotal,
     isAdmin: ['admin', 'socio_administrador'].includes(rol),
     isInvestorOrPartner: ['inversionista', 'socio_director'].includes(rol)

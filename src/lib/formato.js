@@ -85,6 +85,45 @@ export function formatearMontoEntrada(entrada) {
   return `${negativo ? '-' : ''}${conComas}${tieneDecimal ? `.${decimales}` : ''}`;
 }
 
+/* ─────────────────────────── Dinero ────────────────────────────────────────
+   Había DOS formateadores distintos (uno en Dashboard.jsx con un decimal y
+   otro en useProyectos.js con dos), así que el mismo importe se veía diferente
+   según la pantalla. Este es el único, y vive aquí para que no vuelva a pasar. */
+
+/**
+ * Importe COMPLETO, sin abreviar: "$1,480,000.00".
+ * Es el que se pone en el `title` de toda cifra abreviada — en un panel de
+ * capital el número exacto siempre debe estar a un palmo del cursor.
+ */
+export function montoExacto(cantidad, locale = 'es-SV') {
+  const n = Number(cantidad) || 0;
+  return new Intl.NumberFormat(locale, {
+    style: 'currency', currency: 'USD',
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  }).format(n);
+}
+
+/**
+ * Importe abreviado para tarjetas y KPIs: "$1.48M", "$32.0K", "$825.69".
+ *
+ * Dos decimales en los millones (antes era uno: $1,480,000 se mostraba como
+ * "$1.5M", veinte mil dólares de diferencia a la vista). Respeta el `locale`
+ * del usuario en vez de fijar 'es-SV'.
+ */
+export function montoCorto(cantidad, locale = 'es-SV') {
+  const n = Number(cantidad) || 0;
+  const signo = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  const num = (v, d) => new Intl.NumberFormat(locale, {
+    minimumFractionDigits: d, maximumFractionDigits: d
+  }).format(v);
+
+  if (abs >= 1_000_000) return `${signo}$${num(abs / 1_000_000, 2)}M`;
+  if (abs >= 1_000)     return `${signo}$${num(abs / 1_000, 1)}K`;
+  // Por debajo del millar se muestra completo: no hay nada que abreviar
+  return `${signo}$${num(abs, abs % 1 === 0 ? 0 : 2)}`;
+}
+
 /**
  * Estado legible: quita guiones bajos y deja solo la primera letra en mayúscula.
  * "en_progreso" -> "En progreso" · "FASE-INICIAL" -> "Fase inicial"

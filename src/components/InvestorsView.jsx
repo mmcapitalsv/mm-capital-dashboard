@@ -10,6 +10,7 @@ import {
 } from '../services/inversionesService';
 import { supabase } from '../supabaseClient';
 import InputMonto from './ui/InputMonto';
+import { useConfirmacion } from '../hooks/useConfirmacion';
 
 const PALETA = ['#C5A059', '#0B1B2C', '#7C8DA6', '#8B6914'];
 
@@ -45,6 +46,7 @@ function agruparPorProyecto(aportaciones) {
 
 export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto, isEditMode, isAdmin }) {
   const { t } = usePrefs();
+  const { confirmar, dialogoConfirmacion } = useConfirmacion();
 
   const [inversionistas, setInversionistas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -137,7 +139,9 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
   };
 
   const handleEliminar = async (ap, nombre) => {
-    if (!confirm(t('dlg.eliminarInversion', { monto: formatearMoneda(ap.monto), nombre }))) return;
+    if (!await confirmar({
+      mensaje: t('dlg.eliminarInversion', { monto: formatearMoneda(ap.monto), nombre })
+    })) return;
 
     setOcupado(true);
     const { success, error } = await eliminarInversion(ap.id);
@@ -148,7 +152,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
   };
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-[#F5F6F8] dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden bg-mm-lienzo dark:bg-zinc-900">
 
       {/* Cabecera */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 md:px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex-shrink-0">
@@ -162,7 +166,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
           <div className="flex items-center gap-2.5 min-w-0">
             {/* Sin cuadro oscuro: fondo dorado tenue, igual que el resto */}
             <div className="w-10 h-10 rounded-2xl bg-amber-100/80 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 flex items-center justify-center flex-shrink-0">
-              <Briefcase size={20} className="text-[#8B6914] dark:text-[#E3C77B]" />
+              <Briefcase size={20} className="text-mm-oro-tinta dark:text-mm-oro-claro" />
             </div>
             <div className="min-w-0">
               <h2 className="text-[17px] md:text-xl font-bold text-slate-900 dark:text-white leading-tight">{t('inv.titulo')}</h2>
@@ -176,13 +180,13 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
             <button
               onClick={() => abrirModal()}
               disabled={ocupado}
-              className="flex items-center gap-2 bg-[#0B1B2C] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+              className="flex items-center gap-2 bg-mm-navy text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
             >
-              <Plus size={15} className="text-[#C5A059]" /> {t('inv.registrar')}
+              <Plus size={15} className="text-mm-3" /> {t('inv.registrar')}
             </button>
           )}
           <div className="flex flex-col items-end">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('inv.capitalGlobal')}</span>
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('inv.capitalGlobal')}</span>
             <span className="text-lg font-black text-slate-900 dark:text-white">{formatearMoneda(capitalGlobal)}</span>
           </div>
         </div>
@@ -206,7 +210,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
 
           {cargando ? (
             <div className="flex items-center justify-center gap-3 py-16 text-slate-400 dark:text-zinc-200">
-              <Loader2 size={20} className="animate-spin text-[#C5A059]" />
+              <Loader2 size={20} className="animate-spin text-mm-3" />
               <span className="text-sm font-semibold">{t('inv.cargando')}</span>
             </div>
           ) : inversionistas.length === 0 ? (
@@ -233,7 +237,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                 >
                   <div className="flex items-center gap-3 md:gap-4 min-w-0 md:flex-1">
                     <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 border-2 border-[#C5A059] text-white font-black text-sm overflow-hidden"
+                      className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 border-2 border-mm-oro text-white font-black text-sm overflow-hidden"
                       style={{ backgroundColor: PALETA[idx % PALETA.length] }}
                     >
                       {inv.avatarUrl
@@ -245,14 +249,14 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                         que recortarse con puntos suspensivos. */}
                     <div className="flex-1 min-w-0">
                       <h3 className="text-[15px] md:text-base font-bold text-slate-900 dark:text-white leading-tight">{inv.nombre}</h3>
-                      {inv.rol && <p className="text-xs text-[#C5A059] font-bold mt-0.5">{t(`rol.${claveRol(inv.rol)}`)}</p>}
+                      {inv.rol && <p className="text-xs text-mm-oro font-bold mt-0.5">{t(`rol.${claveRol(inv.rol)}`)}</p>}
                       <p className="text-[11px] text-slate-400 dark:text-zinc-300 break-all leading-snug mt-0.5">{inv.email}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 md:justify-end border-t md:border-t-0 border-gray-100 dark:border-zinc-700 pt-3 md:pt-0">
                     <div className="text-left md:text-right flex-shrink-0">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-200">{t('inv.capitalTotal')}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-200">{t('inv.capitalTotal')}</p>
                       <p className="text-lg md:text-xl font-black text-slate-900 dark:text-white leading-tight">
                         {formatearMoneda(inv.total)}
                       </p>
@@ -271,8 +275,8 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                 {abierto && (
                   <div className="border-t border-gray-100 dark:border-zinc-700 bg-slate-50/60 dark:bg-zinc-900/40 px-5 py-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 flex items-center gap-1.5">
-                        <TrendingUp size={12} className="text-[#C5A059]" /> {t('inv.desglose')}
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 flex items-center gap-1.5">
+                        <TrendingUp size={12} className="text-mm-oro" /> {t('inv.desglose')}
                       </p>
 
                       {/* Alta de aportación para ESTE inversionista */}
@@ -280,9 +284,9 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                         <button
                           onClick={() => abrirModal(inv.id)}
                           disabled={ocupado}
-                          className="flex items-center gap-1.5 text-[11px] font-bold text-[#8B6914] dark:text-[#E3C77B] bg-[#FAF4EA] dark:bg-amber-500/15 border border-[#F0E2CD] dark:border-amber-500/30 px-3 py-1.5 rounded-xl hover:bg-[#F3E7D3] transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-mm-oro-tinta dark:text-mm-oro-claro bg-mm-oro-lavado dark:bg-amber-500/15 border border-mm-oro-borde dark:border-amber-500/30 px-3 py-1.5 rounded-xl hover:bg-mm-oro-hover transition-colors disabled:opacity-50"
                         >
-                          <Plus size={13} className="text-[#C5A059]" /> {t('inv.agregarInversion')}
+                          <Plus size={13} className="text-mm-oro" /> {t('inv.agregarInversion')}
                         </button>
                       )}
                     </div>
@@ -299,7 +303,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                             <div className="p-3.5">
                               <div className="flex items-center justify-between gap-3 mb-2">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <Building2 size={14} className="text-[#C5A059] flex-shrink-0" />
+                                  <Building2 size={14} className="text-mm-oro flex-shrink-0" />
                                   <span className="text-sm font-bold text-slate-800 dark:text-zinc-100 truncate uppercase">
                                     {g.proyecto || t('inv.proyectoNoDisponible')}
                                   </span>
@@ -311,7 +315,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
 
                               <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                                 <div
-                                  className="h-full bg-[#C5A059] rounded-full transition-all duration-500"
+                                  className="h-full bg-mm-oro rounded-full transition-all duration-500"
                                   style={{ width: `${Math.min(100, pct)}%` }}
                                 />
                               </div>
@@ -335,7 +339,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                                   {proyecto ? (
                                     <button
                                       onClick={() => onAbrirProyecto?.(proyecto)}
-                                      className="text-[11px] font-bold text-[#8B6914] dark:text-[#E3C77B] hover:underline flex items-center gap-1"
+                                      className="text-[11px] font-bold text-mm-oro-tinta dark:text-mm-oro-claro hover:underline flex items-center gap-1"
                                     >
                                       {t('inv.verProyecto')} <ArrowUpRight size={12} />
                                     </button>
@@ -362,7 +366,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                                           <InputMonto
                                             value={editandoAp.monto}
                                             onChange={(v) => setEditandoAp({ ...editandoAp, monto: v })}
-                                            className="w-24 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
+                                            className="w-24 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                                             autoFocus
                                           />
                                         </div>
@@ -371,7 +375,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                                           value={editandoAp.nota}
                                           onChange={(e) => setEditandoAp({ ...editandoAp, nota: e.target.value })}
                                           placeholder={t('inv.notaPh')}
-                                          className="flex-1 min-w-0 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-zinc-200 focus:outline-none focus:border-[#C5A059]"
+                                          className="flex-1 min-w-0 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-zinc-200 focus:outline-none focus:border-mm-oro"
                                         />
                                         <div className="flex items-center gap-1.5 flex-shrink-0">
                                           <button
@@ -412,7 +416,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                                           <button
                                             onClick={() => setEditandoAp({ id: ap.id, monto: String(ap.monto), nota: ap.nota || '' })}
                                             disabled={ocupado}
-                                            className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-40"
+                                            className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-mm-oro hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-40"
                                             title={t('comun.editar')}
                                           >
                                             <Edit2 size={13} />
@@ -439,7 +443,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
 
                     <div className="mt-3.5 pt-3 border-t border-gray-200 dark:border-zinc-700 flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-500 dark:text-zinc-200 flex items-center gap-1.5">
-                        <Wallet size={13} className="text-[#C5A059]" />
+                        <Wallet size={13} className="text-mm-oro" />
                         {grupos.length} {t('inv.proyectosActivos')}
                       </span>
                       <span className="text-sm font-black text-slate-900 dark:text-white">
@@ -460,7 +464,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Briefcase size={18} className="text-[#C5A059]" /> {t('inv.registrar')}
+                <Briefcase size={18} className="text-mm-oro" /> {t('inv.registrar')}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white">
                 <X size={18} />
@@ -474,7 +478,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                   value={form.usuarioId}
                   onChange={(e) => setForm({ ...form, usuarioId: e.target.value })}
                   required
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059] cursor-pointer"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro cursor-pointer"
                 >
                   {usuarios.length === 0 && <option value="">{t('inv.sinUsuarios')}</option>}
                   {usuarios.map(u => (
@@ -490,7 +494,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                   value={form.proyectoId}
                   onChange={(e) => setForm({ ...form, proyectoId: e.target.value })}
                   required
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059] cursor-pointer"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro cursor-pointer"
                 >
                   {listaProyectos.length === 0 && <option value="">{t('dash.sinProyectos')}</option>}
                   {listaProyectos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
@@ -506,7 +510,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                     placeholder="5,000.00"
                     value={form.monto}
                     onChange={(v) => setForm({ ...form, monto: v })}
-                    className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
+                    className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                   />
                 </div>
               </div>
@@ -518,7 +522,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                   placeholder={t('inv.conceptoPh')}
                   value={form.nota}
                   onChange={(e) => setForm({ ...form, nota: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                 />
               </div>
 
@@ -535,9 +539,9 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                 <button
                   type="submit"
                   disabled={ocupado || usuarios.length === 0 || listaProyectos.length === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50"
                 >
-                  {ocupado && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
+                  {ocupado && <Loader2 size={14} className="animate-spin text-mm-3" />}
                   {t('comun.guardar')}
                 </button>
               </div>
@@ -545,6 +549,8 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
           </div>
         </div>
       )}
+
+      {dialogoConfirmacion}
     </main>
   );
 }

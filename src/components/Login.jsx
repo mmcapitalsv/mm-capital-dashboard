@@ -52,18 +52,25 @@ export default function Login() {
       {/* Velo suave para que el láser no compita con el texto */}
       <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none" />
 
-      {/* Tarjeta glassmorphism */}
-      <div className="relative z-10 w-full max-w-sm bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl rounded-3xl px-8 py-10">
+      {/* Tarjeta glassmorphism.
+          Medidas propias para el teléfono: esta pantalla se veía más contenida
+          cuando la base tipográfica del móvil estaba al 80% (`12.8px`). Al
+          subirla a 16px por legibilidad, todo lo medido en `rem` —ancho,
+          padding, logo, márgenes— creció un 25% de golpe y la tarjeta pasó a
+          comerse la pantalla. El código de aquí no había cambiado; cambió su
+          base. Se recupera la proporción con valores explícitos en móvil, sin
+          tocar el escritorio ni volver a encoger la letra. */}
+      <div className="relative z-10 w-full max-w-[19rem] sm:max-w-sm bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl rounded-3xl px-6 py-8 sm:px-8 sm:py-10">
 
         {/* Logo */}
-        <div className="flex flex-col items-center mb-10">
+        <div className="flex flex-col items-center mb-8 sm:mb-10">
           <img
             src="/logo1.png"
             alt="MM Capital Logo"
-            className="w-52 h-auto object-contain mb-5"
+            className="w-40 sm:w-52 h-auto object-contain mb-4 sm:mb-5"
             style={{ filter: 'brightness(0) invert(1)' }}
           />
-          <p className="text-xs text-white/50 uppercase tracking-[0.2em] font-medium">
+          <p className="text-[11px] text-white/50 uppercase tracking-[0.2em] font-medium">
             {t('login.portal')}
           </p>
         </div>
@@ -82,7 +89,7 @@ export default function Login() {
             id="email"
             type="email"
             placeholder={t('login.correo')}
-            className="w-full px-4 py-3.5 rounded-xl border border-white/15 bg-white/5 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#C5A059]/50 focus:border-[#C5A059]/60 transition text-sm min-h-[44px]"
+            className="w-full px-4 py-3.5 rounded-xl border border-white/15 bg-white/5 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-mm-oro/50 focus:border-mm-oro/60 transition text-sm min-h-[44px]"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -94,7 +101,7 @@ export default function Login() {
               id="password"
               type={showPassword ? 'text' : 'password'}
               placeholder={t('login.password')}
-              className="w-full pl-4 pr-12 py-3.5 rounded-xl border border-white/15 bg-white/5 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#C5A059]/50 focus:border-[#C5A059]/60 transition text-sm min-h-[44px]"
+              className="w-full pl-4 pr-12 py-3.5 rounded-xl border border-white/15 bg-white/5 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-mm-oro/50 focus:border-mm-oro/60 transition text-sm min-h-[44px]"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -106,7 +113,7 @@ export default function Login() {
               disabled={loading}
               aria-label={showPassword ? t('login.ocultarPass') : t('login.verPass')}
               title={showPassword ? t('login.ocultarPass') : t('login.verPass')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-[#C5A059] transition-colors focus:outline-none disabled:opacity-40"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-mm-oro transition-colors focus:outline-none disabled:opacity-40"
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>

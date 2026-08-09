@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, CheckSquare, Square, Circle, Upload, Image, TrendingUp, FileText, LayoutGrid,
-  ChevronDown, ChevronUp, Edit2, Save, Plus, Trash2, AlertTriangle, Loader2, CheckCircle2,
-  ExternalLink, Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert, Building,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Edit2, Save, Plus, Trash2, AlertTriangle, Loader2, CheckCircle2,
+  Download, Calendar, DollarSign, FolderPlus, X, Eye, Receipt, ShieldAlert,
   Sparkles, FileImage, ZoomIn, ZoomOut, Lock, GripVertical
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -31,6 +31,7 @@ import {
 import { getChecklistSeed } from '../data/checklistSeeds';
 import { puedeEditarHitos } from '../lib/perfilUsuario';
 import { analizarComprobante } from '../services/geminiService';
+import { useConfirmacion } from '../hooks/useConfirmacion';
 
 // Se guarda la CLAVE de traducción, no el texto: la etiqueta se resuelve en
 // cada render para que el cambio de idioma se refleje al instante.
@@ -57,37 +58,41 @@ export function sinNumeracion(texto) {
  * en modo edición se convierte en un input controlado.
  */
 function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, resaltado, children }) {
+  /* Ficha financiera, no formulario. Antes cada cifra vivía en una tarjeta con
+     borde y sombra propios: cuatro cajas iguales que se leían como campos de
+     captura. Ahora la cifra respira sobre la superficie y solo hay marco
+     cuando algo lo pide — al editar, o cuando hay sobrecosto. */
   return (
-    <div className={`border shadow-sm rounded-2xl p-5 transition-colors ${
+    <div className={`rounded-2xl px-5 py-5 transition-colors ${
       editando
-        ? 'bg-amber-50/40 dark:bg-amber-500/5 border-[#C5A059]/50'
+        ? 'bg-mm-oro-lavado dark:bg-amber-500/[0.07] ring-1 ring-mm-oro/40'
         : resaltado
-        ? 'bg-red-50/50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
-        : 'bg-white dark:bg-zinc-800 border-gray-100 dark:border-zinc-700'
+        ? 'bg-red-50/60 dark:bg-red-500/[0.08] ring-1 ring-red-200 dark:ring-red-500/25'
+        : 'bg-mm-tarjeta-alt'
     }`}>
-      <p className="text-xs text-slate-400 dark:text-zinc-200 uppercase font-bold tracking-wider mb-2">{etiqueta}</p>
+      <p className="t-label text-mm-3">{etiqueta}</p>
 
       {editando ? (
-        <div className="flex items-center gap-1">
-          <span className={`text-2xl md:text-3xl font-black ${colorValor}`}>$</span>
+        <div className="flex items-center gap-1 mt-2.5">
+          <span className={`t-kpi ${colorValor}`}>$</span>
           {/* Se escribe con comas de miles, igual que se lee */}
           <InputMonto
             value={valor}
             onChange={onChange}
             placeholder="0.00"
-            className={`w-full min-w-0 bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-2xl md:text-3xl font-black ${colorValor}`}
+            className={`w-full min-w-0 bg-transparent border-b border-mm-oro/60 focus:border-mm-oro outline-none t-kpi ${colorValor}`}
           />
         </div>
       ) : (
         /* Formato SIEMPRE en notación de dólar (coma para los miles, punto
            para los centavos). `toLocaleString()` a secas usaba el idioma del
            navegador y en español pintaba "$18.685,36", que se lee como $18. */
-        <p className={`text-2xl md:text-3xl font-black ${colorValor}`}>
+        <p className={`t-kpi mt-2.5 ${colorValor}`}>
           {formatearMoneda(valor)}
         </p>
       )}
 
-      <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-semibold">{pie}</p>
+      {pie && <p className="t-meta text-mm-3 mt-2">{pie}</p>}
       {children}
     </div>
   );
@@ -95,6 +100,7 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
 
 export default function ProjectDetails({ project, onBack, userRole, isEditMode, onUpdateProject }) {
   const { t, locale, language } = usePrefs();
+  const { confirmar, dialogoConfirmacion } = useConfirmacion();
   const [activeTab, setActiveTab] = useState('summary');
   const [openAccordion, setOpenAccordion] = useState(null);
   const [showExpenses, setShowExpenses] = useState(false);
@@ -136,7 +142,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   // Gallery Albums & Modals state (los álbumes REALES llegan de Supabase)
   const [albums, setAlbums] = useState([]);
   const [activeAlbumModal, setActiveAlbumModal] = useState(null);
-  const [selectedPhotoLightbox, setSelectedPhotoLightbox] = useState(null);
+  /* Guarda el ÍNDICE de la foto abierta, no su URL: con la posición se puede
+     pasar a la anterior y a la siguiente sin cerrar el visor. Antes solo se
+     recordaba la dirección de la imagen, así que para ver la de al lado había
+     que salir y volver a entrar.
+     `null` = visor cerrado. Ojo: el índice 0 es válido, así que la comprobación
+     tiene que ser `!== null` y nunca un simple truthy. */
+  const [indiceFoto, setIndiceFoto] = useState(null);
   const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
   const [newAlbumForm, setNewAlbumForm] = useState({ title: '', date: '', cover: '' });
   const [portadaFile, setPortadaFile] = useState(null);
@@ -624,7 +636,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleDeleteArchivo = async (archivo) => {
-    if (!confirm(t('dlg.eliminarArchivo', { nombre: archivo?.nombre_archivo }))) return;
+    if (!await confirmar({ mensaje: t('dlg.eliminarArchivo', { nombre: archivo?.nombre_archivo }) })) return;
 
     setIsUploading(true);
     const { success, error } = await eliminarArchivo(archivo);
@@ -1043,6 +1055,59 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     }
   };
 
+  /* ── Visor de la galería ──────────────────────────────────────────────────
+     Una foto puede venir como objeto de Supabase o como una URL suelta, según
+     de dónde se haya cargado el álbum: `urlFoto` normaliza las dos formas. */
+  const urlFoto = (foto) => foto?.url_archivo || foto || '';
+
+  const fotosAlbum = React.useMemo(
+    () => (activeAlbumModal?.photos || []).filter(Boolean),
+    [activeAlbumModal]
+  );
+
+  const abrirVisorFoto = (idx) => setIndiceFoto(idx);
+  const cerrarVisorFoto = () => setIndiceFoto(null);
+
+  /** Avanza o retrocede dando la vuelta al llegar a los extremos. */
+  const moverFoto = (paso) => {
+    const total = fotosAlbum.length;
+    if (total === 0) return;
+    setIndiceFoto((actual) => {
+      if (actual === null) return null;
+      return ((actual + paso) % total + total) % total;
+    });
+  };
+
+  // Teclado: flechas para pasar de foto, Escape para cerrar
+  useEffect(() => {
+    if (indiceFoto === null) return;
+    const alPulsar = (e) => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); moverFoto(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); moverFoto(-1); }
+      else if (e.key === 'Escape') cerrarVisorFoto();
+    };
+    window.addEventListener('keydown', alPulsar);
+    return () => window.removeEventListener('keydown', alPulsar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indiceFoto, fotosAlbum.length]);
+
+  // Si el álbum cambia o se borra la foto abierta, el índice deja de ser válido
+  useEffect(() => {
+    if (indiceFoto !== null && indiceFoto >= fotosAlbum.length) {
+      setIndiceFoto(fotosAlbum.length > 0 ? fotosAlbum.length - 1 : null);
+    }
+  }, [fotosAlbum.length, indiceFoto]);
+
+  /* Deslizamiento con el dedo. Se mide solo el eje X y se exige un recorrido
+     mínimo para no confundir un toque con un gesto. */
+  const inicioTocarX = useRef(0);
+  const alTocarVisor = (e) => { inicioTocarX.current = e.touches?.[0]?.clientX ?? 0; };
+  const alSoltarVisor = (e) => {
+    const recorrido = (e.changedTouches?.[0]?.clientX ?? 0) - inicioTocarX.current;
+    if (Math.abs(recorrido) < 45) return;
+    moverFoto(recorrido < 0 ? 1 : -1);
+  };
+
   /** Descarga el comprobante abierto en el visor (solo los ya subidos al bucket). */
   const handleDescargarComprobante = async () => {
     if (!esComprobanteArchivo(facturaEnVisor?.comprobante) || descargandoVisor) return;
@@ -1143,7 +1208,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleEliminarAlbum = async (album) => {
-    if (!confirm(t('dlg.eliminarAlbum', { titulo: album?.title }))) return;
+    if (!await confirmar({ mensaje: t('dlg.eliminarAlbum', { titulo: album?.title }) })) return;
 
     setSubiendoGaleria(true);
     const { success, error } = await eliminarAlbum(album);
@@ -1215,7 +1280,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   /** Elimina una foto concreta dentro del álbum. */
   const handleEliminarFoto = async (foto, albumId) => {
-    if (!confirm(t('dlg.eliminarFoto'))) return;
+    if (!await confirmar({ mensaje: t('dlg.eliminarFoto') })) return;
 
     setSubiendoGaleria(true);
     const { success, error } = await eliminarFoto(foto);
@@ -1415,7 +1480,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const claseEstado = avancePct >= 100 && safeChecklist.length > 0
     ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
     : avancePct > 0
-    ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
+    ? 'bg-amber-50 dark:bg-amber-500/10 text-mm-oro-tinta dark:text-mm-oro-claro border-amber-200 dark:border-amber-500/30'
     : 'bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-600';
 
   /* Con varias fotos en fila el botón dice por cuál va ("Subiendo 2 de 7"):
@@ -1464,7 +1529,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   aria-label={t('proy.nombreProyecto')}
                   /* El ancho holgado para escribir se reserva a partir de `lg`:
                      exigirlo desde `md` empujaba el distintivo fuera del panel. */
-                  className="flex-1 w-full min-w-0 lg:min-w-[20rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase"
+                  className="flex-1 w-full min-w-0 lg:min-w-[20rem] bg-transparent border-b-2 border-mm-oro/60 focus:border-mm-oro outline-none text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase"
                 />
               ) : (
                 <h1 className="min-w-0 text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">
@@ -1483,7 +1548,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   onChange={(e) => handleCampoIdentidad('ubicacion', e.target.value)}
                   placeholder={t('proy.ubicacionProyecto')}
                   aria-label={t('proy.ubicacionProyecto')}
-                  className="flex-1 min-w-0 md:min-w-[18rem] bg-transparent border-b-2 border-[#C5A059]/60 focus:border-[#C5A059] outline-none text-xs md:text-sm text-slate-500 dark:text-zinc-300 uppercase tracking-widest font-medium"
+                  className="flex-1 min-w-0 md:min-w-[18rem] bg-transparent border-b-2 border-mm-oro/60 focus:border-mm-oro outline-none text-xs md:text-sm text-slate-500 dark:text-zinc-300 uppercase tracking-widest font-medium"
                 />
               ) : (
                 project.ubicacion || project.location
@@ -1526,7 +1591,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 flex flex-col md:flex-row justify-center items-center gap-1.5 md:gap-2.5 py-4 text-xs md:text-base font-medium border-b-[3px] transition-all -mb-px ${
                 active
-                  ? 'text-slate-900 dark:text-white border-slate-900 dark:border-[#C5A059]'
+                  ? 'text-slate-900 dark:text-white border-slate-900 dark:border-mm-oro'
                   : 'text-slate-400 dark:text-zinc-200 border-transparent hover:text-slate-600 dark:hover:text-zinc-200 hover:border-slate-300'
               }`}
             >
@@ -1547,7 +1612,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             <div className="lg:col-span-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                 <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200 flex items-center gap-2">
-                  <CheckSquare size={14} className="text-[#C5A059]" /> {t('proy.checklist')}
+                  <CheckSquare size={14} className="text-mm-oro" /> {t('proy.checklist')}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2.5">
                   <span className="text-xs font-bold text-slate-600 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-zinc-700">
@@ -1576,16 +1641,16 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <button
                       onClick={handleSaveAllChanges}
                       disabled={isSavingChanges || isLoadingChecklist}
-                      className="flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 text-xs font-bold px-3.5 py-1.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                      className="flex items-center gap-1.5 bg-mm-oro-lavado dark:bg-amber-500/10 text-mm-oro-tinta dark:text-mm-oro-claro border border-mm-oro-borde dark:border-amber-500/30 text-xs font-bold px-3.5 py-1.5 rounded-xl hover:bg-mm-oro-hover dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
                     >
                       {isSavingChanges ? (
                         <>
-                          <Loader2 size={14} className="animate-spin text-[#C5A059]" />
+                          <Loader2 size={14} className="animate-spin text-mm-3" />
                           {t('proy.guardando')}
                         </>
                       ) : (
                         <>
-                          <Save size={14} className="text-[#C5A059]" />
+                          <Save size={14} className="text-mm-3" />
                           {t('proy.guardarCambios')}
                         </>
                       )}
@@ -1607,7 +1672,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
               {isLoadingChecklist && (
                 <div className="flex items-center justify-center gap-3 py-16 text-slate-400 dark:text-zinc-200">
-                  <Loader2 size={20} className="animate-spin text-[#C5A059]" />
+                  <Loader2 size={20} className="animate-spin text-mm-3" />
                   <span className="text-sm font-semibold">{t('proy.cargandoChecklist')}</span>
                 </div>
               )}
@@ -1652,9 +1717,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       onDragEnd={() => { setHitoArrastrado(null); setHitoSobre(null); setHandleActivo(null); }}
                       className={`border rounded-[20px] bg-white dark:bg-zinc-800 shadow-sm hover:shadow-md transition-all overflow-hidden ${
                         arrastrando
-                          ? 'opacity-50 border-[#C5A059]'
+                          ? 'opacity-50 border-mm-oro'
                           : esDestino
-                          ? 'border-[#C5A059] ring-2 ring-[#C5A059]/40'
+                          ? 'border-mm-oro ring-2 ring-mm-oro/40'
                           : 'border-gray-100 dark:border-zinc-700'
                       }`}
                     >
@@ -1672,7 +1737,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                               title={isDone ? t('proy.marcarPendiente') : t('proy.marcarHecho')}
                             >
                               {isDone
-                                ? <CheckSquare size={22} className="text-[#C5A059] flex-shrink-0" />
+                                ? <CheckSquare size={22} className="text-mm-oro flex-shrink-0" />
                                 : <Square size={22} className="flex-shrink-0 text-slate-300 dark:text-zinc-200 hover:text-slate-500" />
                               }
                             </button>
@@ -1696,7 +1761,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                   la lista, así que mover una tarea renumera
                                   todas al instante y el primero siempre es 1. */}
                               <div className="flex flex-wrap items-baseline gap-2">
-                                <span className="text-base md:text-lg font-black text-[#C5A059] tabular-nums flex-shrink-0">
+                                <span className="text-base md:text-lg font-black text-mm-oro tabular-nums flex-shrink-0">
                                   {i + 1}.
                                 </span>
                                 <span className={`text-base md:text-lg font-bold ${isDone ? 'text-slate-900 dark:text-white' : 'text-slate-800 dark:text-zinc-100'}`}>
@@ -1704,14 +1769,21 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                {/* `whitespace-nowrap`: sin esto la cápsula deja
+                                    que "Proyectado para el 2 de agosto 2026"
+                                    parta dentro de sí misma y la fecha cae a un
+                                    segundo renglón, separada de su etiqueta.
+                                    Ahora la cápsula crece a lo ancho y, si no
+                                    cabe, el `flex-wrap` del padre la baja
+                                    entera — pero el texto no se rompe. */}
                                 {isDone ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/30">
-                                    <CheckCircle2 size={12} className="text-emerald-600" />
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/30">
+                                    <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
                                     {t('proy.hecho')} {dateStr}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-zinc-700">
-                                    <Calendar size={12} className="text-slate-400 dark:text-zinc-200" />
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-zinc-700">
+                                    <Calendar size={12} className="text-slate-400 dark:text-zinc-200 flex-shrink-0" />
                                     {t('proy.proyectadoPara')} {dateStr}
                                   </span>
                                 )}
@@ -1727,7 +1799,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                       valorHito > 0 && isDone
                                         ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
                                         : valorHito > 0
-                                        ? 'bg-amber-50 dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border-amber-200 dark:border-amber-500/30'
+                                        ? 'bg-amber-50 dark:bg-amber-500/10 text-mm-oro-tinta dark:text-mm-oro-claro border-amber-200 dark:border-amber-500/30'
                                         : 'bg-slate-50 dark:bg-zinc-700/50 text-slate-500 dark:text-zinc-300 border-gray-200 dark:border-zinc-600'
                                     }`}
                                     title={t('proy.valorHitoTooltip')}
@@ -1777,7 +1849,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                 disabled={i === 0 || isSavingChanges}
                                 title={t('proy.moverArriba')}
                                 aria-label={t('proy.moverArriba')}
-                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-[#C5A059] rounded disabled:opacity-25 disabled:hover:text-slate-400"
+                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded disabled:opacity-25 disabled:hover:text-slate-400"
                               >
                                 <ChevronUp size={15} />
                               </button>
@@ -1785,7 +1857,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                 onMouseDown={() => setHandleActivo(i)}
                                 onMouseUp={() => setHandleActivo(null)}
                                 title={t('proy.arrastrarHito')}
-                                className="hidden sm:block text-slate-300 dark:text-zinc-500 hover:text-[#C5A059] cursor-grab active:cursor-grabbing"
+                                className="hidden sm:block text-slate-300 dark:text-zinc-500 hover:text-mm-oro cursor-grab active:cursor-grabbing"
                               >
                                 <GripVertical size={14} />
                               </span>
@@ -1795,7 +1867,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                 disabled={i === safeChecklist.length - 1 || isSavingChanges}
                                 title={t('proy.moverAbajo')}
                                 aria-label={t('proy.moverAbajo')}
-                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-[#C5A059] rounded disabled:opacity-25 disabled:hover:text-slate-400"
+                                className="p-0.5 text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded disabled:opacity-25 disabled:hover:text-slate-400"
                               >
                                 <ChevronDown size={15} />
                               </button>
@@ -1806,7 +1878,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                               <button
                                 onClick={() => handleStartEditHito(i)}
                                 disabled={isSavingChanges}
-                                className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-40"
+                                className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-mm-oro rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-40"
                                 title={t('proy.editarTarea')}
                               >
                                 <Edit2 size={16} />
@@ -1839,7 +1911,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               {/* ── CRUD de Checklist: alta de tareas (solo Administrador) ── */}
               {puedeEditarChecklist && (
                 <>
-                  <form onSubmit={handleAddHito} className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white dark:bg-zinc-800 p-3 rounded-2xl border border-gray-200 dark:border-zinc-700 shadow-sm focus-within:border-[#C5A059] focus-within:ring-1 focus-within:ring-[#C5A059] transition-all">
+                  <form onSubmit={handleAddHito} className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white dark:bg-zinc-800 p-3 rounded-2xl border border-gray-200 dark:border-zinc-700 shadow-sm focus-within:border-mm-oro focus-within:ring-1 focus-within:ring-mm-oro transition-all">
                     <input
                       type="text"
                       placeholder={t('proy.nuevaTarea')}
@@ -1850,10 +1922,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <button
                       type="submit"
                       disabled={!newItemText.trim() || isSavingChanges}
-                      className="flex items-center justify-center gap-2 flex-shrink-0 bg-[#0B1B2C] text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
+                      className="flex items-center justify-center gap-2 flex-shrink-0 bg-mm-navy text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
                       title={t('proy.agregarChecklist')}
                     >
-                      <Plus size={16} className="text-[#C5A059]" />
+                      <Plus size={16} className="text-mm-oro" />
                       <span className="text-xs font-bold">{t('proy.agregarTarea')}</span>
                     </button>
                   </form>
@@ -1867,10 +1939,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <button
                       type="button"
                       onClick={() => setShowAddHitoModal(true)}
-                      className="flex items-center gap-1.5 text-[11px] font-bold text-[#8B6914] dark:text-[#E3C77B] bg-[#FAF4EA] dark:bg-amber-500/10 border border-[#F0E2CD] dark:border-amber-500/30 px-3 py-1.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors flex-shrink-0"
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-mm-oro-tinta dark:text-mm-oro-claro bg-mm-oro-lavado dark:bg-amber-500/10 border border-mm-oro-borde dark:border-amber-500/30 px-3 py-1.5 rounded-xl hover:bg-mm-oro-hover dark:hover:bg-amber-500/20 transition-colors flex-shrink-0"
                       title={t('proy.hitoConDetalleTooltip')}
                     >
-                      <Plus size={13} className="text-[#C5A059]" /> {t('proy.hitoConDetalle')}
+                      <Plus size={13} className="text-mm-oro" /> {t('proy.hitoConDetalle')}
                     </button>
                   </div>
                 </>
@@ -1908,7 +1980,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-2xl font-black text-slate-900 dark:text-white">{avancePct}%</span>
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-200 uppercase tracking-widest">{t('dash.ejecutado')}</span>
+                    <span className="text-[11px] font-bold text-slate-400 dark:text-zinc-200 uppercase tracking-widest">{t('dash.ejecutado')}</span>
                   </div>
                 </div>
               </div>
@@ -1943,11 +2015,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       <button
                         onClick={handleGuardarFinanzas}
                         disabled={guardandoFinanzas}
-                        className="inline-flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/15 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 font-bold px-4 py-2.5 rounded-xl text-xs hover:bg-[#F3E7D3] transition-all shadow-sm disabled:opacity-50 active:scale-95"
+                        className="inline-flex items-center gap-1.5 bg-mm-oro-lavado dark:bg-amber-500/15 text-mm-oro-tinta dark:text-mm-oro-claro border border-mm-oro-borde dark:border-amber-500/30 font-bold px-4 py-2.5 rounded-xl text-xs hover:bg-mm-oro-hover transition-all shadow-sm disabled:opacity-50 active:scale-95"
                       >
                         {guardandoFinanzas
-                          ? <><Loader2 size={15} className="animate-spin text-[#C5A059]" /> {t('proy.guardando')}</>
-                          : <><Save size={15} className="text-[#C5A059]" /> {t('proy.guardarCambios')}</>}
+                          ? <><Loader2 size={15} className="animate-spin text-mm-3" /> {t('proy.guardando')}</>
+                          : <><Save size={15} className="text-mm-oro" /> {t('proy.guardarCambios')}</>}
                       </button>
                     </>
                   ) : (
@@ -1955,15 +2027,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       onClick={() => setEditandoFinanzas(true)}
                       className="inline-flex items-center gap-1.5 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 border border-gray-200 dark:border-zinc-700 font-bold px-4 py-2.5 rounded-xl text-xs hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all shadow-sm"
                     >
-                      <Edit2 size={15} className="text-[#C5A059]" /> {t('fin.editarCifras')}
+                      <Edit2 size={15} className="text-mm-oro" /> {t('fin.editarCifras')}
                     </button>
                   )
                 )}
                 <button
                   onClick={abrirFacturas}
-                  className="inline-flex items-center gap-2 bg-[#0B1B2C] text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm hover:bg-[#16273B] transition-all shadow-sm"
+                  className="inline-flex items-center gap-2 bg-mm-navy text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm hover:bg-mm-navy-alto transition-all shadow-sm"
                 >
-                  <Receipt size={16} className="text-[#C5A059]" /> {t('fin.verFacturas')} ({facturas.length})
+                  <Receipt size={16} className="text-mm-oro" /> {t('fin.verFacturas')} ({facturas.length})
                 </button>
               </div>
             </div>
@@ -2002,14 +2074,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
             )}
 
             {/* 4 TARJETAS DE MÉTRICAS (editables para administrador) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <TarjetaMonto
                 etiqueta={t('fin.presupuestoTotal')}
                 pie={t('fin.usdProyectado')}
                 valor={finanzas.presupuesto}
                 editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('presupuesto', v)}
-                colorValor="text-slate-900 dark:text-white"
+                colorValor="text-mm-1"
               />
 
               <TarjetaMonto
@@ -2018,7 +2090,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 valor={finanzas.anticipo}
                 editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('anticipo', v)}
-                colorValor="text-[#C5A059]"
+                colorValor="text-mm-1"
               />
 
               <TarjetaMonto
@@ -2027,7 +2099,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 valor={finanzas.cuota}
                 editando={modoEdicionFinanzas}
                 onChange={(v) => handleCampoFinanzas('cuota', v)}
-                colorValor="text-slate-900 dark:text-white"
+                colorValor="text-mm-1"
               />
 
               {/* Costo ejecutado: facturas + hitos marcados + ajuste manual.
@@ -2041,7 +2113,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 valor={totalSpent}
                 editando={modoEdicionFinanzas}
                 onChange={handleCostoEjecutadoManual}
-                colorValor={isOverBudget ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}
+                colorValor={isOverBudget ? 'text-red-700 dark:text-red-400' : 'text-mm-1'}
                 resaltado={isOverBudget}
               >
                 {(totalHitos > 0 || ajusteManual !== 0 || modoEdicionFinanzas) && (
@@ -2136,11 +2208,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <button
                       onClick={handleGuardarFacturas}
                       disabled={guardandoFacturas}
-                      className="flex items-center gap-1.5 bg-[#FAF4EA] dark:bg-amber-500/10 text-[#8B6914] dark:text-[#E3C77B] border border-[#F0E2CD] dark:border-amber-500/30 text-xs font-bold px-3.5 py-2.5 rounded-xl hover:bg-[#F3E7D3] dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                      className="flex items-center gap-1.5 bg-mm-oro-lavado dark:bg-amber-500/10 text-mm-oro-tinta dark:text-mm-oro-claro border border-mm-oro-borde dark:border-amber-500/30 text-xs font-bold px-3.5 py-2.5 rounded-xl hover:bg-mm-oro-hover dark:hover:bg-amber-500/20 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
                     >
                       {guardandoFacturas
-                        ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {t('proy.guardando')}</>
-                        : <><Save size={14} className="text-[#C5A059]" /> {t('proy.guardarCambios')}</>}
+                        ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {t('proy.guardando')}</>
+                        : <><Save size={14} className="text-mm-3" /> {t('proy.guardarCambios')}</>}
                     </button>
                   </>
                 )}
@@ -2149,9 +2221,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <button
                     onClick={() => setShowInvoiceModal(true)}
                     disabled={guardandoFacturas}
-                    className="flex items-center gap-2 bg-[#0B1B2C] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+                    className="flex items-center gap-2 bg-mm-navy text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
                   >
-                    <Plus size={14} className="text-[#C5A059]" /> {t('fin.registrarFactura')}
+                    <Plus size={14} className="text-mm-oro" /> {t('fin.registrarFactura')}
                   </button>
                 )}
               </div>
@@ -2242,7 +2314,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 return (
                   <div
                     key={claveFactura(fac)}
-                    className={`group flex items-stretch gap-4 p-3 sm:p-4 bg-white dark:bg-zinc-800 border rounded-2xl shadow-sm hover:shadow-md hover:border-[#C5A059]/50 transition-all ${
+                    className={`group flex items-stretch gap-4 p-3 sm:p-4 bg-white dark:bg-zinc-800 border rounded-2xl shadow-sm hover:shadow-md hover:border-mm-oro/50 transition-all ${
                       fac._nueva || fac._editada
                         ? 'border-amber-300 dark:border-amber-500/40'
                         : 'border-gray-100 dark:border-zinc-700'
@@ -2255,7 +2327,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       onClick={() => { setVisorAmpliado(false); setFacturaEnVisor(fac); }}
                       title={tieneArchivo ? t('fac.verComprobante') : t('fac.sinComprobante')}
                       className={`relative w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden border border-gray-200 dark:border-zinc-600 bg-slate-50 dark:bg-zinc-900 ${
-                        tieneArchivo ? 'cursor-zoom-in hover:border-[#C5A059]' : 'cursor-default'
+                        tieneArchivo ? 'cursor-zoom-in hover:border-mm-oro' : 'cursor-default'
                       }`}
                     >
                       {tieneArchivo && !esPdf ? (
@@ -2271,10 +2343,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                           </span>
                         </>
                       ) : (
-                        <span className="w-full h-full flex flex-col items-center justify-center gap-1 text-[#8B6914] dark:text-[#E3C77B]">
+                        <span className="w-full h-full flex flex-col items-center justify-center gap-1 text-mm-oro-tinta dark:text-mm-oro-claro">
                           {tieneArchivo
-                            ? <><FileText size={24} /><span className="text-[9px] font-black tracking-wider">PDF</span></>
-                            : <><FileImage size={22} className="text-slate-300 dark:text-zinc-300" /><span className="text-[9px] font-bold text-slate-400 dark:text-zinc-300">{t('fac.sinArchivo')}</span></>}
+                            ? <><FileText size={24} /><span className="text-[11px] font-black tracking-wider">PDF</span></>
+                            : <><FileImage size={22} className="text-slate-300 dark:text-zinc-300" /><span className="text-[11px] font-bold text-slate-400 dark:text-zinc-300">{t('fac.sinArchivo')}</span></>}
                         </span>
                       )}
                     </button>
@@ -2284,17 +2356,17 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{fac.proveedor}</h4>
                         <p className="text-xs text-slate-500 dark:text-zinc-200 mt-0.5 line-clamp-2">{fac.concepto}</p>
-                        <span className="inline-flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1.5">
+                        <span className="inline-flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-slate-400 dark:text-zinc-200 mt-1.5">
                           <Calendar size={11} /> {fac.fecha}
                           {tieneArchivo && (
-                            <span className="inline-flex items-center gap-1 text-[#8B6914] dark:text-[#E3C77B]">
+                            <span className="inline-flex items-center gap-1 text-mm-oro-tinta dark:text-mm-oro-claro">
                               • <Receipt size={11} /> {t('fac.conComprobante')}
                             </span>
                           )}
                           {/* Lo que todavía no existe en Supabase se marca:
                               así se sabe qué se pierde si se cancela. */}
                           {(fac._nueva || fac._editada) && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/30">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/30">
                               <AlertTriangle size={10} className="text-amber-600" />
                               {fac._nueva ? t('proy.sinGuardarSupabase') : t('fac.editadaSinGuardar')}
                             </span>
@@ -2323,7 +2395,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                                 onClick={() => abrirEdicionFactura(fac)}
                                 disabled={guardandoFacturas}
                                 title={t('fac.editar')}
-                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-[#8B6914] dark:hover:text-[#E3C77B] hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                                className="p-2 rounded-xl text-slate-500 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-700 hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-50"
                               >
                                 <Edit2 size={13} />
                               </button>
@@ -2371,12 +2443,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 >
                   {isUploading ? (
                     <>
-                      <Loader2 size={14} className="animate-spin text-[#C5A059]" />
+                      <Loader2 size={14} className="animate-spin text-mm-3" />
                       {t('comun.procesando')}
                     </>
                   ) : (
                     <>
-                      <Upload size={14} className="text-[#C5A059]" />
+                      <Upload size={14} className="text-mm-3" />
                       {t('doc.subirDoc')}
                     </>
                   )}
@@ -2435,9 +2507,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             download={doc.nombre_archivo}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 text-xs font-bold text-white bg-[#0B1B2C] px-3.5 py-1.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
+                            className="flex items-center gap-1.5 text-xs font-bold text-white bg-mm-navy px-3.5 py-1.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
                           >
-                            <Download size={13} className="text-[#C5A059]" /> {t('comun.descargar')}
+                            <Download size={13} className="text-mm-oro" /> {t('comun.descargar')}
                           </a>
                         )}
 
@@ -2447,7 +2519,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             <button
                               onClick={() => handleRenameArchivo(doc)}
                               disabled={isUploading}
-                              className="p-2 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-xl hover:bg-amber-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
+                              className="p-2 text-slate-400 dark:text-zinc-200 hover:text-mm-oro rounded-xl hover:bg-amber-50 border border-gray-200 dark:border-zinc-700 transition-colors disabled:opacity-40"
                               title={t('doc.editarNombre')}
                             >
                               <Edit2 size={15} />
@@ -2490,21 +2562,21 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   >
                     {subiendoGaleria ? (
                       <>
-                        <Loader2 size={15} className="animate-spin text-[#C5A059]" />
+                        <Loader2 size={15} className="animate-spin text-mm-3" />
                         {textoSubiendoFotos}
                       </>
                     ) : (
                       <>
-                        <Upload size={15} className="text-[#C5A059]" />
+                        <Upload size={15} className="text-mm-oro" />
                         {t('gal.subirFotos')}
                       </>
                     )}
                   </button>
                   <button
                     onClick={() => setShowCreateAlbumModal(true)}
-                    className="flex items-center gap-2 bg-[#0B1B2C] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
+                    className="flex items-center gap-2 bg-mm-navy text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
                   >
-                    <FolderPlus size={15} className="text-[#C5A059]" /> {t('gal.crearAlbum')}
+                    <FolderPlus size={15} className="text-mm-oro" /> {t('gal.crearAlbum')}
                   </button>
                 </div>
               )}
@@ -2534,14 +2606,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
-                    <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-lg border border-white/10 flex items-center gap-1.5">
-                      <Image size={12} className="text-[#C5A059]" />
+                    <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-1 rounded-lg border border-white/10 flex items-center gap-1.5">
+                      <Image size={12} className="text-mm-oro" />
                       {album.photoCount || (album.photos || []).length} {t('gal.fotos')}
                     </div>
                   </div>
                   <div className="p-4 flex flex-col flex-1 justify-between">
                     <div>
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-[#C5A059] transition-colors">{album.title}</h3>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-mm-oro-tinta dark:group-hover:text-mm-oro-claro transition-colors">{album.title}</h3>
                       <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-medium">{album.date}</p>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
@@ -2555,7 +2627,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                           <button
                             onClick={(e) => { e.stopPropagation(); setAlbumEditando({ ...album }); }}
                             disabled={subiendoGaleria}
-                            className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-[#C5A059] rounded-lg hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-40"
+                            className="p-1.5 text-slate-400 dark:text-zinc-200 hover:text-mm-oro rounded-lg hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-40"
                             title={t('gal.editarAlbum')}
                           >
                             <Edit2 size={15} />
@@ -2595,11 +2667,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   <button
                     onClick={() => albumPhotoInputRef.current?.click()}
                     disabled={subiendoGaleria}
-                    className="flex items-center gap-1.5 bg-[#0B1B2C] text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 bg-mm-navy text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
                   >
                     {subiendoGaleria
-                      ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {textoSubiendoFotos}</>
-                      : <><Upload size={14} className="text-[#C5A059]" /> {t('gal.subirFotos')}</>}
+                      ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {textoSubiendoFotos}</>
+                      : <><Upload size={14} className="text-mm-3" /> {t('gal.subirFotos')}</>}
                   </button>
                 )}
                 <button
@@ -2642,7 +2714,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     src={photoUrl}
                     alt={foto?.nombre_archivo || `${idx + 1}`}
                     loading="lazy"
-                    onClick={() => setSelectedPhotoLightbox(photoUrl)}
+                    onClick={() => abrirVisorFoto(idx)}
                     className="block w-full h-full aspect-square object-cover group-hover:scale-105 transition-transform cursor-pointer"
                   />
 
@@ -2659,7 +2731,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   )}
 
                   <div
-                    onClick={() => setSelectedPhotoLightbox(photoUrl)}
+                    onClick={() => abrirVisorFoto(idx)}
                     className="absolute inset-0 bg-black/30 opacity-0 md:group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer"
                   >
                     <Eye size={24} />
@@ -2672,10 +2744,70 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         </div>
       )}
 
-      {/* ════ LIGHTBOX ZOOM PHOTO ════ */}
-      {selectedPhotoLightbox && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setSelectedPhotoLightbox(null)}>
-          <img src={selectedPhotoLightbox} alt={t('gal.vistaAmpliada')} className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain" />
+      {/* ════ VISOR DE GALERÍA ════
+          Se navega entre fotos sin cerrarlo: flechas en pantalla, teclado en
+          escritorio y deslizamiento con el dedo en el teléfono. Da la vuelta al
+          llegar al final, igual que el carrusel del panel. */}
+      {indiceFoto !== null && fotosAlbum.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/92 flex flex-col"
+          onClick={cerrarVisorFoto}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('gal.vistaAmpliada')}
+        >
+          {/* Cabecera: posición y cierre */}
+          <div
+            className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 flex-shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-[13px] font-semibold text-white/70 tabular-nums">
+              {indiceFoto + 1} / {fotosAlbum.length}
+            </span>
+            <button
+              onClick={cerrarVisorFoto}
+              title={t('comun.cerrar')}
+              className="p-2 rounded-xl text-white/80 bg-white/10 hover:bg-white/20 transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Imagen + zonas de navegación */}
+          <div
+            className="flex-1 min-h-0 relative flex items-center justify-center p-3 sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={alTocarVisor}
+            onTouchEnd={alSoltarVisor}
+          >
+            <img
+              src={urlFoto(fotosAlbum[indiceFoto])}
+              alt={fotosAlbum[indiceFoto]?.nombre_archivo || t('gal.vistaAmpliada')}
+              className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain select-none"
+              draggable={false}
+            />
+
+            {fotosAlbum.length > 1 && (
+              <>
+                <button
+                  onClick={() => moverFoto(-1)}
+                  aria-label={t('gal.fotoAnterior')}
+                  title={t('gal.fotoAnterior')}
+                  className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-sm transition-colors active:scale-95"
+                >
+                  <ChevronLeft size={22} />
+                </button>
+                <button
+                  onClick={() => moverFoto(1)}
+                  aria-label={t('gal.fotoSiguiente')}
+                  title={t('gal.fotoSiguiente')}
+                  className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-sm transition-colors active:scale-95"
+                >
+                  <ChevronRight size={22} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -2685,7 +2817,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Image size={18} className="text-[#C5A059]" /> {t('gal.destinoTitulo')}
+                <Image size={18} className="text-mm-oro" /> {t('gal.destinoTitulo')}
               </h3>
               <button onClick={() => setShowDestinoModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white">
                 <X size={18} />
@@ -2704,7 +2836,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <select
                   value={destinoFoto}
                   onChange={(e) => setDestinoFoto(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059] cursor-pointer"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro cursor-pointer"
                 >
                   {albums.map(a => (
                     <option key={a.id} value={a.id}>{a.title}</option>
@@ -2728,15 +2860,15 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 onClick={() => { setShowDestinoModal(false); setShowCreateAlbumModal(true); }}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-zinc-300 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700 rounded-xl"
               >
-                <FolderPlus size={14} className="text-[#C5A059]" /> {t('gal.crearAlbum')}
+                <FolderPlus size={14} className="text-mm-oro" /> {t('gal.crearAlbum')}
               </button>
               <button
                 type="button"
                 onClick={() => photoInputRef.current?.click()}
                 disabled={!destinoFoto || albums.length === 0}
-                className="flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-40"
+                className="flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-40"
               >
-                <Upload size={14} className="text-[#C5A059]" /> {t('gal.elegirFotos')}
+                <Upload size={14} className="text-mm-3" /> {t('gal.elegirFotos')}
               </button>
             </div>
           </div>
@@ -2749,7 +2881,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FolderPlus size={18} className="text-[#C5A059]" /> {t('gal.crearAlbum')}
+                <FolderPlus size={18} className="text-mm-oro" /> {t('gal.crearAlbum')}
               </h3>
               <button onClick={() => setShowCreateAlbumModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -2784,7 +2916,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   type="file"
                   accept="image/*"
                   onChange={(e) => setPortadaFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#0B1B2C] file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
+                  className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-mm-navy file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
                 />
                 {portadaFile && (
                   <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1.5 font-semibold truncate">
@@ -2807,9 +2939,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button
                   type="submit"
                   disabled={subiendoGaleria || !newAlbumForm.title.trim()}
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
-                  {subiendoGaleria && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
+                  {subiendoGaleria && <Loader2 size={14} className="animate-spin text-mm-3" />}
                   {t('gal.guardarAlbum')}
                 </button>
               </div>
@@ -2824,7 +2956,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Edit2 size={18} className="text-[#C5A059]" /> {t('gal.editarAlbum')}
+                <Edit2 size={18} className="text-mm-2" /> {t('gal.editarAlbum')}
               </h3>
               <button onClick={() => setAlbumEditando(null)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -2838,7 +2970,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   required
                   value={albumEditando.title}
                   onChange={(e) => setAlbumEditando({ ...albumEditando, title: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                 />
               </div>
               <div>
@@ -2848,7 +2980,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   placeholder={t('gal.fechaPeriodoPh')}
                   value={albumEditando.date || ''}
                   onChange={(e) => setAlbumEditando({ ...albumEditando, date: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-[#C5A059]"
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                 />
               </div>
 
@@ -2862,7 +2994,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   type="file"
                   accept="image/*"
                   onChange={(e) => setNuevaPortadaFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#0B1B2C] file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
+                  className="w-full text-xs text-slate-600 dark:text-zinc-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-mm-navy file:text-white hover:file:bg-slate-800 file:cursor-pointer cursor-pointer"
                 />
                 {nuevaPortadaFile && (
                   <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1.5 font-semibold truncate">
@@ -2884,9 +3016,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button
                   type="submit"
                   disabled={subiendoGaleria}
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
-                  {subiendoGaleria && <Loader2 size={14} className="animate-spin text-[#C5A059]" />}
+                  {subiendoGaleria && <Loader2 size={14} className="animate-spin text-mm-3" />}
                   {t('proy.guardarCambios')}
                 </button>
               </div>
@@ -2901,7 +3033,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Receipt size={18} className="text-[#C5A059]" /> {t('modal.registrarFactura')}
+                <Receipt size={18} className="text-mm-oro" /> {t('modal.registrarFactura')}
               </h3>
               <button onClick={cerrarModalFactura} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -2929,10 +3061,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 onClick={() => comprobanteInputRef.current?.click()}
                 className={`relative rounded-2xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden ${
                   arrastrandoComprobante
-                    ? 'border-[#C5A059] bg-amber-50 dark:bg-amber-500/10'
+                    ? 'border-mm-oro bg-amber-50 dark:bg-amber-500/10'
                     : comprobanteFile
-                    ? 'border-[#C5A059]/60 bg-amber-50/40 dark:bg-amber-500/5'
-                    : 'border-gray-300 dark:border-zinc-600 bg-slate-50/70 dark:bg-zinc-900/50 hover:border-[#C5A059]/70'
+                    ? 'border-mm-oro/60 bg-amber-50/40 dark:bg-amber-500/5'
+                    : 'border-gray-300 dark:border-zinc-600 bg-slate-50/70 dark:bg-zinc-900/50 hover:border-mm-oro/70'
                 }`}
               >
                 {comprobantePreview ? (
@@ -2940,7 +3072,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <img src={comprobantePreview} alt={t('modal.comprobanteFoto')} className="w-20 h-20 rounded-xl object-cover border border-gray-200 dark:border-zinc-600 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{comprobanteFile?.name}</p>
-                      <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
+                      <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
                     </div>
                     <button
                       type="button"
@@ -2952,12 +3084,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   </div>
                 ) : comprobanteFile ? (
                   <div className="flex items-center gap-3 p-3">
-                    <div className="w-20 h-20 rounded-xl border border-gray-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 flex flex-col items-center justify-center gap-1 text-[#8B6914] dark:text-[#E3C77B] flex-shrink-0">
-                      <FileText size={22} /><span className="text-[9px] font-black tracking-wider">PDF</span>
+                    <div className="w-20 h-20 rounded-xl border border-gray-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 flex flex-col items-center justify-center gap-1 text-mm-oro-tinta dark:text-mm-oro-claro flex-shrink-0">
+                      <FileText size={22} /><span className="text-[11px] font-black tracking-wider">PDF</span>
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{comprobanteFile.name}</p>
-                      <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
+                      <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200 mt-0.5">{t('modal.cambiarArchivo')}</p>
                     </div>
                     <button
                       type="button"
@@ -2969,11 +3101,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   </div>
                 ) : (
                   <div className="py-7 px-4 text-center">
-                    <div className="w-11 h-11 mx-auto mb-2 rounded-2xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 shadow-sm flex items-center justify-center text-[#C5A059]">
+                    <div className="w-11 h-11 mx-auto mb-2 rounded-2xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-600 shadow-sm flex items-center justify-center text-mm-oro">
                       <Upload size={20} />
                     </div>
                     <p className="text-xs font-bold text-slate-700 dark:text-zinc-200">{t('modal.soltarComprobante')}</p>
-                    <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-200 mt-1">{t('modal.formatosComprobante')}</p>
+                    <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-200 mt-1">{t('modal.formatosComprobante')}</p>
                   </div>
                 )}
               </div>
@@ -2983,7 +3115,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 type="button"
                 onClick={handleExtraerConIA}
                 disabled={extrayendoIA || !comprobanteFile}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-wider text-white shadow-lg shadow-amber-500/20 bg-gradient-to-r from-[#0B1B2C] via-[#8B6914] to-[#C5A059] hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-wider text-white shadow-lg shadow-amber-500/20 bg-gradient-to-r from-mm-navy via-mm-oro-tinta to-mm-oro hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {extrayendoIA
                   ? <><Loader2 size={15} className="animate-spin" /> {t('modal.procesandoComprobante')}</>
@@ -3028,7 +3160,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button
                   type="submit"
                   disabled={extrayendoIA}
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
                   {t('modal.agregarFactura')}
                 </button>
@@ -3044,7 +3176,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Edit2 size={18} className="text-[#C5A059]" /> {t('modal.editarFactura')}
+                <Edit2 size={18} className="text-mm-2" /> {t('modal.editarFactura')}
               </h3>
               <button onClick={cerrarEdicionFactura} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -3096,7 +3228,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm flex items-center gap-2"
                 >
                   {t('comun.aplicar')}
                 </button>
@@ -3212,7 +3344,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Plus size={18} className="text-[#C5A059]" /> {t('modal.agregarHito')}
+                <Plus size={18} className="text-mm-oro" /> {t('modal.agregarHito')}
               </h3>
               <button onClick={() => setShowAddHitoModal(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -3253,7 +3385,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
                 <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
-                  <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
+                  <DollarSign size={15} className="text-mm-oro flex-shrink-0" />
                   <InputMonto
                     value={newHitoValor}
                     onChange={setNewHitoValor}
@@ -3266,7 +3398,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button type="button" onClick={() => setShowAddHitoModal(false)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
-                <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm">
+                <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm">
                   {t('modal.guardarHito')}
                 </button>
               </div>
@@ -3309,7 +3441,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button
                   onClick={handleDescargarComprobante}
                   disabled={descargandoVisor}
-                  className="flex items-center gap-2 text-xs font-bold text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+                  className="flex items-center gap-2 text-xs font-bold text-mm-navy bg-mm-oro hover:bg-mm-oro-vivo px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
                 >
                   {descargandoVisor ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   <span className="hidden sm:inline">{t('fac.descargar')}</span>
@@ -3359,7 +3491,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
           <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Edit2 size={18} className="text-[#C5A059]" /> {t('modal.editarHito')}
+                <Edit2 size={18} className="text-mm-2" /> {t('modal.editarHito')}
               </h3>
               <button onClick={() => setEditingHitoIndex(null)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100">
                 <X size={18} />
@@ -3400,7 +3532,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('modal.valorHito')}</label>
                 <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 focus-within:border-slate-800">
-                  <DollarSign size={15} className="text-[#C5A059] flex-shrink-0" />
+                  <DollarSign size={15} className="text-mm-oro flex-shrink-0" />
                   <InputMonto
                     value={editHitoValor}
                     onChange={setEditHitoValor}
@@ -3413,7 +3545,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <button type="button" onClick={() => setEditingHitoIndex(null)} className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">
                   {t('comun.cancelar')}
                 </button>
-                <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm">
+                <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm">
                   {t('modal.actualizarHito')}
                 </button>
               </div>
@@ -3422,6 +3554,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         </div>
       )}
 
+      {dialogoConfirmacion}
     </div>
   );
 }

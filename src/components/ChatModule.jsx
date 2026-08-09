@@ -10,6 +10,7 @@ import {
   listarMensajesDirectos, enviarMensajeDirecto, suscribirDirectos,
   editarMensaje, eliminarMensaje
 } from '../services/chatService';
+import { useConfirmacion } from '../hooks/useConfirmacion';
 
 /**
  * Chat interno corporativo.
@@ -23,6 +24,7 @@ import {
 
 export default function ChatModule({ onBack, isEditMode }) {
   const { t } = usePrefs();
+  const { confirmar, dialogoConfirmacion } = useConfirmacion();
   const {
     mensajes, enviarMensaje, marcarLeido, cargando, error, tieneAcceso, miembros,
     uid, nombreAutor, avatarDe, esAdmin,
@@ -68,11 +70,11 @@ export default function ChatModule({ onBack, isEditMode }) {
    * "salte" mientras cargan las imágenes.
    */
   const Avatar = ({ url, nombre, className = 'w-10 h-10', tamanoTexto = 'text-[13px]' }) => (
-    <span className={`${className} rounded-full bg-[#0B1B2C] border border-[#C5A059]/50 flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+    <span className={`${className} rounded-full bg-mm-navy border border-mm-oro/50 flex items-center justify-center flex-shrink-0 overflow-hidden`}>
       {url
         ? <img src={url} alt="" className="w-full h-full object-cover" />
         : (
-          <span className={`${tamanoTexto} font-bold text-[#C5A059]`}>
+          <span className={`${tamanoTexto} font-bold text-mm-oro`}>
             {String(nombre || '?').trim().charAt(0).toUpperCase()}
           </span>
         )}
@@ -189,7 +191,7 @@ export default function ChatModule({ onBack, isEditMode }) {
 
   const borrarMensaje = async (m) => {
     if (!m?.propio) return;
-    if (!confirm(t('chat.confirmarEliminarMensaje'))) return;
+    if (!await confirmar({ mensaje: t('chat.confirmarEliminarMensaje') })) return;
 
     if (enDirectos) {
       const { success, error: err } = await eliminarMensaje({ id: m.id, uid });
@@ -227,11 +229,11 @@ export default function ChatModule({ onBack, isEditMode }) {
             onClick={() => setPestana(p.id)}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold transition-colors ${
               activa
-                ? 'bg-white dark:bg-zinc-800 text-[#8B6914] dark:text-[#E3C77B] shadow-sm border border-[#C5A059]/30'
+                ? 'bg-white dark:bg-zinc-800 text-mm-oro-tinta dark:text-mm-oro-claro shadow-sm border border-mm-oro/30'
                 : 'text-slate-500 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100'
             }`}
           >
-            <Icono size={14} className={activa ? 'text-[#C5A059]' : ''} />
+            <Icono size={14} className={activa ? 'text-mm-oro' : ''} />
             {p.etiqueta}
           </button>
         );
@@ -253,7 +255,7 @@ export default function ChatModule({ onBack, isEditMode }) {
             onClick={() => setDestinatario(u)}
             className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-colors ${
               activo
-                ? 'bg-[#C5A059]/15 border border-[#C5A059]/30 text-[#8B6914] dark:text-[#E3C77B] font-bold'
+                ? 'bg-mm-oro/15 border border-mm-oro/30 text-mm-oro-tinta dark:text-mm-oro-claro font-bold'
                 : 'hover:bg-slate-50 dark:hover:bg-zinc-700/50 text-slate-700 dark:text-zinc-200'
             }`}
           >
@@ -272,7 +274,7 @@ export default function ChatModule({ onBack, isEditMode }) {
   return (
     /* `min-h-0` es lo que permite que el historial sea el ÚNICO que hace
        scroll y que el compositor quede siempre anclado abajo, a la vista. */
-    <main className="flex-1 flex flex-col overflow-hidden min-h-0 bg-[#F5F6F8] dark:bg-zinc-900">
+    <main className="flex-1 flex flex-col overflow-hidden min-h-0 bg-mm-lienzo dark:bg-zinc-900">
 
       {/* Cabecera: compacta en móvil para no robarle alto a la conversación */}
       <div className="flex items-center gap-3 px-4 md:px-8 py-3 md:py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex-shrink-0">
@@ -284,7 +286,7 @@ export default function ChatModule({ onBack, isEditMode }) {
         </button>
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-9 h-9 md:w-10 md:h-10 rounded-2xl bg-amber-100/80 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 flex items-center justify-center flex-shrink-0">
-            <MessageSquare size={18} className="text-[#8B6914] dark:text-[#E3C77B]" />
+            <MessageSquare size={18} className="text-mm-oro-tinta dark:text-mm-oro-claro" />
           </div>
           <div className="min-w-0">
             <h2 className="text-[17px] md:text-xl font-bold text-slate-900 dark:text-white truncate">{t('chat.interno')}</h2>
@@ -305,24 +307,24 @@ export default function ChatModule({ onBack, isEditMode }) {
           <nav className="flex-1 overflow-y-auto p-2 space-y-1">
             {enDirectos ? (
               <>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-300 px-2 py-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-300 px-2 py-1.5">
                   {t('chat.directos')}
                 </p>
                 <ListaUsuarios />
               </>
             ) : (
               <>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-300 px-2 py-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-300 px-2 py-1.5">
                   {t('chat.canales')}
                 </p>
 
-                <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-[#C5A059]/15 text-[#8B6914] dark:text-[#E3C77B] font-bold border border-[#C5A059]/30">
-                  <Users size={15} className="text-[#C5A059]" />
+                <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-mm-oro/15 text-mm-oro-tinta dark:text-mm-oro-claro font-bold border border-mm-oro/30">
+                  <Users size={15} className="text-mm-oro" />
                   <span className="text-[13px] flex-1 truncate">{t('chat.canalSocios')}</span>
-                  <span className="text-[10px] text-slate-400 dark:text-zinc-300 font-semibold">{miembros}</span>
+                  <span className="text-[11px] text-slate-400 dark:text-zinc-300 font-semibold">{miembros}</span>
                 </div>
 
-                <p className="text-[10px] text-slate-400 dark:text-zinc-300 px-3 pt-3 leading-relaxed">
+                <p className="text-[11px] text-slate-400 dark:text-zinc-300 px-3 pt-3 leading-relaxed">
                   {t('chat.soloSocios')}
                 </p>
               </>
@@ -341,8 +343,8 @@ export default function ChatModule({ onBack, isEditMode }) {
           <div className="px-4 md:px-5 py-2 md:py-3 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {enDirectos
-                ? <User size={15} className="text-[#C5A059] flex-shrink-0" />
-                : <Users size={15} className="text-[#C5A059] flex-shrink-0" />}
+                ? <User size={15} className="text-mm-oro flex-shrink-0" />
+                : <Users size={15} className="text-mm-oro flex-shrink-0" />}
               <span className="text-[14px] font-bold text-slate-900 dark:text-white truncate">
                 {enDirectos
                   ? (destinatario ? nombreDe(destinatario) : t('chat.directos'))
@@ -426,7 +428,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                             onClick={() => iniciarEdicion(m)}
                             title={t('chat.editarMensaje')}
                             aria-label={t('chat.editarMensaje')}
-                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-[#C5A059] hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
+                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-mm-oro hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
                           >
                             <Pencil size={14} />
                           </button>
@@ -444,11 +446,11 @@ export default function ChatModule({ onBack, isEditMode }) {
 
                       <div className={`max-w-[78%] px-4 py-2.5 shadow-sm ${
                         m.propio
-                          ? 'bg-[#0B1B2C] text-white rounded-[20px] rounded-br-md'
+                          ? 'bg-mm-navy text-white rounded-[20px] rounded-br-md'
                           : 'bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-slate-800 dark:text-zinc-100 rounded-[20px] rounded-bl-md'
                       }`}>
                         {!m.propio && (
-                          <p className="text-[12px] font-bold text-[#C5A059] mb-0.5">{m.autor}</p>
+                          <p className="text-[12px] font-bold text-mm-oro mb-0.5">{m.autor}</p>
                         )}
 
                         {enEdicion ? (
@@ -461,7 +463,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                               value={borradorEdicion}
                               onChange={(e) => setBorradorEdicion(e.target.value)}
                               onKeyDown={(e) => { if (e.key === 'Escape') cancelarEdicion(); }}
-                              className="w-full resize-none bg-white/10 border border-white/25 rounded-xl px-3 py-2 text-[15px] leading-snug text-white placeholder-white/40 focus:outline-none focus:border-[#C5A059]"
+                              className="w-full resize-none bg-white/10 border border-white/25 rounded-xl px-3 py-2 text-[15px] leading-snug text-white placeholder-white/40 focus:outline-none focus:border-mm-oro"
                             />
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -476,7 +478,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                                 type="submit"
                                 disabled={!borradorEdicion.trim() || guardandoEdicion}
                                 title={t('comun.guardar')}
-                                className="p-1.5 rounded-full text-[#0B1B2C] bg-[#C5A059] hover:bg-[#d4b06a] transition-colors disabled:opacity-40"
+                                className="p-1.5 rounded-full text-mm-navy bg-mm-oro hover:bg-mm-oro-vivo transition-colors disabled:opacity-40"
                               >
                                 <Check size={15} />
                               </button>
@@ -517,7 +519,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                 <button
                   type="button"
                   title={t('nav.adjuntar')}
-                  className="w-10 h-10 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-[#C5A059] rounded-full hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors flex-shrink-0 active:scale-90"
+                  className="w-10 h-10 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded-full hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors flex-shrink-0 active:scale-90"
                 >
                   <Paperclip size={19} />
                 </button>
@@ -538,14 +540,14 @@ export default function ChatModule({ onBack, isEditMode }) {
                   placeholder={t('chat.escribeMensaje')}
                   enterKeyHint="enter"
                   autoComplete="off"
-                  className="flex-1 min-w-0 resize-none bg-slate-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-3xl px-4 py-3 text-[16px] leading-snug text-slate-800 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-400 focus:outline-none focus:border-[#C5A059] max-h-[120px]"
+                  className="flex-1 min-w-0 resize-none bg-slate-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-3xl px-4 py-3 text-[16px] leading-snug text-slate-800 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-400 focus:outline-none focus:border-mm-oro max-h-[120px]"
                 />
 
                 <button
                   type="submit"
                   disabled={!borrador.trim() || enviando}
                   title={t('comun.enviar')}
-                  className="w-11 h-11 flex items-center justify-center bg-[#C5A059] text-white rounded-full shadow-sm hover:bg-[#b08f4a] transition-all disabled:opacity-30 disabled:hover:bg-[#C5A059] flex-shrink-0 active:scale-90"
+                  className="w-11 h-11 flex items-center justify-center bg-mm-oro text-white rounded-full shadow-sm hover:bg-mm-oro-hondo transition-all disabled:opacity-30 disabled:hover:bg-mm-oro flex-shrink-0 active:scale-90"
                 >
                   <Send size={18} />
                 </button>
@@ -599,6 +601,8 @@ export default function ChatModule({ onBack, isEditMode }) {
           </div>
         </div>
       )}
+
+      {dialogoConfirmacion}
     </main>
   );
 }

@@ -32,6 +32,21 @@ export default function TubesCursor() {
 
   // This effect runs once when the component mounts
   useEffect(() => {
+    /* El fondo animado cuesta 761 KB de three.js (210 KB comprimidos) y se
+       descarga antes de que nadie haya entrado.
+
+       Se llegó a desactivar en el teléfono para ahorrar esos datos, pero es
+       justamente donde más se valora: las luces son la primera impresión de
+       la marca y sin ellas la pantalla de acceso queda plana. Decisión
+       tomada a conciencia: el coste se asume.
+
+       Lo que sí se sigue respetando son las dos señales que el usuario pide
+       de forma explícita en su sistema — menos movimiento y ahorro de datos.
+       Esas no se ignoran nunca. */
+    const menosMovimiento = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const ahorroDatos = navigator.connection?.saveData === true;
+    if (menosMovimiento || ahorroDatos) return;
+
     // The error "Computed radius is NaN" suggests a race condition where the animation
     // library initializes before the canvas element has its final dimensions, leading
     // to invalid geometry calculations. Delaying the initialization with setTimeout

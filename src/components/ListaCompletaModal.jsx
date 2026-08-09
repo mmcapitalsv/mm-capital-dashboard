@@ -69,7 +69,7 @@ export default function ListaCompletaModal({ abierto, titulo, entradas = [], onC
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-800 dark:text-zinc-100 truncate">{e.titulo}</p>
                   <p className="text-[11px] text-slate-400 dark:text-zinc-200 truncate flex items-center gap-1">
-                    <Building2 size={10} className="flex-shrink-0 text-[#C5A059]" />
+                    <Building2 size={10} className="flex-shrink-0 text-mm-oro" />
                     {e.proyectoNombre || t('inv.proyectoNoDisponible')}
                     {e.detalle ? ` · ${e.detalle}` : ''}
                   </p>
@@ -79,7 +79,7 @@ export default function ListaCompletaModal({ abierto, titulo, entradas = [], onC
                     {e.valor}
                   </span>
                 )}
-                {navegable && <ArrowUpRight size={14} className="text-[#C5A059] flex-shrink-0" />}
+                {navegable && <ArrowUpRight size={14} className="text-mm-oro flex-shrink-0" />}
               </>
             );
 
@@ -87,7 +87,7 @@ export default function ListaCompletaModal({ abierto, titulo, entradas = [], onC
               <button
                 key={e.id ?? i}
                 onClick={() => { onAbrirProyecto(e.proyecto); onCerrar?.(); }}
-                className="w-full text-left flex items-center gap-3 p-3 rounded-2xl border border-gray-100 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700/50 hover:border-[#C5A059]/40 transition-colors"
+                className="w-full text-left flex items-center gap-3 p-3 rounded-2xl border border-gray-100 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700/50 hover:border-mm-oro/40 transition-colors"
                 title={t('dash.verProyecto')}
               >
                 {contenido}

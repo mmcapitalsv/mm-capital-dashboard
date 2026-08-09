@@ -5,10 +5,127 @@
    (o un ancestro) tiene la clase `dark`, que es lo que alterna el Header. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   PALETA DE MARCA — fuente única
+
+   Antes estos colores estaban escritos a mano 380 veces repartidas por 12
+   archivos, y convivían DOS dorados distintos (#C5A059 en el código y un
+   #D4AF37 declarado aquí que no usaba nadie). Cambiar la marca era imposible.
+   Ahora se declara una vez y se usa como utilidad de Tailwind: `bg-mm-oro`,
+   `text-mm-oro-tinta`, `border-mm-navy`…
+   ───────────────────────────────────────────────────────────────────────────── */
 @theme {
   --color-mm-cream: #F3F2EE;
-  --color-mm-navy: #0B1B2C;
-  --color-mm-gold: #D4AF37;
+
+  /* Navy corporativo */
+  --color-mm-navy:      #0B1B2C;
+  --color-mm-navy-alto: #16273B;   /* tarjetas dentro del bloque navy */
+  --color-mm-navy-hondo:#050D15;   /* barra lateral */
+
+  /* Dorado. TRES tonos con oficios distintos y no intercambiables:
+       oro        → superficies, iconos, filetes, bordes. NUNCA texto pequeño:
+                    sobre blanco da 2,46:1 y falla WCAG AA (exige 4,5:1).
+       oro-tinta  → el dorado para TEXTO en modo día. 5,09:1, cumple AA.
+       oro-claro  → el dorado para TEXTO en modo noche. */
+  --color-mm-oro:       #C5A059;
+  --color-mm-oro-tinta: #8B6914;
+  --color-mm-oro-claro: #E3C77B;
+  --color-mm-oro-lavado:#FAF4EA;   /* fondo suave de insignias */
+  --color-mm-oro-borde: #F0E2CD;
+  --color-mm-oro-hover: #F3E7D3;   /* lavado al pasar el ratón */
+  --color-mm-oro-vivo:  #D4B06A;   /* dorado realzado sobre fondo oscuro */
+  --color-mm-oro-hondo: #B8963A;   /* dorado pulsado */
+
+  --color-mm-navy-velo: #071320;   /* pie del sidebar */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   JERARQUÍA DE SUPERFICIES
+
+   El problema no era el color de las tarjetas, era que TODO estaba dentro de
+   una: fondo blanco, tarjeta blanca, borde gris y sombra, repetido veinte
+   veces. Cuando todo pesa lo mismo no hay jerarquía, y eso es exactamente lo
+   que hace que un panel parezca administrativo.
+
+   Tres niveles y solo tres:
+     lienzo   → el fondo sobre el que respiran las secciones
+     tarjeta  → lo que de verdad merece estar contenido
+     realce   → navy, reservado a lo que manda en la pantalla
+
+   El lienzo lleva un punto de calidez (piedra, no gris de oficina) y el borde
+   es un filete teñido de navy en vez de un gris neutro: separa sin encerrar.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --mm-lienzo:      #F4F4F2;
+  --mm-tarjeta:     #FFFFFF;
+  --mm-tarjeta-alt: #FAFAF8;
+  --mm-realce:      #0B1B2C;
+
+  /* Filetes teñidos de marca: separan sin dibujar una caja */
+  --mm-filete:      rgba(11, 27, 44, 0.07);
+  --mm-filete-alto: rgba(11, 27, 44, 0.12);
+
+  /* Sombra de una sola familia, muy suave. Nada de cajas flotantes. */
+  --mm-sombra:      0 1px 2px rgba(11, 27, 44, .04), 0 10px 28px -12px rgba(11, 27, 44, .10);
+  --mm-sombra-alta: 0 2px 4px rgba(11, 27, 44, .05), 0 18px 44px -16px rgba(11, 27, 44, .16);
+}
+
+.dark {
+  /* Navy profundo, no negro puro ni el zinc genérico de Tailwind: el modo
+     noche debe leerse como el MISMO producto, no como otro tema. */
+  --mm-lienzo:      #0A1017;
+  --mm-tarjeta:     #131C26;
+  --mm-tarjeta-alt: #18222D;
+  --mm-realce:      #16222E;
+
+  --mm-filete:      rgba(255, 255, 255, 0.07);
+  --mm-filete-alto: rgba(255, 255, 255, 0.13);
+
+  --mm-sombra:      0 1px 2px rgba(0, 0, 0, .30), 0 10px 28px -12px rgba(0, 0, 0, .50);
+  --mm-sombra-alta: 0 2px 6px rgba(0, 0, 0, .35), 0 18px 44px -16px rgba(0, 0, 0, .60);
+}
+
+@theme inline {
+  --color-mm-lienzo:      var(--mm-lienzo);
+  --color-mm-tarjeta:     var(--mm-tarjeta);
+  --color-mm-tarjeta-alt: var(--mm-tarjeta-alt);
+  --color-mm-realce:      var(--mm-realce);
+  --color-mm-filete:      var(--mm-filete);
+  --color-mm-filete-alto: var(--mm-filete-alto);
+}
+
+/* ── Jerarquía de texto que funciona en los DOS temas ────────────────────────
+   En día había tres niveles bien separados (slate-900 / 500 / 400) pero en
+   noche casi todo el texto secundario era zinc-200, casi tan claro como el
+   blanco del primario: la separación caía de 0,50 a 0,08 de luminosidad y la
+   jerarquía se aplanaba. Estos tres tokens cambian solos con el tema, así que
+   `text-mm-2` ya no necesita su pareja `dark:`. */
+:root {
+  --texto-1: #0f172a;   /* slate-900  · dato principal */
+  --texto-2: #64748b;   /* slate-500  · etiqueta */
+  --texto-3: #94a3b8;   /* slate-400  · apoyo */
+  --grafica-pendiente: #E2E8F0;   /* tramo vacío de la dona */
+  --grafica-fondo:     #ffffff;
+  --grafica-borde:     #e5e7eb;
+  --grafica-texto:     #0f172a;
+}
+
+.dark {
+  --texto-1: #f4f4f5;   /* zinc-100 */
+  --texto-2: #a1a1aa;   /* zinc-400 · mantiene la distancia real con el nivel 1 */
+  --texto-3: #71717a;   /* zinc-500 */
+  --grafica-pendiente: #3f3f46;   /* zinc-700: acompaña la tarjeta en vez de brillar */
+  --grafica-fondo:     #27272a;
+  --grafica-borde:     #3f3f46;
+  --grafica-texto:     #f4f4f5;
+}
+
+/* `inline` hace que la utilidad emita `var(--texto-2)` directamente, de modo
+   que el color se resuelve en tiempo real al cambiar de tema. */
+@theme inline {
+  --color-mm-1: var(--texto-1);
+  --color-mm-2: var(--texto-2);
+  --color-mm-3: var(--texto-3);
 }
 
 /* PWA / móvil nativo: bloquea el pull-to-refresh y el rebote del scroll. */
@@ -46,9 +163,10 @@ body {
   animation: fadeInCarrusel 500ms ease-out both;
 }
 
-/* Campaneo de la campana de notificaciones: con avisos sin leer se sacude
-   cada pocos segundos para que no pase desapercibida. Al marcarlas leídas la
-   clase desaparece y la campana vuelve a estar quieta y en blanco. */
+/* Campaneo de la campana de notificaciones.
+   Solo se aplica cuando hay algo NUEVO sin ver: en cuanto se revisa, la clase
+   desaparece y la campana se queda quieta. Es una señal puntual, no un adorno
+   permanente — por eso antes cansaba, porque estaba encendida siempre. */
 @keyframes campaneo {
   0%, 65%, 100% { transform: rotate(0deg); }
   70%  { transform: rotate(-14deg); }
@@ -111,16 +229,118 @@ body {
   height: 4.25rem;
 }
 
-@media (max-width: 1400px) {
+/* ── Escalado en portátiles pequeños ─────────────────────────────────────────
+   Esta regla encoge 1rem al 80% para que un layout de escritorio quepa en
+   pantallas de portátil modestas.
+
+   IMPORTANTE — antes el tope era `max-width: 1400px` A SECAS, así que también
+   se aplicaba en el teléfono (375px < 1400px). Ahí hacía daño: encogía un 20%
+   todo lo medido en `rem` (paddings, gap, radios) pero NO los tamaños escritos
+   en píxeles absolutos, de modo que convivían dos escalas y quedaba invertida
+   —`text-xs` renderizaba a 9,6px, más pequeño que un `text-[10px]` a mano—.
+   Era la causa real de que el móvil se viera apretado.
+
+   Ahora arranca en 768px: el móvil se queda a 16px, que es donde debe estar.
+
+   Y el factor sube de 0,80 a 0,875 (14px). Con 0,80 un `text-xs` renderizaba a
+   9,6px —por debajo del piso de 11px que sigue el resto de la interfaz— así que
+   la escala de Tailwind quedaba por debajo de los valores escritos a mano. Con
+   0,875 la compactación se mantiene y el texto pequeño vuelve a leerse. */
+@media (min-width: 768px) and (max-width: 1400px) {
   html {
-    /* Set 1rem to 12.8px (80% of 16px) for perfectly scaled-down layouts on small laptops */
-    font-size: 12.8px !important;
+    font-size: 14px;
   }
 }
 
-@media (min-width: 1401px) {
-  html {
-    /* Default 1rem to 16px for large screens */
-    font-size: 16px !important;
+/* ─────────────────────────────────────────────────────────────────────────────
+   ESCALA TIPOGRÁFICA
+
+   Antes casi todo era `font-bold`, y cuando todo grita nada se oye: una cifra
+   de capital y la etiqueta que la nombra tenían el mismo peso. Aquí el PESO es
+   la herramienta de jerarquía, no el tamaño a solas.
+
+   Las cifras financieras llevan `tabular-nums` siempre: en una columna de
+   importes, los dígitos deben alinearse.
+   ───────────────────────────────────────────────────────────────────────────── */
+@utility t-display {
+  font-size: clamp(28px, 3.4vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -0.022em;
+  font-weight: 600;
+}
+
+@utility t-h1 {
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.15;
+  letter-spacing: -0.018em;
+  font-weight: 600;
+}
+
+@utility t-h2 {
+  font-size: 17px;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
+  font-weight: 600;
+}
+
+/* La cifra manda: grande, apretada y con dígitos de ancho fijo. */
+@utility t-kpi {
+  font-size: clamp(24px, 2.3vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.028em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility t-kpi-sm {
+  font-size: clamp(19px, 1.7vw, 24px);
+  line-height: 1;
+  letter-spacing: -0.024em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility t-body {
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+}
+
+/* Nombra el dato; nunca compite con él. Peso medio, no negrita. */
+@utility t-label {
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+@utility t-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+/* ── Campos de formulario en móvil ───────────────────────────────────────────
+   Safari de iPhone hace zoom automático al enfocar un campo cuya letra mida
+   menos de 16px. Antes se evitaba con `user-scalable=0` en el viewport, que
+   además impedía el zoom manual (WCAG 1.4.4). La forma correcta es esta: los
+   campos miden 16px de verdad y el navegador no necesita acercarse. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px;
   }
+}
+
+/* ── Foco visible ────────────────────────────────────────────────────────────
+   Había 45 elementos enfocables, 9 que anulaban el contorno con
+   `focus:outline-none` y solo 2 que ponían algo en su lugar: navegar con
+   teclado era a ciegas. `:focus-visible` solo se activa con teclado, así que
+   el ratón no ve ningún cambio. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-mm-oro);
+  outline-offset: 2px;
+  border-radius: 6px;
 }

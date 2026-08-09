@@ -182,14 +182,14 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
-              <Loader2 size={24} className="animate-spin text-[#C5A059]" />
+              <Loader2 size={24} className="animate-spin text-mm-oro" />
             </div>
           )}
 
           {/* Guía circular: muestra cómo se verá el avatar recortado */}
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute inset-0 bg-black/45" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, 50% 0, 50% 100%, 50% 100%, 50% 0, 0 0)' }} />
-            <div className="absolute inset-2 rounded-full border-2 border-[#C5A059] shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
+            <div className="absolute inset-2 rounded-full border-2 border-mm-oro shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
           </div>
         </div>
 
@@ -204,7 +204,7 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             disabled={!imagen || subiendo}
-            className="flex-1 accent-[#C5A059] cursor-pointer"
+            className="flex-1 accent-mm-oro cursor-pointer"
           />
           <span className="text-xs font-bold text-slate-500 dark:text-zinc-200 w-10 text-right tabular-nums">
             {zoom.toFixed(1)}x
@@ -232,11 +232,11 @@ export default function RecorteAvatar({ file, onCancel, onConfirmar, subiendo = 
           <button
             onClick={handleGuardar}
             disabled={!imagen || subiendo}
-            className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-[#0B1B2C] hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50"
           >
             {subiendo
-              ? <><Loader2 size={14} className="animate-spin text-[#C5A059]" /> {t('comun.subiendo')}</>
-              : <><Upload size={14} className="text-[#C5A059]" /> {t('perfil.guardarYSubir')}</>}
+              ? <><Loader2 size={14} className="animate-spin text-mm-oro" /> {t('comun.subiendo')}</>
+              : <><Upload size={14} className="text-mm-oro" /> {t('perfil.guardarYSubir')}</>}
           </button>
         </div>
       </div>
