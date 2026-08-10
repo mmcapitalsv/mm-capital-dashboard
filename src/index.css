@@ -182,10 +182,55 @@ body {
   transform-origin: top center;
 }
 
-/* Respeta a quien configuró menos movimiento en su sistema */
+/* Respeta a quien configuró menos movimiento en su sistema.
+   El fondo de la pantalla de acceso NO entra aquí a propósito: es la portada
+   de la marca y se ve siempre. */
 @media (prefers-reduced-motion: reduce) {
   .animate-fadeIn { animation: none; }
   .animate-campaneo { animation: none; }
+}
+
+/* ── Portada de acceso sin GPU ──────────────────────────────────────────────
+   Plan B del fondo WebGL. Cuando Chrome tiene la aceleración por hardware
+   desactivada no hay WebGL2, ni WebGL1, ni adaptador WebGPU: three.js se queda
+   sin backend y el lienzo no puede pintar NADA. Antes eso dejaba la pantalla
+   de acceso en negro absoluto.
+
+   Esto son degradados y `filter: blur()`, que los pinta el compositor: no
+   necesitan GPU y no fallan. No es el láser —no lo pretende—, pero la portada
+   respira y sigue reaccionando al cursor. */
+@keyframes mm-aurora-a {
+  0%, 100% { transform: translate(-12%, -8%) scale(1); }
+  50%      { transform: translate(10%, 12%) scale(1.25); }
+}
+@keyframes mm-aurora-b {
+  0%, 100% { transform: translate(14%, 10%) scale(1.15); }
+  50%      { transform: translate(-10%, -12%) scale(0.9); }
+}
+
+.mm-aurora { position: absolute; inset: -25%; filter: blur(80px); opacity: 0.55; }
+.mm-aurora-a {
+  background: radial-gradient(closest-side, #b721ff, transparent 70%);
+  animation: mm-aurora-a 18s ease-in-out infinite;
+}
+.mm-aurora-b {
+  background: radial-gradient(closest-side, #21d4fd, transparent 70%);
+  animation: mm-aurora-b 24s ease-in-out infinite;
+}
+
+/* El halo que sigue al puntero. Las coordenadas llegan por variables CSS, así
+   que moverlo no provoca ni un render de React. */
+.mm-aurora-cursor {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    240px circle at var(--mm-x, 50%) var(--mm-y, 50%),
+    rgba(245, 54, 92, 0.5),
+    rgba(137, 101, 224, 0.25) 45%,
+    transparent 70%
+  );
+  filter: blur(28px);
+  transition: opacity 400ms ease;
 }
 
 /* Carruseles táctiles móviles: se desliza con el dedo y no se pinta barra. */
