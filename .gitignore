@@ -26,3 +26,4 @@ supabase/scripts/
 *.njsproj
 *.sln
 *.sw?
+supabase/.temp/

@@ -31,14 +31,49 @@ function faltaRelacionHilo(error) {
 
 /* ─────────────────────────── Credenciales (Auth) ─────────────────────────── */
 
+export const ERROR_REAUTENTICACION = 'La contraseña actual no es correcta.';
+
 /**
- * Cambia el correo de acceso. Supabase envía un correo de confirmación a la
- * dirección nueva; el cambio no es efectivo hasta que se confirma.
+ * Re-autenticación (P0-3): ninguna credencial de Auth se toca sin demostrar
+ * antes que quien está al teclado conoce la contraseña vigente. Se valida
+ * contra Supabase con un `signInWithPassword` sobre la sesión actual: si es
+ * correcta, la sesión se renueva (mismo usuario); si no, se rechaza el cambio.
  */
-export async function cambiarCorreo(nuevoCorreo) {
+async function reautenticar(passwordActual) {
+  const pass = String(passwordActual || '');
+  if (!pass) return { ok: false, error: 'Escribe tu contraseña actual.' };
+
+  const { data: { user } = {} } = await supabase.auth.getUser();
+  const correoActual = user?.email;
+  if (!correoActual) {
+    return { ok: false, error: 'No hay una sesión activa. Vuelve a iniciar sesión.' };
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email: correoActual,
+    password: pass
+  });
+  if (error) return { ok: false, error: ERROR_REAUTENTICACION };
+
+  return { ok: true, correoActual };
+}
+
+/**
+ * Cambia el correo de acceso. Exige la contraseña actual. Supabase envía un
+ * correo de confirmación a la dirección nueva; el cambio no es efectivo hasta
+ * que se confirma.
+ */
+export async function cambiarCorreo(nuevoCorreo, passwordActual) {
   const correo = String(nuevoCorreo || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) {
     return { success: false, error: 'Escribe un correo electrónico válido.' };
+  }
+
+  const auth = await reautenticar(passwordActual);
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  if (correo === String(auth.correoActual || '').toLowerCase()) {
+    return { success: false, error: 'El correo nuevo es igual al actual.' };
   }
 
   const { error } = await supabase.auth.updateUser({ email: correo });
@@ -47,8 +82,8 @@ export async function cambiarCorreo(nuevoCorreo) {
   return { success: true, requiereConfirmacion: true };
 }
 
-/** Cambia la contraseña de acceso. */
-export async function cambiarPassword(nueva, repetida) {
+/** Cambia la contraseña de acceso. Exige la contraseña actual. */
+export async function cambiarPassword(nueva, repetida, passwordActual) {
   const pass = String(nueva || '');
   if (pass.length < 8) {
     return { success: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
@@ -56,6 +91,12 @@ export async function cambiarPassword(nueva, repetida) {
   if (pass !== String(repetida || '')) {
     return { success: false, error: 'Las contraseñas no coinciden.' };
   }
+  if (pass === String(passwordActual || '')) {
+    return { success: false, error: 'La contraseña nueva debe ser distinta de la actual.' };
+  }
+
+  const auth = await reautenticar(passwordActual);
+  if (!auth.ok) return { success: false, error: auth.error };
 
   const { error } = await supabase.auth.updateUser({ password: pass });
   if (error) return { success: false, error: error.message };

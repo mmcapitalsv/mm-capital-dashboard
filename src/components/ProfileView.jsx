@@ -31,7 +31,8 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
   const cargoTexto = cargo?.texto || (cargo?.clave ? t(cargo.clave) : t('cargo.socioInversionista'));
   // ── Modales de cuenta ──
   const [modalSeguridad, setModalSeguridad] = useState(null);   // 'email' | 'password' | null
-  const [formSeguridad, setFormSeguridad] = useState({ email: '', pass: '', pass2: '' });
+  // `passActual` es obligatoria (P0-3): sin re-autenticación no se toca Auth.
+  const [formSeguridad, setFormSeguridad] = useState({ email: '', pass: '', pass2: '', passActual: '' });
   // Doble check obligatorio antes de tocar las credenciales de Auth
   const [confirmarSeguridad, setConfirmarSeguridad] = useState(null); // 'email' | 'password' | null
   const [modalBanco, setModalBanco] = useState(false);
@@ -56,6 +57,11 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
     e.preventDefault();
     setAvisoPerfil(null);
 
+    if (!formSeguridad.passActual) {
+      notificar('error', t('perfil.passActualRequerida'));
+      return;
+    }
+
     if (modalSeguridad === 'password' && formSeguridad.pass !== formSeguridad.pass2) {
       notificar('error', t('perfil.passNoCoinciden'));
       return;
@@ -70,16 +76,19 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
     setAvisoPerfil(null);
 
     const r = tipo === 'email'
-      ? await cambiarCorreo(formSeguridad.email)
-      : await cambiarPassword(formSeguridad.pass, formSeguridad.pass2);
+      ? await cambiarCorreo(formSeguridad.email, formSeguridad.passActual)
+      : await cambiarPassword(formSeguridad.pass, formSeguridad.pass2, formSeguridad.passActual);
 
     setOcupadoPerfil(false);
     setConfirmarSeguridad(null);
 
     if (r.success) {
       setModalSeguridad(null);
+      setFormSeguridad({ email: '', pass: '', pass2: '', passActual: '' });
       notificar('exito', r.requiereConfirmacion ? t('perfil.correoConfirmar') : t('perfil.passActualizada'));
     } else {
+      // La contraseña actual nunca se conserva tras un intento fallido.
+      setFormSeguridad(prev => ({ ...prev, passActual: '' }));
       notificar('error', r.error);
     }
   };
@@ -292,7 +301,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
             {/* border-gray-50 sin variante oscura pintaba una línea casi blanca
                 en modo noche: ahora usa el mismo separador que el resto. */}
             <button
-              onClick={() => { setFormSeguridad({ email: user?.email || '', pass: '', pass2: '' }); setModalSeguridad('email'); }}
+              onClick={() => { setFormSeguridad({ email: user?.email || '', pass: '', pass2: '', passActual: '' }); setModalSeguridad('email'); }}
               className="w-full flex items-center justify-between px-6 md:px-8 py-5 hover:bg-gray-50 dark:hover:bg-zinc-700/50 transition-colors border-b border-gray-50 dark:border-zinc-700/60"
             >
               <div className="flex items-center gap-4">
@@ -308,7 +317,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
             </button>
 
             <button
-              onClick={() => { setFormSeguridad({ email: '', pass: '', pass2: '' }); setModalSeguridad('password'); }}
+              onClick={() => { setFormSeguridad({ email: '', pass: '', pass2: '', passActual: '' }); setModalSeguridad('password'); }}
               className="w-full flex items-center justify-between px-6 md:px-8 py-5 hover:bg-gray-50 dark:hover:bg-zinc-700/50 transition-colors border-b border-gray-50 dark:border-zinc-700/60"
             >
               <div className="flex items-center gap-4">
@@ -566,10 +575,22 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                 <Settings size={18} className="text-mm-2" />
                 {modalSeguridad === 'email' ? t('perfil.cambiarCorreo') : t('perfil.cambiarPass')}
               </h3>
-              <button onClick={() => { setModalSeguridad(null); setConfirmarSeguridad(null); }} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white"><X size={18} /></button>
+              <button onClick={() => { setModalSeguridad(null); setConfirmarSeguridad(null); setFormSeguridad({ email: '', pass: '', pass2: '', passActual: '' }); }} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white"><X size={18} /></button>
             </div>
 
             <form onSubmit={handleGuardarSeguridad} className="space-y-4">
+              {/* Re-autenticación obligatoria: va primero porque sin ella el
+                  resto del formulario no llega nunca a Supabase. */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.passActual')}</label>
+                <input
+                  type="password" required autoComplete="current-password" value={formSeguridad.passActual}
+                  onChange={(e) => setFormSeguridad({ ...formSeguridad, passActual: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
+                />
+                <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1.5 leading-relaxed">{t('perfil.passActualAviso')}</p>
+              </div>
+
               {modalSeguridad === 'email' ? (
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.nuevoCorreo')}</label>
@@ -585,7 +606,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.nuevaPass')}</label>
                     <input
-                      type="password" required minLength={8} value={formSeguridad.pass}
+                      type="password" required minLength={8} autoComplete="new-password" value={formSeguridad.pass}
                       onChange={(e) => setFormSeguridad({ ...formSeguridad, pass: e.target.value })}
                       className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                     />
@@ -593,7 +614,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.repetirPass')}</label>
                     <input
-                      type="password" required minLength={8} value={formSeguridad.pass2}
+                      type="password" required minLength={8} autoComplete="new-password" value={formSeguridad.pass2}
                       onChange={(e) => setFormSeguridad({ ...formSeguridad, pass2: e.target.value })}
                       className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
                     />
@@ -603,7 +624,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
               )}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => { setModalSeguridad(null); setConfirmarSeguridad(null); }} className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">{t('comun.cancelar')}</button>
+                <button type="button" onClick={() => { setModalSeguridad(null); setConfirmarSeguridad(null); setFormSeguridad({ email: '', pass: '', pass2: '', passActual: '' }); }} className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">{t('comun.cancelar')}</button>
                 <button type="submit" disabled={ocupadoPerfil} className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50">
                   {ocupadoPerfil && <Loader2 size={14} className="animate-spin text-mm-3" />}
                   {t('comun.guardar')}
