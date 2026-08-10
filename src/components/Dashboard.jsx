@@ -4523,14 +4523,24 @@ export default function Dashboard({ user, onLogout }) {
                       </div>
 
                   {/* 4 tarjetas KPI de escritorio.
-                      2 columnas en tablet: con cuatro en fila el ancho útil
-                      bajaba de ~110px y etiquetas como "PRESUPUESTADO" salían
-                      cortadas. */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+                      LAS CUATRO EN UNA FILA SIEMPRE, igual que en el celular.
+                      Antes iban 2×2 por debajo de `lg`, y en un monitor
+                      vertical (1080 px físicos al 125% = 864 px CSS, o sea
+                      `md`) eso partía el resumen en dos filas altas que
+                      empujaban el proyecto destacado fuera de la pantalla.
+
+                      Lo que impedía la fila de cuatro era la tarjeta en
+                      horizontal —círculo de 44px + texto al lado—, que por
+                      debajo de ~110px se rompía. Por eso aquí la tarjeta pasa
+                      a vertical (icono arriba, cifra debajo) hasta `xl`: es la
+                      misma solución del bloque móvil, que mete cuatro en
+                      375px. A partir de `xl` vuelve la tarjeta horizontal
+                      grande, exactamente como estaba. */}
+                  <div className="grid grid-cols-4 gap-2 xl:gap-5">
 
                     {/* Proyectos en portafolio */}
-                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-4 lg:p-5 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex items-center gap-3 xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
-                      <div className="w-[44px] h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
+                      <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <Building2 size={18} className="text-mm-oro" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -4545,8 +4555,8 @@ export default function Dashboard({ user, onLogout }) {
                     </div>
 
                     {/* Capital total — la única cifra editable a mano */}
-                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-4 lg:p-5 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex items-center gap-3 xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
-                      <div className="w-[44px] h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
+                      <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <DollarSign size={18} className="text-mm-oro" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -4625,8 +4635,8 @@ export default function Dashboard({ user, onLogout }) {
                     </div>
 
                     {/* Avance promedio de obra */}
-                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-4 lg:p-5 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex items-center gap-3 xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
-                      <div className="w-[44px] h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
+                      <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <TrendingUp size={18} className="text-mm-oro" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -4639,8 +4649,8 @@ export default function Dashboard({ user, onLogout }) {
                     </div>
 
                     {/* Egresos totales — suma de las inversiones registradas */}
-                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-4 lg:p-5 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex items-center gap-3 xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
-                      <div className="w-[44px] h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
+                      <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <Wallet size={18} className="text-mm-oro" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -4787,8 +4797,17 @@ export default function Dashboard({ user, onLogout }) {
                                corte en `sm` significaba "siempre al 46%": en
                                monitor vertical la foto quedaba en una columna
                                estrecha y alargada. Hasta `xl` va a lo ancho y
-                               apilada, como en el móvil. */
-                            className="w-full xl:w-[46%] xl:min-w-[210px] xl:self-stretch min-h-[220px] rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer group bg-slate-100 dark:bg-zinc-700 relative shadow-sm"
+                               apilada, como en el móvil.
+
+                               Y apilada necesita FRENOS. Con solo `w-full`, en
+                               un monitor vertical la foto se comía ~570px de
+                               ancho por todo el alto que le diera la gana: la
+                               miniatura pasaba a ser un cartel. `max-w` la
+                               deja en una proporción parecida a la del móvil,
+                               `mx-auto` la centra ahora que no llena la fila, y
+                               `max-h` le pone techo. Los tres se anulan en `xl`,
+                               donde vuelve a ser la columna del 46%. */
+                            className="w-full max-w-[520px] mx-auto max-h-[240px] xl:max-w-none xl:mx-0 xl:max-h-none xl:w-[46%] xl:min-w-[210px] xl:self-stretch min-h-[220px] rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer group bg-slate-100 dark:bg-zinc-700 relative shadow-sm"
                           >
                             {fp.imagen_url ? (
                               <img
