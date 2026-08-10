@@ -1251,7 +1251,7 @@ export default function Dashboard({ user, onLogout }) {
             ninguna vista quede tapada por ella. */}
         <div className="flex-1 flex flex-col overflow-hidden relative pb-[68px] md:pb-0">
           {currentView === 'project-details' && activeProject ? (
-            <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} isEditMode={isEditMode} onUpdateProject={refetchData} aportaciones={aportaciones} />
+            <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} userId={user?.id} isEditMode={isEditMode} onUpdateProject={refetchData} aportaciones={aportaciones} />
           ) : currentView === 'project-details' && proyectoPendiente ? (
             /* Recarga sobre un proyecto: se espera a que Supabase devuelva la
                lista. Sin esto asomaría el Dashboard un instante, que es
@@ -1261,7 +1261,7 @@ export default function Dashboard({ user, onLogout }) {
               <p className="text-xs font-bold text-slate-400 dark:text-zinc-300">{t('comun.cargando')}</p>
             </div>
           ) : currentView === 'vault' ? (
-            <VaultView userRole={rol} onBack={handleBack} isAdmin={isAdmin} isEditMode={isEditMode} />
+            <VaultView userRole={rol} userId={user?.id} onBack={handleBack} isAdmin={isAdmin} isEditMode={isEditMode} />
           ) : currentView === 'investors' ? (
             <InvestorsView
               onBack={handleBack}

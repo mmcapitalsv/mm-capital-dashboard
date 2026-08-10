@@ -8,8 +8,9 @@ import {
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   uploadArchivoProyecto, getArchivosProyecto, renombrarArchivo, eliminarArchivo,
-  subirComprobanteFactura, validarComprobante, descargarArchivo
+  subirComprobanteFactura, validarComprobante, descargarArchivo, puedeGestionar
 } from '../services/storageService';
+import { useDirectorioUsuarios } from '../hooks/useDirectorioUsuarios';
 import { supabase } from '../supabaseClient';
 import {
   guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero, aAjuste,
@@ -101,9 +102,11 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
   );
 }
 
-export default function ProjectDetails({ project, onBack, userRole, isEditMode, onUpdateProject, aportaciones = [] }) {
+export default function ProjectDetails({ project, onBack, userRole, userId, isEditMode, onUpdateProject, aportaciones = [] }) {
   const { t, locale, language, modoOscuro } = usePrefs();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
+  // Nombres para la firma "Subido por" de documentos, álbumes y fotos
+  const { nombreDe } = useDirectorioUsuarios();
   const [activeTab, setActiveTab] = useState('summary');
   const [openAccordion, setOpenAccordion] = useState(null);
   const [showExpenses, setShowExpenses] = useState(false);
@@ -173,6 +176,16 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
      despistado mientras se revisa el avance. */
   const esAdminChecklist = puedeEditarHitos(userRole);
   const puedeEditarChecklist = esAdminChecklist && !!isEditMode;
+
+  /* ── Archivos, fotos y álbumes: manda quien los subió ─────────────────────
+     Subir es de todos (migración 014). Renombrar y borrar es del autor; el
+     Administrador manda sobre cualquiera. Esto solo decide qué botones se
+     dibujan: las políticas RLS lo vuelven a comprobar en el servidor.
+
+     `autorDe` resuelve el nombre para la firma bajo cada archivo; lo anterior
+     a la 014 no tiene autor guardado y firma «Admin». */
+  const puedeGestionarSubida = (fila) => puedeGestionar(fila, { userId, esAdmin: isAdmin });
+  const autorDe = (fila) => nombreDe(fila?.subido_por) || t('fb.autorDesconocido');
   const [checklist, setChecklist] = useState([]);
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true);
   // true = lo que se ve son datos reales de Supabase; false = semilla aún sin guardar
@@ -656,8 +669,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, hayCambiosSinGuardar, isSavingChanges, editingHitoIndex]);
 
-  // ── Renombrar / eliminar documentos (solo Administrador) ──
+  /* ── Renombrar / eliminar documentos ──
+     Del autor del archivo; el Administrador sobre cualquiera. El guardia se
+     repite aquí porque un botón oculto no es un permiso: el handler puede
+     llegar por teclado, por un estado viejo o por la consola. */
   const handleRenameArchivo = async (archivo) => {
+    if (!puedeGestionarSubida(archivo)) return;
     const actual = archivo?.nombre_archivo || '';
     const nuevo = prompt(t('doc.nuevoNombre'), actual);
     if (nuevo === null) return;
@@ -676,6 +693,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleDeleteArchivo = async (archivo) => {
+    if (!puedeGestionarSubida(archivo)) return;
     if (!await confirmar({ mensaje: t('dlg.eliminarArchivo', { nombre: archivo?.nombre_archivo }) })) return;
 
     setIsUploading(true);
@@ -1240,7 +1258,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   /** Guarda título y fecha de un álbum existente. */
   const handleGuardarAlbum = async (e) => {
     e.preventDefault();
-    if (!albumEditando?.id) return;
+    if (!albumEditando?.id || !puedeGestionarSubida(albumEditando)) return;
 
     setSubiendoGaleria(true);
     const { success, error } = await actualizarAlbum(albumEditando.id, {
@@ -1263,10 +1281,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const handleEliminarAlbum = async (album) => {
+    if (!puedeGestionarSubida(album)) return;
     if (!await confirmar({ mensaje: t('dlg.eliminarAlbum', { titulo: album?.title }) })) return;
 
     setSubiendoGaleria(true);
-    const { success, error } = await eliminarAlbum(album);
+    /* Un álbum ajeno solo lo vacía el Administrador: quien lo creó no puede
+       arrastrarse por delante las fotos que subieron los demás. El servicio
+       lo comprueba foto a foto y responde con un aviso legible. */
+    const { success, error } = await eliminarAlbum(album, { userId, esAdmin: isAdmin });
     setSubiendoGaleria(false);
 
     if (success) {
@@ -1335,6 +1357,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
   /** Elimina una foto concreta dentro del álbum. */
   const handleEliminarFoto = async (foto, albumId) => {
+    if (!puedeGestionarSubida(foto)) return;
     if (!await confirmar({ mensaje: t('dlg.eliminarFoto') })) return;
 
     setSubiendoGaleria(true);
@@ -2525,25 +2548,25 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('doc.archivos')}</h2>
                 <p className="text-[11px] text-slate-400 dark:text-zinc-200 mt-0.5">{t('doc.bucket')} <span className="font-mono font-semibold text-slate-500 dark:text-zinc-200">archivos_mmcapital</span></p>
               </div>
-              {isAdmin && (
-                <button
-                  onClick={() => docInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="inline-flex items-center gap-2 border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-xs font-medium px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-700/50 active:scale-[0.97] transition-all shadow-sm disabled:opacity-50"
-                >
-                  {isUploading ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin text-mm-3" />
-                      {t('comun.procesando')}
-                    </>
-                  ) : (
-                    <>
-                      <Upload size={14} className="text-mm-3" />
-                      {t('doc.subirDoc')}
-                    </>
-                  )}
-                </button>
-              )}
+              {/* Subir documento: cualquier usuario con sesión. Lo que suba
+                  queda a su nombre y solo él (o el Administrador) lo borra. */}
+              <button
+                onClick={() => docInputRef.current?.click()}
+                disabled={isUploading}
+                className="inline-flex items-center gap-2 border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-xs font-medium px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-700/50 active:scale-[0.97] transition-all shadow-sm disabled:opacity-50"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin text-mm-3" />
+                    {t('comun.procesando')}
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} className="text-mm-3" />
+                    {t('doc.subirDoc')}
+                  </>
+                )}
+              </button>
             </div>
 
             {uploadMessage && (
@@ -2587,6 +2610,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                             <span>{doc.created_at ? new Date(doc.created_at).toLocaleDateString(locale) : t('doc.delProyecto')}</span>
                             {doc.url_archivo && <span className="text-emerald-600 font-semibold">{t('doc.enBucket')}</span>}
                           </p>
+                          {/* Firma: de quién es el documento y, por tanto,
+                              quién puede renombrarlo o borrarlo. */}
+                          <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-0.5">
+                            {t('fb.subidoPor')} <span className="font-bold text-slate-500 dark:text-zinc-200">{autorDe(doc)}</span>
+                          </p>
                         </div>
                       </div>
 
@@ -2603,8 +2631,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                           </a>
                         )}
 
-                        {/* Poderes de Administrador sobre el documento */}
-                        {isAdmin && (
+                        {/* Renombrar y eliminar: el autor del documento, y el
+                            Administrador sobre cualquiera */}
+                        {puedeGestionarSubida(doc) && (
                           <>
                             <button
                               onClick={() => handleRenameArchivo(doc)}
@@ -2641,8 +2670,9 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-200">{t('gal.titulo')}</h2>
                 <p className="text-xs text-slate-500 dark:text-zinc-200 mt-0.5">{t('gal.subtitulo')}</p>
               </div>
-              {isAdmin && (
-                <div className="flex items-center gap-2">
+              {/* Subir fotos y crear álbumes: cualquier usuario con sesión.
+                  Cada foto y cada álbum quedan a nombre de quien los creó. */}
+              <div className="flex items-center gap-2">
                   {/* Abre el selector de destino en vez de subir a la nada:
                       una foto siempre tiene que caer dentro de un álbum. */}
                   <button
@@ -2668,8 +2698,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   >
                     <FolderPlus size={15} className="text-mm-oro" /> {t('gal.crearAlbum')}
                   </button>
-                </div>
-              )}
+              </div>
             </div>
 
             {uploadMessage && (
@@ -2705,14 +2734,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     <div>
                       <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-mm-oro-tinta dark:group-hover:text-mm-oro-claro transition-colors">{album.title}</h3>
                       <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-medium">{album.date}</p>
+                      {/* Quién creó el álbum: es quien puede editarlo o borrarlo */}
+                      <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1">
+                        {t('fb.subidoPor')} <span className="font-bold text-slate-500 dark:text-zinc-200">{autorDe(album)}</span>
+                      </p>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-slate-700 dark:text-zinc-200 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                         {t('gal.verFotografias')}
                       </span>
 
-                      {/* Editar / eliminar álbum (solo administrador) */}
-                      {isAdmin && (
+                      {/* Editar / eliminar álbum: quien lo creó, y el Administrador */}
+                      {puedeGestionarSubida(album) && (
                         <span className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={(e) => { e.stopPropagation(); setAlbumEditando({ ...album }); }}
@@ -2752,18 +2785,18 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                 <p className="text-xs text-slate-500 dark:text-zinc-200">{activeAlbumModal.date} • {activeAlbumModal.photoCount || (activeAlbumModal.photos || []).length} {t('gal.fotosRegistradas')}</p>
               </div>
               <div className="flex items-center gap-2">
-                {/* Subir foto directamente a este álbum */}
-                {isAdmin && (
-                  <button
-                    onClick={() => albumPhotoInputRef.current?.click()}
-                    disabled={subiendoGaleria}
-                    className="flex items-center gap-1.5 bg-mm-navy text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
-                  >
-                    {subiendoGaleria
-                      ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {textoSubiendoFotos}</>
-                      : <><Upload size={14} className="text-mm-3" /> {t('gal.subirFotos')}</>}
-                  </button>
-                )}
+                {/* Subir foto directamente a este álbum: abierto a todos, aunque
+                    el álbum lo haya creado otra persona. Cada foto queda a
+                    nombre de quien la sube, no del dueño del álbum. */}
+                <button
+                  onClick={() => albumPhotoInputRef.current?.click()}
+                  disabled={subiendoGaleria}
+                  className="flex items-center gap-1.5 bg-mm-navy text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  {subiendoGaleria
+                    ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {textoSubiendoFotos}</>
+                    : <><Upload size={14} className="text-mm-3" /> {t('gal.subirFotos')}</>}
+                </button>
                 <button
                   onClick={() => setActiveAlbumModal(null)}
                   className="w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 dark:text-zinc-200 hover:text-slate-800 dark:hover:text-white shadow-sm"
@@ -2808,8 +2841,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     className="block w-full h-full aspect-square object-cover group-hover:scale-105 transition-transform cursor-pointer"
                   />
 
-                  {/* Eliminar esta foto en concreto */}
-                  {isAdmin && foto?.id && (
+                  {/* Eliminar esta foto: quien la subió, y el Administrador */}
+                  {foto?.id && puedeGestionarSubida(foto) && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleEliminarFoto(foto, activeAlbumModal.id); }}
                       disabled={subiendoGaleria}
@@ -2826,6 +2859,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   >
                     <Eye size={24} />
                   </div>
+
+                  {/* Firma de la foto, sobre la propia miniatura: en una
+                      cuadrícula cuadrada no cabe debajo sin romper la retícula. */}
+                  <p className="absolute inset-x-0 bottom-0 z-10 px-2 py-1 bg-gradient-to-t from-black/75 to-transparent text-[10px] font-semibold text-white/90 truncate pointer-events-none">
+                    {t('fb.subidoPor')} {autorDe(foto)}
+                  </p>
                 </div>
                 );
               })}

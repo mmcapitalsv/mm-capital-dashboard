@@ -1,7 +1,11 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { supabase } from '../supabaseClient';
 
 /**
- * Integración con Gemini (cascada de modelos: ver `MODELOS`).
+ * Integración con Gemini a través de la Edge Function `chat-gemini`.
+ *
+ * La clave de Google NO está en el navegador: vive en los secretos de Supabase
+ * (`GEMINI_API_KEY`) y solo la usa la función, que además exige un JWT válido.
+ * Aquí solo se arma el cuerpo de la petición y se lee la respuesta.
  *
  * Dos usos en la app:
  *   1. Facturas — se envía la imagen o el PDF del comprobante en Base64 y el
@@ -9,16 +13,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
  *      que se rellenan los inputs del formulario.
  *   2. Chat IA del Administrador — texto + adjuntos (imágenes o documentos)
  *      en Base64 inline, y se pinta la respuesta real del modelo.
- *
- * La clave vive en `VITE_GEMINI_API_KEY` (archivo .env).
  */
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const FUNCION = 'chat-gemini';
 
 /**
- * Cascada de modelos: se prueban en orden hasta que uno responda. Los alias
- * `-latest` los resuelve el propio servidor, así que la app no se rompe cuando
- * Google retira una versión concreta (causa habitual del 404 "model not found").
+ * Cascada de modelos: la función los prueba en orden hasta que uno responda.
+ * Los alias `-latest` los resuelve el propio servidor de Google, así que la app
+ * no se rompe cuando retiran una versión concreta (404 "model not found").
  */
 export const MODELOS = [
   'gemini-flash-latest',
@@ -30,52 +32,46 @@ export const MODELO_PRIMARIO = MODELOS[0];
 export const MODELO_RESPALDO = MODELOS[1];
 
 export const AVISO_SIN_CLAVE =
-  'Falta VITE_GEMINI_API_KEY en el archivo .env. Añádela y reinicia el servidor de desarrollo.';
+  'La IA no está disponible: falta configurar la función chat-gemini en Supabase.';
 
 /** Tamaño máximo por adjunto: por encima, la petición inline no es viable. */
 export const ADJUNTO_MAX_MB = 15;
 
-/** ¿Está configurada la clave? La interfaz lo usa para avisar en vez de fallar. */
+/**
+ * ¿Está la IA disponible? Ya no depende de ninguna clave en el cliente, solo de
+ * que exista el cliente de Supabase; el error real (si lo hay) llega del server.
+ */
 export function hayClaveGemini() {
-  return typeof API_KEY === 'string' && API_KEY.trim().length > 0;
-}
-
-let clienteCache = null;
-const modelosCache = new Map();
-
-function modelo(nombre = MODELO_PRIMARIO) {
-  if (!clienteCache) clienteCache = new GoogleGenerativeAI(API_KEY);
-  if (!modelosCache.has(nombre)) {
-    modelosCache.set(nombre, clienteCache.getGenerativeModel({ model: nombre }));
-  }
-  return modelosCache.get(nombre);
+  return Boolean(supabase);
 }
 
 /**
- * Recorre `MODELOS` y devuelve la respuesta del primero que funcione. Si uno
- * falla (404 del modelo, cuota agotada, 429, 503…) se pasa al siguiente sin
- * romper la interfaz; solo si fallan todos se lanza un error legible.
+ * Llama a la Edge Function. Devuelve el texto plano de la respuesta del modelo.
  *
- * @param {object} peticion cuerpo idéntico al de `generateContent`
- * @returns {Promise<{respuesta: object, modeloUsado: string}>}
+ * @param {object} peticion { contents, systemInstruction?, generationConfig? }
+ * @returns {Promise<{texto: string, modeloUsado: string}>}
  */
 async function generarConFallback(peticion) {
-  let ultimoError = null;
+  const { data, error } = await supabase.functions.invoke(FUNCION, {
+    body: { ...peticion, modelos: MODELOS }
+  });
 
-  for (const nombre of MODELOS) {
+  if (error) {
+    // El cuerpo de error de la función trae el detalle legible
+    let detalle = error.message || 'Error desconocido';
     try {
-      const respuesta = await modelo(nombre).generateContent(peticion);
-      return { respuesta, modeloUsado: nombre };
-    } catch (err) {
-      ultimoError = err;
-      // El modelo puede haber quedado cacheado con un nombre que ya no existe
-      modelosCache.delete(nombre);
-      console.warn(`[gemini] ${nombre} falló (${err?.message || err}); probando el siguiente modelo.`);
+      const cuerpo = await error.context?.json?.();
+      if (cuerpo?.error) detalle = cuerpo.error;
+    } catch {
+      // Sin cuerpo JSON: se queda el mensaje genérico
     }
+    throw new Error(detalle);
   }
 
-  const detalle = ultimoError?.message || 'Error desconocido';
-  throw new Error(`La IA no respondió con ninguno de los modelos disponibles: ${detalle}`);
+  if (data?.error) throw new Error(data.error);
+  if (!data?.texto) throw new Error('La IA no devolvió respuesta.');
+
+  return { texto: data.texto, modeloUsado: data.modeloUsado };
 }
 
 /**
@@ -144,18 +140,16 @@ Reglas:
  * @returns {Promise<{datos: {proveedor: string, concepto: string, monto: string}|null, error: string|null}>}
  */
 export async function analizarComprobante(file) {
-  if (!hayClaveGemini()) return { datos: null, error: AVISO_SIN_CLAVE };
   if (!file) return { datos: null, error: 'Adjunta primero la imagen o el PDF del comprobante.' };
 
   try {
     const parte = await archivoAParteInline(file);
-    const { respuesta, modeloUsado } = await generarConFallback({
+    const { texto, modeloUsado } = await generarConFallback({
       contents: [{ role: 'user', parts: [{ text: PROMPT_FACTURA }, parte] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0 }
     });
 
-    const crudo = respuesta?.response?.text?.() || '';
-    const json = parsearJSON(crudo);
+    const json = parsearJSON(texto);
     if (!json) return { datos: null, error: 'La IA no devolvió un JSON legible. Intenta de nuevo.' };
 
     // El monto viaja como texto: se limpia todo lo que no sea número o punto
@@ -187,8 +181,6 @@ no está en la conversación ni en los adjuntos, dilo con claridad.`;
  * @returns {Promise<{texto: string|null, error: string|null}>}
  */
 export async function conversarConIA({ texto, archivos = [], historial = [] }) {
-  if (!hayClaveGemini()) return { texto: null, error: AVISO_SIN_CLAVE };
-
   const mensaje = String(texto || '').trim();
   if (!mensaje && archivos.length === 0) return { texto: null, error: null };
 
@@ -209,13 +201,11 @@ export async function conversarConIA({ texto, archivos = [], historial = [] }) {
       parts: [{ text: mensaje || 'Analiza los archivos adjuntos.' }, ...adjuntos]
     });
 
-    const { respuesta, modeloUsado } = await generarConFallback({
+    const { texto: salida, modeloUsado } = await generarConFallback({
       contents,
       systemInstruction: { role: 'system', parts: [{ text: SISTEMA_CHAT }] }
     });
 
-    const salida = respuesta?.response?.text?.() || '';
-    if (!salida.trim()) return { texto: null, error: 'La IA no devolvió respuesta.' };
     return { texto: salida.trim(), modeloUsado, error: null };
   } catch (err) {
     return { texto: null, error: err?.message || 'No se pudo contactar con la IA.' };

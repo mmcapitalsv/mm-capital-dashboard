@@ -1,6 +1,6 @@
 import { supabase } from '../supabaseClient';
 import {
-  BUCKET, esIdValidoDeSupabase, validarImagen, rutaDesdeUrl
+  BUCKET, esIdValidoDeSupabase, validarImagen, rutaDesdeUrl, AVISO_SIN_PERMISO
 } from './storageService';
 import { comprimirImagen } from '../lib/comprimirImagen';
 
@@ -75,6 +75,9 @@ export async function getAlbumes(proyectoId) {
         title: a.titulo || 'Álbum sin título',
         date: a.fecha_texto || '',
         cover: a.portada_url || propias[0]?.url_archivo || null,
+        // Autoría (migración 014): decide quién puede editarlo o borrarlo, y
+        // alimenta la firma "Subido por" de la tarjeta.
+        subido_por: a.subido_por || null,
         photos: propias,
         photoCount: propias.length
       };
@@ -163,21 +166,49 @@ export async function actualizarAlbum(albumId, { titulo, fecha, portadaFile, pro
     cambios.portada_url = supabase.storage.from(BUCKET).getPublicUrl(ruta).data?.publicUrl || null;
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from(TABLA_ALBUMES)
     .update(cambios)
-    .eq('id', albumId);
+    .eq('id', albumId)
+    .select();
 
   if (error) {
     if (faltaEsquema(error)) return { success: false, error: AVISO_MIGRACION, requiereMigracion: true };
     return { success: false, error: error.message };
   }
+  // Cero filas actualizadas = la política de autoría lo dejó fuera, no un fallo.
+  if (!data || data.length === 0) return { success: false, error: AVISO_SIN_PERMISO };
+
   return { success: true };
 }
 
-/** Elimina el álbum, sus fotos del bucket y sus registros. */
-export async function eliminarAlbum(album) {
+/**
+ * Elimina el álbum, sus fotos del bucket y sus registros.
+ *
+ * Quien creó el álbum puede borrarlo, pero no arrastrarse por delante las
+ * fotos que subieron otros: si hay alguna ajena, se para aquí y se dice. El
+ * Administrador sí puede con todo. Sin esta comprobación el borrado avanzaba
+ * a medias —Storage rechazaba las fotos ajenas, RLS descartaba sus filas— y
+ * dejaba el álbum vacío por fuera y a medio existir por dentro.
+ *
+ * @param {object} album  álbum tal como lo devuelve `getAlbumes`
+ * @param {{userId?: string, esAdmin?: boolean}} [quien]
+ */
+export async function eliminarAlbum(album, { userId, esAdmin } = {}) {
   if (!album?.id) return { success: false, error: 'El álbum no tiene identificador.' };
+
+  if (!esAdmin) {
+    const ajenas = (album.photos || []).filter(
+      f => f && String(f.subido_por || '') !== String(userId || '')
+    );
+    if (ajenas.length > 0) {
+      return {
+        success: false,
+        error: `Este álbum tiene ${ajenas.length} foto(s) subidas por otras personas. ` +
+               'Solo el Administrador puede eliminarlo completo.'
+      };
+    }
+  }
 
   const rutas = (album.photos || [])
     .map(f => f.storage_path || rutaDesdeUrl(f.url_archivo))
@@ -196,8 +227,12 @@ export async function eliminarAlbum(album) {
   const ids = (album.photos || []).map(f => f.id).filter(Boolean);
   if (ids.length > 0) await supabase.from('archivos').delete().in('id', ids);
 
-  const { error } = await supabase.from(TABLA_ALBUMES).delete().eq('id', album.id);
+  /* `.select()` devuelve lo borrado: cuando RLS filtra la fila no hay error,
+     solo cero filas, y sin esto el borrado parecería haber funcionado. */
+  const { data, error } = await supabase
+    .from(TABLA_ALBUMES).delete().eq('id', album.id).select();
   if (error) return { success: false, error: error.message };
+  if (!data || data.length === 0) return { success: false, error: AVISO_SIN_PERMISO };
 
   return { success: true };
 }
@@ -257,8 +292,9 @@ export async function eliminarFoto(foto) {
     if (error) return { success: false, error: `No se pudo borrar del bucket: ${error.message}` };
   }
 
-  const { error } = await supabase.from('archivos').delete().eq('id', foto.id);
+  const { data, error } = await supabase.from('archivos').delete().eq('id', foto.id).select();
   if (error) return { success: false, error: `Se borró del bucket pero no de la tabla: ${error.message}` };
+  if (!data || data.length === 0) return { success: false, error: AVISO_SIN_PERMISO };
 
   return { success: true };
 }

@@ -31,6 +31,51 @@ export function esIdValidoDeSupabase(id) {
   return typeof id === 'string' && RE_UUID.test(id.trim());
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Autoría: quién subió cada cosa y quién puede tocarla
+   ═══════════════════════════════════════════════════════════════════════════
+   Subir es de todos; modificar y borrar es de quien subió. El Administrador
+   manda sobre todo. Las políticas RLS de la migración 014 dicen exactamente lo
+   mismo del lado del servidor: esto NO es el candado, es la interfaz del
+   candado — sirve para no enseñar botones que la base va a rechazar.
+
+   `subido_por` en NULL son las filas anteriores a la 014: sin autor conocido,
+   solo el Administrador las gobierna. */
+
+/** ¿La fila (archivo, foto o álbum) la subió este usuario? */
+export function esMio(fila, userId) {
+  const autor = fila?.subido_por ?? fila?.raw?.subido_por ?? null;
+  if (!autor || !userId) return false;
+  return String(autor) === String(userId);
+}
+
+/**
+ * ¿Este usuario puede renombrar o eliminar esta fila?
+ * @param {object} fila       registro de `archivos` o de `galeria_albumes`
+ * @param {{userId?: string, esAdmin?: boolean}} quien
+ */
+export function puedeGestionar(fila, { userId, esAdmin } = {}) {
+  return !!esAdmin || esMio(fila, userId);
+}
+
+/** Mensaje único para cuando la base rechaza por autoría. */
+export const AVISO_SIN_PERMISO =
+  'Solo puedes modificar o eliminar lo que tú subiste. Pídeselo al Administrador.';
+
+/**
+ * ¿El fallo de Supabase es «RLS te dejó fuera» y no un error de verdad?
+ * PostgREST no responde 403 cuando una política filtra: devuelve cero filas.
+ * Con `.single()` eso llega como PGRST116; en Storage, como un 403 explícito.
+ */
+export function esFalloDePermiso(error) {
+  if (!error) return false;
+  const code = String(error.code || error.statusCode || error.status || '');
+  const msg = String(error.message || '').toLowerCase();
+  return code === 'PGRST116' || code === '403' || code === '42501'
+    || msg.includes('row-level security')
+    || msg.includes('violates row-level security policy');
+}
+
 /** Deriva la ruta dentro del bucket a partir de la URL pública guardada. */
 export function rutaDesdeUrl(url) {
   if (!url || typeof url !== 'string') return null;
@@ -169,7 +214,9 @@ export async function actualizarArchivo(archivoId, { nombre_archivo, tipo } = {}
     .select()
     .single();
 
-  if (error) return { success: false, error: error.message };
+  // RLS no responde 403: filtra la fila y `.single()` se queda sin nada. Eso no
+  // es un fallo técnico, es «esto no lo subiste tú», y así hay que decirlo.
+  if (error) return { success: false, error: esFalloDePermiso(error) ? AVISO_SIN_PERMISO : error.message };
   return { success: true, data };
 }
 
@@ -189,7 +236,7 @@ export async function renombrarArchivo(archivoId, nuevoNombre) {
       .select()
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: esFalloDePermiso(error) ? AVISO_SIN_PERMISO : error.message };
     return { success: true, data };
   } catch (err) {
     return { success: false, error: err.message || 'Error al renombrar el archivo.' };
@@ -209,13 +256,21 @@ export async function eliminarArchivo(archivo) {
     if (path) {
       const { error: storageError } = await supabase.storage.from(BUCKET).remove([path]);
       if (storageError) {
-        return { success: false, error: `No se pudo borrar del bucket ${BUCKET}: ${storageError.message}` };
+        return {
+          success: false,
+          error: esFalloDePermiso(storageError)
+            ? AVISO_SIN_PERMISO
+            : `No se pudo borrar del bucket ${BUCKET}: ${storageError.message}`
+        };
       }
     }
 
-    // 2. Fila en la base de datos
-    const { error: dbError } = await supabase.from('archivos').delete().eq('id', archivo.id);
+    // 2. Fila en la base de datos. `.select()` para distinguir «borrado» de
+    //    «RLS lo filtró y devolvió cero filas sin quejarse».
+    const { data: borradas, error: dbError } = await supabase
+      .from('archivos').delete().eq('id', archivo.id).select();
     if (dbError) return { success: false, error: `Se borró del bucket pero no de la tabla: ${dbError.message}` };
+    if (!borradas || borradas.length === 0) return { success: false, error: AVISO_SIN_PERMISO };
 
     return { success: true, error: null };
   } catch (err) {

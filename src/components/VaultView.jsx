@@ -5,10 +5,11 @@ import {
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { useDirectorioUsuarios } from '../hooks/useDirectorioUsuarios';
 import { supabase } from '../supabaseClient';
 import {
   uploadArchivoProyecto, getArchivosProyecto,
-  renombrarArchivo, eliminarArchivo, actualizarArchivo
+  renombrarArchivo, eliminarArchivo, actualizarArchivo, puedeGestionar
 } from '../services/storageService';
 import { etiquetaCategoria } from '../i18n/diccionario';
 import { formatoArchivo, claveFormato, ACEPTA_BOVEDA } from '../lib/archivos';
@@ -20,10 +21,12 @@ import { formatoArchivo, claveFormato, ACEPTA_BOVEDA } from '../lib/archivos';
  * entera —estado, subida, realtime y sus tres modales— porque no comparte nada
  * con el resto del panel: el Dashboard solo la monta y le dice quién la mira.
  */
-export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
+export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userId }) {
   const { t, locale } = usePrefs();
   // Confirmación con la estética de la app en vez del `confirm()` del navegador
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
+  // Nombre de quien subió cada documento, para la firma bajo el archivo
+  const { nombreDe } = useDirectorioUsuarios();
   /* Fuente ÚNICA de datos: la tabla `archivos` de Supabase (proyecto_id null).
      No hay documentos de ejemplo: lo que no esté subido, no se ve. */
   const [dbFiles, setDbFiles] = useState([]);
@@ -168,7 +171,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
 
   const handleSaveEditDoc = async (e) => {
     e.preventDefault();
-    if (!editingDoc || !puedeModificarDocs) return;
+    if (!editingDoc || !puedeGestionarDoc(editingDoc)) return;
 
     const { success, error } = await actualizarArchivo(editingDoc.id, {
       nombre_archivo: editDocName,
@@ -187,7 +190,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
   };
 
   const handleDeleteDoc = async (doc) => {
-    if (!puedeModificarDocs) return;
+    if (!puedeGestionarDoc(doc)) return;
     if (!await confirmar({
       mensaje: t('vault.confirmEliminar'),
       detalle: doc?.nombre_archivo,
@@ -213,7 +216,11 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
     nombre_archivo: f.nombre_archivo,
     categoria: f.tipo || t('fb.docEnStorage'),
     formato: formatoArchivo(f.nombre_archivo, f.url_archivo),
-    subido_por: t('fb.administracion'),
+    /* `subido_por` es el uuid del autor —lo que decide el permiso— y `autor`
+       su nombre para leer. Los archivos anteriores a la migración 014 no
+       tienen autor guardado: eran todos del Administrador, y firman «Admin». */
+    subido_por: f.subido_por || null,
+    autor: nombreDe(f.subido_por) || t('fb.autorDesconocido'),
     created_at: f.created_at,
     url_archivo: f.url_archivo,
     raw: f
@@ -221,10 +228,14 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
 
   const adminAccess = isAdmin || userRole === 'admin';
 
-  /* Renombrar y eliminar exigen ADEMÁS el Modo Edición encendido. En lectura
-     un documento corporativo solo se descarga: así ni el propio Administrador
-     borra un escritura de un clic despistado. */
-  const puedeModificarDocs = adminAccess && !!isEditMode;
+  /* Quién puede tocar QUÉ documento (regla de la migración 014):
+       · Quien lo subió — siempre, sin depender del Modo Edición: es suyo.
+       · El Administrador — sobre cualquiera, pero solo con el Modo Edición
+         encendido. Ese candado extra existe para que un escritura ajena no se
+         borre de un clic despistado; sobre lo propio no hace falta.
+     Es la interfaz del permiso, no el permiso: la base lo vuelve a comprobar. */
+  const puedeGestionarDoc = (doc) =>
+    puedeGestionar(doc, { userId, esAdmin: adminAccess && !!isEditMode });
 
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
@@ -263,38 +274,41 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
               </h3>
 
               {/* "Subir documento" vive aquí, junto al listado al que pertenece,
-                  en vez de suelto en la cabecera de la pantalla. */}
-              {adminAccess && (
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <button
-                    onClick={() => setShowUploadModal(true)}
-                    className="flex items-center gap-2 bg-mm-navy dark:bg-zinc-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors shadow-sm border border-mm-oro/25 active:scale-95"
-                  >
-                    <Upload size={14} className="text-mm-3" /> {t('vault.subirDoc')}
-                  </button>
-                  {cambiosPendientes && (
-                    <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-                      <AlertTriangle size={12} /> {t('vault.cambiosPendientes')}
-                    </span>
-                  )}
-                  {/* Sin esta pista, un administrador buscaría los botones de
-                      renombrar y borrar sin entender por qué ya no están. */}
-                  {!isEditMode && (
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-300 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-                      <Lock size={12} className="text-slate-400 dark:text-zinc-400" /> {t('vault.soloLectura')}
-                    </span>
-                  )}
-                  <button
-                    onClick={handleConfirmarCambiosVault}
-                    disabled={!cambiosPendientes || confirmandoVault}
-                    className="flex items-center gap-1.5 bg-mm-oro-lavado dark:bg-amber-500/15 text-mm-oro-tinta dark:text-mm-oro-claro border border-mm-oro-borde dark:border-amber-500/30 text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-mm-oro-hover transition-colors shadow-sm disabled:opacity-40 active:scale-95"
-                  >
-                    {confirmandoVault
-                      ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {t('proy.guardando')}</>
-                      : <><Save size={14} className="text-mm-3" /> {t('vault.guardarCambios')}</>}
-                  </button>
-                </div>
-              )}
+                  en vez de suelto en la cabecera de la pantalla.
+
+                  Subir es de TODOS: cualquier usuario con sesión aporta a la
+                  bóveda, y lo que sube queda a su nombre y bajo su control. Lo
+                  que sigue siendo del Administrador es mandar sobre lo ajeno. */}
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="flex items-center gap-2 bg-mm-navy dark:bg-zinc-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-colors shadow-sm border border-mm-oro/25 active:scale-95"
+                >
+                  <Upload size={14} className="text-mm-3" /> {t('vault.subirDoc')}
+                </button>
+                {cambiosPendientes && (
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                    <AlertTriangle size={12} /> {t('vault.cambiosPendientes')}
+                  </span>
+                )}
+                {/* Sin esta pista, un administrador buscaría los botones de
+                    renombrar y borrar sobre documentos ajenos sin entender por
+                    qué no están. Sobre los suyos los tiene siempre. */}
+                {adminAccess && !isEditMode && (
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-300 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                    <Lock size={12} className="text-slate-400 dark:text-zinc-400" /> {t('vault.soloLectura')}
+                  </span>
+                )}
+                <button
+                  onClick={handleConfirmarCambiosVault}
+                  disabled={!cambiosPendientes || confirmandoVault}
+                  className="flex items-center gap-1.5 bg-mm-oro-lavado dark:bg-amber-500/15 text-mm-oro-tinta dark:text-mm-oro-claro border border-mm-oro-borde dark:border-amber-500/30 text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-mm-oro-hover transition-colors shadow-sm disabled:opacity-40 active:scale-95"
+                >
+                  {confirmandoVault
+                    ? <><Loader2 size={14} className="animate-spin text-mm-3" /> {t('proy.guardando')}</>
+                    : <><Save size={14} className="text-mm-3" /> {t('vault.guardarCambios')}</>}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -350,6 +364,12 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
                         </span>
                         <span className="text-[11px] text-slate-400 dark:text-zinc-200 font-medium">{t('vault.subido')} {new Date(doc.created_at || Date.now()).toLocaleDateString(locale)}</span>
                       </div>
+                      {/* Firma del documento. Con la bóveda abierta a todos,
+                          saber de quién es cada archivo es lo que explica por
+                          qué unos se pueden borrar y otros no. */}
+                      <p className="text-[11px] text-slate-400 dark:text-zinc-300 font-medium mt-1">
+                        {t('fb.subidoPor')} <span className="font-bold text-slate-500 dark:text-zinc-200">{doc.autor}</span>
+                      </p>
                     </div>
                   </div>
 
@@ -378,8 +398,9 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode }) {
                       </span>
                     )}
 
-                    {/* Editar / Eliminar: Administrador Y en Modo Edición */}
-                    {puedeModificarDocs && (
+                    {/* Editar / Eliminar: el autor del documento siempre; el
+                        Administrador sobre cualquiera, en Modo Edición */}
+                    {puedeGestionarDoc(doc) && (
                       <>
                         <button
                           onClick={() => {
