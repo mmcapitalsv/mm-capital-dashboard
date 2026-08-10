@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Briefcase, ChevronLeft, ChevronDown, Building2, TrendingUp, ArrowUpRight,
   Wallet, Users, Plus, Trash2, Edit2, Loader2, AlertTriangle, CheckCircle2, X, Check
@@ -62,29 +62,59 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
   const [form, setForm] = useState({ usuarioId: '', proyectoId: '', monto: '', nota: '' });
   const [editandoAp, setEditandoAp] = useState(null);        // { id, monto, nota }
 
-  const listaProyectos = Array.isArray(proyectos) ? proyectos.filter(Boolean) : [];
+  const listaProyectos = useMemo(
+    () => (Array.isArray(proyectos) ? proyectos.filter(Boolean) : []),
+    [proyectos]
+  );
   const puedeEditar = isAdmin && isEditMode;
 
+  /* Cada lectura lleva su sello: si el usuario entra y sale de la vista, o si
+     Realtime encadena varias, solo la ÚLTIMA emitida pinta. Sin esto, una
+     respuesta lenta llegaba después de una rápida y dejaba en pantalla una
+     versión anterior de las aportaciones — con cifras de dinero. */
+  const lecturaActual = useRef(0);
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => { montado.current = false; };
+  }, []);
+
   const cargar = useCallback(async () => {
+    const sello = ++lecturaActual.current;
     setCargando(true);
     const [inv, usr] = await Promise.all([getInversionistas(), getUsuarios()]);
+    if (!montado.current || sello !== lecturaActual.current) return;
     setInversionistas(inv.inversionistas);
     setUsuarios(usr.usuarios);
     if (inv.error) setMensaje({ tipo: 'error', texto: inv.error });
     setCargando(false);
   }, []);
 
+  /* Realtime: aquí la recarga SÍ se justifica y se agrupa. `getInversionistas`
+     no devuelve filas de `aportaciones`, devuelve el cruce ya agregado por
+     inversionista (totales y desglose por proyecto), así que una fila suelta no
+     alcanza para reconstruirlo sin duplicar esa lógica en la vista. Lo que se
+     corrige es la ráfaga: registrar cinco aportaciones seguidas disparaba cinco
+     cruces completos; ahora es uno. */
   useEffect(() => {
     cargar();
+    let temporizador = null;
+    const recargarAgrupado = () => {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(() => { if (montado.current) cargar(); }, 400);
+    };
     const canal = supabase
       .channel('inversionistas')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'aportaciones' }, cargar)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, cargar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'aportaciones' }, recargarAgrupado)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, recargarAgrupado)
       .subscribe();
-    return () => { supabase.removeChannel(canal); };
+    return () => {
+      clearTimeout(temporizador);
+      supabase.removeChannel(canal);
+    };
   }, [cargar]);
 
-  const capitalGlobal = sumarDinero(inversionistas, i => i?.total);
+  const capitalGlobal = useMemo(() => sumarDinero(inversionistas, i => i?.total), [inversionistas]);
 
   const avisar = (tipo, texto) => {
     setMensaje({ tipo, texto });

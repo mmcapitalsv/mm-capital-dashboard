@@ -194,16 +194,23 @@ export async function getFacturas(proyectoId) {
 
   if (error) return { facturas: [], error: error.message };
 
-  const facturas = (data || []).map(g => ({
-    id: g.id,
-    proveedor: g.proveedor || g.descripcion || 'Proveedor sin nombre',
-    concepto: g.concepto || g.descripcion || '',
-    monto: Number(g.monto) || 0,
-    comprobante: g.comprobante || '',
-    fecha: g.created_at ? String(g.created_at).slice(0, 10) : ''
-  }));
+  return { facturas: (data || []).map(normalizarFactura), error: null };
+}
 
-  return { facturas, error: null };
+/**
+ * Fila cruda de `gastos` -> factura tal como la pinta la ficha del proyecto.
+ * Se exporta porque Realtime entrega filas crudas y la vista necesita darles
+ * exactamente esta forma para insertarlas en su lista sin releer nada.
+ */
+export function normalizarFactura(g) {
+  return {
+    id: g?.id,
+    proveedor: g?.proveedor || g?.descripcion || 'Proveedor sin nombre',
+    concepto: g?.concepto || g?.descripcion || '',
+    monto: aNumeroSeguro(g?.monto),
+    comprobante: g?.comprobante || '',
+    fecha: g?.created_at ? String(g.created_at).slice(0, 10) : ''
+  };
 }
 
 /** Registra una factura de proveedor en `gastos`. */

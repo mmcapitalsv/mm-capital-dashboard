@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 import { montoCorto } from '../lib/formato';
 import { aNumeroSeguro, redondearDinero, sumarDinero, porcentajeSeguro } from '../lib/numeros';
+import { parchearLista, afectaFila } from '../lib/realtime';
 
 /**
  * Estado del proyecto derivado del avance real de hitos.
@@ -33,7 +34,23 @@ export function useProyectos(user) {
   const [rol, setRol] = useState(null);
   const [perfil, setPerfil] = useState(null);
 
-  const fetchData = async () => {
+  /* ── Carrera entre lecturas ───────────────────────────────────────────────
+     Cambiar de usuario (o pedir un `refetchData` mientras otro sigue en vuelo)
+     dejaba dos lecturas compitiendo: la que respondiera ÚLTIMA pintaba, aunque
+     fuera la más vieja. Cada lectura se sella con un número; solo la última
+     emitida tiene derecho a escribir en el estado, y ninguna escribe después
+     de desmontar. */
+  const lecturaActual = useRef(0);
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => { montado.current = false; };
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    const sello = ++lecturaActual.current;
+    const vigente = () => montado.current && sello === lecturaActual.current;
+
     try {
       setLoading(true);
 
@@ -54,7 +71,7 @@ export function useProyectos(user) {
             .eq('id', user.id)
             .maybeSingle();
 
-          if (!userError && userData) {
+          if (!userError && userData && vigente()) {
             setPerfil(userData);
             if (userData.rol) setRol(userData.rol);
           }
@@ -95,6 +112,9 @@ export function useProyectos(user) {
         getCapitalTotal()
       ]);
 
+      // Respuesta de una lectura ya superada: se descarta en silencio.
+      if (!vigente()) return;
+
       setErrorCarga(null);
       setProyectos(proyectosData);
       setGastos(gastosData);
@@ -105,6 +125,7 @@ export function useProyectos(user) {
 
     } catch (error) {
       console.error("Error fetching data from Supabase:", error);
+      if (!vigente()) return;
       /* Un fallo se dice, no se disimula. Y se vacía TODO, no solo los
          proyectos: dejar las colecciones anteriores en pie mientras se muestra
          un aviso de error produce lo peor de los dos mundos — cifras viejas
@@ -117,59 +138,88 @@ export function useProyectos(user) {
       setAportaciones([]);
       setCapitalConfigurado(null);
     } finally {
-      setLoading(false);
+      if (vigente()) setLoading(false);
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [fetchData]);
 
   /**
    * Reactividad "tipo Excel": Supabase Realtime avisa de cualquier INSERT /
-   * UPDATE / DELETE en las tablas del portafolio y la interfaz se recarga sola,
-   * sin que el usuario tenga que refrescar la página.
+   * UPDATE / DELETE en las tablas del portafolio y la interfaz se pone al día
+   * sola, sin que el usuario tenga que refrescar la página.
+   *
+   * El evento se aplica SOBRE la lista que ya está en memoria (ver
+   * `lib/realtime.js`). Antes cualquier cambio —hasta corregir el monto de una
+   * factura— disparaba las siete consultas del portafolio completo; con un
+   * guardado de 11 hitos eso eran once ráfagas agrupadas de recarga total. Se
+   * queda la recarga solo donde una fila suelta no alcanza a describir el
+   * cambio (`configuracion`, que redefine el capital de todo el panel).
    */
   useEffect(() => {
     if (!user?.id) return;
 
-    // Un guardado masivo (p. ej. 11 hitos) emite un evento por fila:
-    // se agrupan en una sola recarga para no saturar la red.
-    let temporizador = null;
-    const recargarAgrupado = () => {
-      clearTimeout(temporizador);
-      temporizador = setTimeout(fetchData, 400);
+    const canal = supabase.channel('portafolio-mmcapital');
+
+    const enTabla = (tabla, manejar) => {
+      canal.on('postgres_changes', { event: '*', schema: 'public', table: tabla }, manejar);
     };
 
-    const canal = supabase.channel('portafolio-mmcapital');
-    for (const tabla of [
-      'proyectos', 'checklist_hitos', 'gastos', 'archivos', 'usuarios',
-      // Una inversión nueva o editada recalcula los egresos del Dashboard al
-      // instante, sin recargar la página.
-      'aportaciones', 'configuracion'
-    ]) {
-      canal.on('postgres_changes', { event: '*', schema: 'public', table: tabla }, recargarAgrupado);
-    }
+    const parchear = (setter, opciones) => (payload) => {
+      if (!montado.current) return;
+      setter(parchearLista(payload, opciones));
+    };
+
+    enTabla('proyectos', parchear(setProyectos));
+    enTabla('checklist_hitos', parchear(setHitos, { insertarEn: 'fin' }));
+    enTabla('gastos', parchear(setGastos));
+    enTabla('archivos', parchear(setArchivos));
+    // Una inversión nueva o editada recalcula los egresos del Dashboard al
+    // instante, sin recargar la página.
+    enTabla('aportaciones', parchear(setAportaciones));
+
+    /* La ficha propia sí importa fila a fila: si el Administrador cambia el rol
+       de este usuario, los permisos de la sesión deben moverse en el acto. */
+    enTabla('usuarios', (payload) => {
+      if (!montado.current || !afectaFila(payload, user.id)) return;
+      const fila = payload?.new;
+      if (payload?.eventType === 'DELETE' || !fila) return;
+      setPerfil(fila);
+      if (fila.rol) setRol(fila.rol);
+    });
+
+    /* `configuracion` no es una lista: es el capital total del portafolio, y su
+       lectura pasa por `getCapitalTotal()` con su propio fallo controlado. Aquí
+       sí se relee, agrupando ráfagas para no encadenar lecturas. */
+    let temporizador = null;
+    enTabla('configuracion', () => {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(() => { if (montado.current) fetchData(); }, 400);
+    });
+
     canal.subscribe();
 
     return () => {
       clearTimeout(temporizador);
       supabase.removeChannel(canal);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, fetchData]);
 
   // Safe collections
   // Una lista vacía se queda vacía: es una respuesta válida, no un fallo.
-  const safeProyectos = Array.isArray(proyectos) ? proyectos : [];
-  const safeGastos = Array.isArray(gastos) ? gastos : [];
-  const safeHitos = Array.isArray(hitos) ? hitos : [];
-  const safeArchivos = Array.isArray(archivos) ? archivos : [];
-  const safeAportaciones = Array.isArray(aportaciones) ? aportaciones : [];
+  const safeProyectos = useMemo(() => (Array.isArray(proyectos) ? proyectos : []), [proyectos]);
+  const safeGastos = useMemo(() => (Array.isArray(gastos) ? gastos : []), [gastos]);
+  const safeHitos = useMemo(() => (Array.isArray(hitos) ? hitos : []), [hitos]);
+  const safeArchivos = useMemo(() => (Array.isArray(archivos) ? archivos : []), [archivos]);
+  const safeAportaciones = useMemo(() => (Array.isArray(aportaciones) ? aportaciones : []), [aportaciones]);
 
-  // Derived Data: Normalize fields and calculate financial metrics
-  const proyectosConFinanzas = safeProyectos.filter(Boolean).map((proyecto) => {
+  /* ── Datos derivados: normalización y finanzas de cada proyecto ────────────
+     Es el cálculo más caro del hook —recorre proyectos × (hitos + gastos)— y
+     antes se rehacía en CADA render del panel, incluyendo los que solo abren un
+     menú. Ahora solo se rehace cuando cambian las filas de las que depende. */
+  const proyectosConFinanzas = useMemo(() => safeProyectos.filter(Boolean).map((proyecto) => {
     const pIdStr = String(proyecto.id || '');
 
     // ── Avance FÍSICO de obra: se lee del checklist real guardado en Supabase ──
@@ -278,47 +328,62 @@ export function useProyectos(user) {
       hitosCompletados: checklistFinal.filter(h => h && h.done).length,
       hitosTotales: checklistFinal.length
     };
-  });
+  }), [safeProyectos, safeGastos, safeHitos]);
 
   /* ── Vencimientos: UN SOLO criterio para toda la aplicación ───────────────
      Antes había dos. La campana filtraba `diffDays >= 0`, así que lo ya
      vencido —justo lo urgente— nunca avisaba; y "Tareas Críticas" no tenía
      límite inferior, así que iba acumulando hitos vencidos hace años mezclados
      con los de esta semana. Ahora ambos leen de aquí, con grado explícito. */
-  const today = new Date();
   const MS_DIA = 1000 * 60 * 60 * 24;
   // Un hito vencido deja de ser accionable pasado un tiempo: más allá de este
   // margen ya no es una alerta, es historia.
   const DIAS_GRACIA_VENCIDO = 30;
 
-  const diasHasta = (fecha) => {
-    if (!fecha) return null;
-    const d = new Date(fecha);
-    if (isNaN(d.getTime())) return null;
-    return Math.ceil((d.getTime() - today.getTime()) / MS_DIA);
-  };
-
-  const conProyecto = (hito) => {
-    const proyecto = safeProyectos.find(p => p && String(p.id) === String(hito.proyecto_id)) || null;
-    const dias = diasHasta(hito.fecha_vencimiento);
-    return {
-      ...hito,
-      tarea: hito.titulo || hito.tarea || 'Hito sin título',
-      proyectoNombre: proyecto?.nombre || proyecto?.title || '',
-      proyecto,
-      dias,
-      // Grado explícito: la interfaz pinta el color a partir de esto, no
-      // recalculando el umbral por su cuenta en cada tarjeta.
-      grado: dias === null ? 'sin_fecha' : dias < 0 ? 'vencido' : dias <= 7 ? 'urgente' : 'al_dia'
-    };
-  };
+  /* "Hoy" se fija UNA vez y al inicio del día, no en cada render.
+     `new Date()` dentro del cuerpo del componente devolvía un objeto distinto
+     cada vez —y con milisegundos distintos—, así que ningún `useMemo` que
+     dependiera de él podía sostenerse y los días restantes se recalculaban en
+     cascada sin que nada hubiera cambiado. Anclado al arranque del día, "faltan
+     3 días" significa lo mismo a las 9:00 y a las 17:00, que es justamente lo
+     que un plazo de obra quiere decir. */
+  const inicioDeHoy = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, []);
 
   /** Hitos pendientes que merecen atención: vencidos (recientes) o ≤7 días. */
-  const vencimientos = safeHitos
-    .filter(h => h && !h.completado && h.fecha_vencimiento)
-    .map(conProyecto)
-    .filter(h => h.dias !== null && h.dias <= 7 && h.dias >= -DIAS_GRACIA_VENCIDO)
-    .sort((a, b) => a.dias - b.dias);
+  const vencimientos = useMemo(() => {
+    const diasHasta = (fecha) => {
+      if (!fecha) return null;
+      const d = new Date(fecha);
+      if (isNaN(d.getTime())) return null;
+      return Math.ceil((d.getTime() - inicioDeHoy) / MS_DIA);
+    };
+
+    const conProyecto = (hito) => {
+      const proyecto = safeProyectos.find(p => p && String(p.id) === String(hito.proyecto_id)) || null;
+      const dias = diasHasta(hito.fecha_vencimiento);
+      return {
+        ...hito,
+        tarea: hito.titulo || hito.tarea || 'Hito sin título',
+        proyectoNombre: proyecto?.nombre || proyecto?.title || '',
+        proyecto,
+        dias,
+        // Grado explícito: la interfaz pinta el color a partir de esto, no
+        // recalculando el umbral por su cuenta en cada tarjeta.
+        grado: dias === null ? 'sin_fecha' : dias < 0 ? 'vencido' : dias <= 7 ? 'urgente' : 'al_dia'
+      };
+    };
+
+    return safeHitos
+      .filter(h => h && !h.completado && h.fecha_vencimiento)
+      .map(conProyecto)
+      .filter(h => h.dias !== null && h.dias <= 7 && h.dias >= -DIAS_GRACIA_VENCIDO)
+      .sort((a, b) => a.dias - b.dias);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeHitos, safeProyectos, inicioDeHoy]);
 
   // La campana muestra lo mismo que "Tareas Críticas": un solo concepto.
   const notificaciones = vencimientos;
@@ -327,37 +392,49 @@ export function useProyectos(user) {
      Egresos totales = suma de TODAS las inversiones registradas en la sección
      de Inversionistas. Nunca es un número escrito a mano: si se agrega o se
      modifica una aportación, Realtime recarga y esta cifra cambia sola. */
-  const egresosTotales = sumarDinero(safeAportaciones, a => a?.monto);
+  const finanzasPortafolio = useMemo(() => {
+    const egresosTotales = sumarDinero(safeAportaciones, a => a?.monto);
 
-  // Capital total: el valor editado por el Administrador manda; si nunca se
-  // configuró, se cae a la suma de los presupuestos de los proyectos.
-  const capitalPresupuestado = sumarDinero(proyectosConFinanzas, p => p?.presupuesto_total);
-  const capitalTotal = Number.isFinite(capitalConfigurado) && capitalConfigurado !== null
-    ? capitalConfigurado
-    : capitalPresupuestado;
+    // Capital total: el valor editado por el Administrador manda; si nunca se
+    // configuró, se cae a la suma de los presupuestos de los proyectos.
+    const capitalPresupuestado = sumarDinero(proyectosConFinanzas, p => p?.presupuesto_total);
+    const capitalTotal = Number.isFinite(capitalConfigurado) && capitalConfigurado !== null
+      ? capitalConfigurado
+      : capitalPresupuestado;
 
-  const capitalDisponible = capitalTotal - egresosTotales;
-  const pctEjecutado = porcentajeSeguro(egresosTotales, capitalTotal, { limitar: true });
-  const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
-  /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
-     vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
-  const saludCapital = capitalTotal <= 0
-    ? 'sin_dato'
-    : capitalDisponible < 0
-      ? 'sobregiro'
-      : pctDisponible < 20
-        ? 'ajustado'
-        : 'holgado';
+    const capitalDisponible = capitalTotal - egresosTotales;
+    const pctEjecutado = porcentajeSeguro(egresosTotales, capitalTotal, { limitar: true });
+    const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
+    /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
+       vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
+    const saludCapital = capitalTotal <= 0
+      ? 'sin_dato'
+      : capitalDisponible < 0
+        ? 'sobregiro'
+        : pctDisponible < 20
+          ? 'ajustado'
+          : 'holgado';
+
+    return {
+      egresosTotales, capitalPresupuestado, capitalTotal,
+      capitalDisponible, pctEjecutado, pctDisponible, saludCapital
+    };
+  }, [safeAportaciones, proyectosConFinanzas, capitalConfigurado]);
+
+  const {
+    egresosTotales, capitalPresupuestado, capitalTotal,
+    capitalDisponible, pctEjecutado, pctDisponible, saludCapital
+  } = finanzasPortafolio;
 
   /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
-  const actualizarCapitalTotal = async (monto) => {
+  const actualizarCapitalTotal = useCallback(async (monto) => {
     const resultado = await guardarCapitalTotal(monto);
-    if (resultado.success) {
+    if (resultado.success && montado.current) {
       const importe = Number(String(monto).replace(/[^\d.-]/g, ''));
       setCapitalConfigurado(Number.isFinite(importe) ? importe : null);
     }
     return resultado;
-  };
+  }, []);
 
   return {
     proyectos: proyectosConFinanzas,

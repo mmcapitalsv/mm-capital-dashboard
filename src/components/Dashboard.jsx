@@ -3022,13 +3022,24 @@ export default function Dashboard({ user, onLogout }) {
   const fp = PROJECTS[safeIndex] || null;
 
   // Hitos pendientes reales: la columna es `completado` (bool), no `estado`
-  const hitosPendientesTodos = (Array.isArray(hitos) ? hitos : [])
+  const hitosPendientesTodos = React.useMemo(() => (Array.isArray(hitos) ? hitos : [])
     .filter(h => h && !h.completado)
     .sort((a, b) => {
       const fa = a.fecha_vencimiento ? new Date(a.fecha_vencimiento).getTime() : Infinity;
       const fb = b.fecha_vencimiento ? new Date(b.fecha_vencimiento).getTime() : Infinity;
       return fa - fb;
-    });
+    }), [hitos]);
+
+  /* "Hoy", fijado al inicio del día y UNA sola vez. Con `new Date()` dentro del
+     cálculo, cada render producía un instante distinto: las listas dependientes
+     no podían memorizarse y los días restantes se recalculaban en cascada sin
+     que hubiera cambiado ningún dato. Un plazo de obra se mide en días, no en
+     milisegundos. */
+  const inicioDeHoy = React.useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, []);
 
   /** Devuelve el proyecto completo a partir de un proyecto_id (uuid). */
   const buscarProyecto = (id) => PROJECTS.find(x => String(x.id) === String(id)) || null;
@@ -3182,7 +3193,10 @@ export default function Dashboard({ user, onLogout }) {
   const cifrasNoFiables = loading || !!errorCarga;
 
   // Avance FÍSICO promedio: promedio del % de checklist real de cada proyecto (Supabase)
-  const avanceProm = promedioSeguro(proyectos, p => p?.avanceFisico).toFixed(0);
+  const avanceProm = React.useMemo(
+    () => promedioSeguro(proyectos, p => p?.avanceFisico).toFixed(0),
+    [proyectos]
+  );
 
   // Avance físico del proyecto activo del carrusel (0-100), blindado contra nulos
   const avanceProyectoActivo = fp
@@ -3376,7 +3390,7 @@ export default function Dashboard({ user, onLogout }) {
   const entradasHitos = React.useMemo(() => hitosPendientesTodos.map((h, i) => {
     const proyecto = buscarProyecto(h?.proyecto_id);
     const dias = h?.fecha_vencimiento
-      ? Math.ceil((new Date(h.fecha_vencimiento) - new Date()) / (1000 * 60 * 60 * 24))
+      ? Math.ceil((new Date(h.fecha_vencimiento).getTime() - inicioDeHoy) / (1000 * 60 * 60 * 24))
       : null;
     return {
       id: h?.id ?? `hito-${i}`,
@@ -3389,7 +3403,7 @@ export default function Dashboard({ user, onLogout }) {
       tono: dias !== null && dias <= 7 ? 'text-red-500' : 'text-mm-3'
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [hitosPendientesTodos, PROJECTS, t]);
+  }), [hitosPendientesTodos, PROJECTS, t, inicioDeHoy]);
 
   /* Tareas críticas: NUNCA agrupadas ("2 pagos pendientes"). Cada hito viene ya
      clasificado por el hook con su `grado` (vencido / urgente), que es el mismo

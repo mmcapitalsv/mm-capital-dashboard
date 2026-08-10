@@ -15,7 +15,7 @@ import {
   guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero, aAjuste,
   getFacturas, crearFactura, actualizarFactura, eliminarFactura,
   esComprobanteArchivo, esComprobantePdf, nombreArchivoFactura,
-  sumarGastos, ejecucionMensualReal, componerCostoEjecutado
+  sumarGastos, ejecucionMensualReal, componerCostoEjecutado, normalizarFactura
 } from '../services/finanzasService';
 import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
@@ -34,6 +34,7 @@ import { puedeEditarHitos } from '../lib/perfilUsuario';
 import { analizarComprobante } from '../services/geminiService';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { aNumeroSeguro, sumarDinero, porcentajeEntero } from '../lib/numeros';
+import { parchearLista } from '../lib/realtime';
 
 // Se guarda la CLAVE de traducción, no el texto: la etiqueta se resuelve en
 // cada render para que el cambio de idioma se refleje al instante.
@@ -211,13 +212,35 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
 
   // Lista blindada: nunca es null/undefined aunque la BD devuelva algo raro
-  const safeChecklist = Array.isArray(checklist) ? checklist.filter(Boolean) : [];
+  const safeChecklist = React.useMemo(
+    () => (Array.isArray(checklist) ? checklist.filter(Boolean) : []),
+    [checklist]
+  );
   const completados = safeChecklist.filter(c => c && (c.done || c.estado === 'completado')).length;
   const avancePct = calcularAvance(safeChecklist);
 
   const docInputRef = useRef(null);
   const photoInputRef = useRef(null);
   const albumPhotoInputRef = useRef(null);
+
+  /* ── Respuestas que llegan tarde ──────────────────────────────────────────
+     Saltar rápido entre proyectos dejaba varias lecturas en vuelo a la vez, y
+     pintaba la que respondiera ÚLTIMA: bastaba con que la consulta del proyecto
+     A fuera más lenta para acabar viendo sus facturas dentro del proyecto B.
+     Toda lectura asíncrona pasa ahora por `vigente()`: si el usuario ya cambió
+     de proyecto —o cerró la ficha— la respuesta se descarta en silencio. */
+  const montado = useRef(true);
+  const proyectoActivo = useRef(project?.id);
+  proyectoActivo.current = project?.id;
+
+  useEffect(() => {
+    montado.current = true;
+    return () => { montado.current = false; };
+  }, []);
+
+  const vigente = (idPedido) => (
+    montado.current && String(proyectoActivo.current ?? '') === String(idPedido ?? '')
+  );
 
   // Al cambiar de proyecto se vacía la galería hasta que Supabase responda:
   // así nunca se ven los álbumes del proyecto anterior.
@@ -232,7 +255,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
    * pueda persistirla con un clic en "Guardar Cambios".
    */
   const cargarChecklist = async () => {
-    if (!project?.id) {
+    const idPedido = project?.id;
+    if (!idPedido) {
       setChecklist([]);
       setChecklistPersistido(false);
       setIsLoadingChecklist(false);
@@ -241,7 +265,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
 
     setIsLoadingChecklist(true);
     try {
-      const { items } = await fetchChecklist(project.id);
+      const { items } = await fetchChecklist(idPedido);
+      if (!vigente(idPedido)) return;
 
       if (Array.isArray(items) && items.length > 0) {
         setChecklist(items);
@@ -255,11 +280,12 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       setHitosPorEliminar([]);
     } catch (err) {
       console.error('Error cargando el checklist desde Supabase:', err);
-      setChecklist(getChecklistSeed(project?.id)
+      if (!vigente(idPedido)) return;
+      setChecklist(getChecklistSeed(idPedido)
         .map((item, i) => ({ ...item, text: sinNumeracion(item.text), id: null, orden: i })));
       setChecklistPersistido(false);
     } finally {
-      setIsLoadingChecklist(false);
+      if (vigente(idPedido)) setIsLoadingChecklist(false);
     }
   };
 
@@ -580,12 +606,14 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   const loadProjectArchivos = async () => {
-    if (project?.id) {
-      const list = await getArchivosProyecto(project.id);
-      setArchivosDB(Array.isArray(list) ? list : []);
-    } else {
+    const idPedido = project?.id;
+    if (!idPedido) {
       setArchivosDB([]);
+      return;
     }
+    const list = await getArchivosProyecto(idPedido);
+    if (!vigente(idPedido)) return;
+    setArchivosDB(Array.isArray(list) ? list : []);
   };
 
   useEffect(() => {
@@ -593,12 +621,22 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
-  // ── Reactividad tipo Excel: cualquier cambio en `archivos` refresca la lista ──
+  /* ── Reactividad tipo Excel: los documentos se mueven solos ────────────────
+     La fila del evento se aplica sobre la lista en memoria en vez de releer
+     TODOS los archivos del proyecto: subir seis documentos disparaba seis
+     lecturas completas de la tabla para acabar en el mismo sitio. `pertenece`
+     descarta los archivos de otros proyectos, que también llegan por el canal. */
   useEffect(() => {
     if (!project?.id) return;
+    const idProyecto = project.id;
     const canal = supabase
-      .channel(`archivos-proyecto-${project.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'archivos' }, loadProjectArchivos)
+      .channel(`archivos-proyecto-${idProyecto}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'archivos' }, (payload) => {
+        if (!vigente(idProyecto)) return;
+        setArchivosDB(parchearLista(payload, {
+          pertenece: (fila) => String(fila?.proyecto_id ?? '') === String(idProyecto)
+        }));
+      })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -692,9 +730,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
    * en que sí se quiere descartar el borrador (guardar o cancelar).
    */
   const cargarFacturas = async (forzar = false) => {
-    if (!project?.id) { setFacturas([]); return; }
+    const idPedido = project?.id;
+    if (!idPedido) { setFacturas([]); return; }
     if (hayCambiosFacturas && !forzar) return;
-    const { facturas: lista, error } = await getFacturas(project.id);
+    const { facturas: lista, error } = await getFacturas(idPedido);
+    if (!vigente(idPedido)) return;
     setFacturas(Array.isArray(lista) ? lista : []);
     setFacturasMsg(error ? { tipo: 'error', texto: error } : null);
   };
@@ -706,12 +746,23 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
-  // Realtime: una factura nueva aparece sola en todas las sesiones abiertas
+  /* Realtime: una factura nueva aparece sola en todas las sesiones abiertas.
+     Se inserta la fila del evento —ya con la forma que usa la vista— en lugar
+     de releer las facturas del proyecto entero. Con un borrador abierto no se
+     toca nada: pisar lo que el administrador está escribiendo sería perder su
+     trabajo, exactamente igual que en `cargarFacturas`. */
   useEffect(() => {
     if (!project?.id) return;
+    const idProyecto = project.id;
     const canal = supabase
-      .channel(`gastos-proyecto-${project.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' }, () => cargarFacturas())
+      .channel(`gastos-proyecto-${idProyecto}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' }, (payload) => {
+        if (!vigente(idProyecto) || hayCambiosFacturas) return;
+        setFacturas(parchearLista(payload, {
+          pertenece: (fila) => String(fila?.proyecto_id ?? '') === String(idProyecto),
+          normalizar: normalizarFactura
+        }));
+      })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1134,8 +1185,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   /* ── Galería contra Supabase ───────────────────────────────────────────── */
 
   const cargarAlbumes = async () => {
-    if (!project?.id) return;
-    const { albumes, error } = await getAlbumes(project.id);
+    const idPedido = project?.id;
+    if (!idPedido) return;
+    const { albumes, error } = await getAlbumes(idPedido);
+    if (!vigente(idPedido)) return;
     setAlbums(Array.isArray(albumes) ? albumes : []);
     if (error) setGaleriaMsg({ tipo: 'error', texto: error });
   };
@@ -1442,8 +1495,8 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
          Se recalcula desde la lista, nunca se acumulan deltas, así que marcar
          y desmarcar mil veces deja exactamente el mismo número.
        · `ajusteManual`  — la corrección escrita a mano en la tarjeta. */
-  const totalFacturas = sumarGastos(facturas);
-  const totalHitos = sumarValoresCompletados(safeChecklist);
+  const totalFacturas = React.useMemo(() => sumarGastos(facturas), [facturas]);
+  const totalHitos = React.useMemo(() => sumarValoresCompletados(safeChecklist), [safeChecklist]);
   const ajusteManual = aNumeroSeguro(finanzas.ajusteManual);
   const totalSpent = componerCostoEjecutado({
     facturas: totalFacturas, hitos: totalHitos, ajuste: ajusteManual
@@ -1460,7 +1513,13 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     setFinanzasMsg(null);
   };
 
-  const ejecucionMensual = ejecucionMensualReal(facturas, language);
+  /* Las dos series de la gráfica recorren TODAS las facturas y agrupan por mes:
+     es el cálculo más caro de la ficha y no tenía por qué rehacerse al escribir
+     una letra en el nombre del proyecto o al abrir un modal. */
+  const ejecucionMensual = React.useMemo(
+    () => ejecucionMensualReal(facturas, language),
+    [facturas, language]
+  );
   const isOverBudget = totalSpent > totalBudget;
   const overBudgetAmount = isOverBudget ? totalSpent - totalBudget : 0;
 
@@ -1472,11 +1531,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   /* Capital inyectado: suma REAL de las aportaciones registradas para este
      proyecto en la sección de Inversionistas. Nunca es una cifra escrita a
      mano: si se registra o corrige una aportación, esto se mueve solo. */
-  const capitalInyectado = sumarDinero(
+  const capitalInyectado = React.useMemo(() => sumarDinero(
     (Array.isArray(aportaciones) ? aportaciones : [])
       .filter(a => String(a?.proyecto_id ?? '') === String(project?.id ?? '')),
     a => a?.monto
-  );
+  ), [aportaciones, project?.id]);
 
   /* Estado del proyecto: NO es texto fijo, sale del % de hitos completados.
      0% = Planificación · 1–99% = En progreso · 100% = Finalizado. */
@@ -1487,7 +1546,10 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
     : t('estado.enProgreso');
 
   // Datos de la gráfica de facturas agrupados por mes
-  const gastosPorMes = agruparGastosPorMes(facturas, language);
+  const gastosPorMes = React.useMemo(
+    () => agruparGastosPorMes(facturas, language),
+    [facturas, language]
+  );
 
   /* Distintivo de estado del proyecto ("En progreso · 40%").
      Se pinta DOS veces con la misma función y solo una es visible a la vez:
