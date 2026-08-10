@@ -787,13 +787,13 @@ export default function Dashboard({ user, onLogout }) {
         {/* Logo imponente y legible con navegación a Inicio */}
         <div
           onClick={() => changeView('portfolio')}
-          className="px-3 py-1 border-b border-white/5 dark:border-zinc-800 flex-shrink-0 flex items-center justify-center cursor-pointer group hover:bg-white/[0.02] transition-colors"
+          className="px-3 py-0.5 border-b border-white/5 dark:border-zinc-800 flex-shrink-0 flex items-center justify-center cursor-pointer group hover:bg-white/[0.02] transition-colors"
           title={t('nav.inicio')}
         >
           <img
             src="/logo2.png"
             alt="MM Capital"
-            className="w-full max-w-[150px] mx-auto object-contain -my-2 group-hover:scale-[1.02] transition-transform"
+            className="w-full max-w-[120px] lg:max-w-[135px] mx-auto object-contain -my-3 group-hover:scale-[1.02] transition-transform"
             style={{ filter: 'brightness(0) invert(1)' }}
           />
         </div>
@@ -806,7 +806,7 @@ export default function Dashboard({ user, onLogout }) {
             Se conservan los íconos de lucide (no se cambian por flechas) y el
             estado por defecto es blanco puro. */}
         <nav
-          className="px-2 pt-1.5 pb-1 flex-shrink-0 space-y-0.5"
+          className="px-2 pt-1 pb-0.5 flex-shrink-0 space-y-0"
           onMouseLeave={() => setNavHover(null)}
         >
           {navItems.map(item => {
@@ -821,7 +821,7 @@ export default function Dashboard({ user, onLogout }) {
                 onClick={() => changeView(item.id)}
                 onMouseEnter={() => setNavHover(item.id)}
                 onFocus={() => setNavHover(item.id)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-left focus:outline-none cursor-pointer"
+                className="w-full flex items-center gap-2 px-3 py-1 rounded-lg text-left focus:outline-none cursor-pointer"
               >
                 {/* El ícono se mantiene SIEMPRE visible: blanco por defecto y
                     dorado al activarse. Solo acompaña con un leve desplazamiento. */}
@@ -854,10 +854,10 @@ export default function Dashboard({ user, onLogout }) {
         {/* Chat Grupal: ocupa el alto sobrante y solo los mensajes hacen scroll.
             Fondo oscuro FIJO en ambos temas por decisión de diseño: no lleva
             variantes dark: porque no debe cambiar con el modo día/noche. */}
-        <div className="mx-3 mt-1 mb-2 rounded-xl bg-zinc-800 border border-zinc-700 p-3.5 flex-1 min-h-0 flex flex-col overflow-hidden shadow-inner">
+        <div className="mx-2.5 mt-0.5 mb-1.5 rounded-xl bg-zinc-800 border border-zinc-700 p-2.5 flex-1 min-h-0 flex flex-col overflow-hidden shadow-inner">
           {/* Encabezado separado del historial por una línea sutil */}
-          <div className="flex-shrink-0 border-b border-gray-700/50 pb-2 mb-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="flex-shrink-0 border-b border-gray-700/50 pb-1.5 mb-2">
+            <div className="flex items-center gap-1.5 mb-1">
               <Users size={11} className="text-mm-3" />
               <span className="text-[11px] font-bold text-white/70 tracking-wider uppercase">{t('chat.canalSocios')}</span>
             </div>
@@ -875,7 +875,7 @@ export default function Dashboard({ user, onLogout }) {
               {/* Único elemento con scroll: el historial. El menú lateral no se mueve. */}
               <div
                 onClick={marcarChatLeido}
-                className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 my-1 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.22)_transparent] [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full"
+                className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 my-0.5 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.22)_transparent] [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full"
               >
                 {mensajesSocios.length === 0 ? (
                   <p className="text-[11px] text-white/35 text-center py-4">{t('chat.sinMensajes')}</p>
@@ -900,14 +900,14 @@ export default function Dashboard({ user, onLogout }) {
                 <p className="text-[11px] text-red-300 leading-relaxed flex-shrink-0 mb-1 break-words">{chatError}</p>
               )}
 
-              <form onSubmit={handleEnviarSidebar} className="relative mt-2 flex-shrink-0">
+              <form onSubmit={handleEnviarSidebar} className="relative mt-1.5 flex-shrink-0">
                 <input
                   type="text"
                   value={borradorSidebar}
                   onChange={(e) => setBorradorSidebar(e.target.value)}
                   onFocus={marcarChatLeido}
                   placeholder={t('nav.enviarMensaje')}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg py-2 pl-3 pr-8 text-[11px] text-white placeholder-white/40 focus:outline-none focus:border-mm-oro transition-colors"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg py-1.5 pl-3 pr-8 text-[11px] text-white placeholder-white/40 focus:outline-none focus:border-mm-oro transition-colors"
                 />
                 {/* El clip de adjuntar se retiró: era un <button> sin acción que
                     se iluminaba al pasar el ratón y luego no respondía. El chat
@@ -928,15 +928,15 @@ export default function Dashboard({ user, onLogout }) {
         {/* Perfil del Usuario en el Sidebar (Clic redirige a Perfil) */}
         <div
           onClick={() => changeView('profile')}
-          className="px-4 py-2.5 border-t border-white/5 flex-shrink-0 bg-mm-navy-velo/60 cursor-pointer hover:bg-mm-navy-velo transition-colors group"
+          className="px-3 py-1.5 border-t border-white/5 flex-shrink-0 bg-mm-navy-velo/60 cursor-pointer hover:bg-mm-navy-velo transition-colors group"
         >
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <AvatarUsuario
               url={userAvatarUrl}
               iniciales={iniciales}
               nombre={nombreUsuario}
               alt="Avatar"
-              className="w-8 h-8"
+              className="w-7 h-7"
             />
             {/* Nombre y cargo SIEMPRE completos y en UNA sola línea: nada de
                 truncado con "…". NombreAjustado baja el tamaño de letra hasta
@@ -963,12 +963,12 @@ export default function Dashboard({ user, onLogout }) {
         </div>
 
         {/* Cerrar Sesión con letra más grande (text-sm lg:text-base font-semibold) */}
-        <div className="px-4 pb-3 pt-2 flex-shrink-0">
+        <div className="px-3 pb-2 pt-1 flex-shrink-0">
           <button
             onClick={onLogout}
-            className="flex items-center justify-center gap-2.5 w-full py-2 rounded-xl text-white/40 hover:text-white hover:bg-white/5 transition-colors text-sm font-semibold"
+            className="flex items-center justify-center gap-2 w-full py-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-colors text-sm font-semibold"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
             {t('perfil.cerrarSesion')}
           </button>
         </div>
