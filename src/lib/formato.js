@@ -125,6 +125,13 @@ export function montoCorto(cantidad, locale = 'es-SV') {
 }
 
 /**
+ * Quita la numeración inicial de un hito ("4. Losa de entrepiso" -> "Losa de
+ * entrepiso"). Solo afecta a lo que se PINTA: el dato guardado en Supabase no
+ * se toca.
+ */
+export const sinNumeracion = (texto) => String(texto || '').replace(/^\d+\.\s*/, '');
+
+/**
  * Estado legible: quita guiones bajos y deja solo la primera letra en mayúscula.
  * "en_progreso" -> "En progreso" · "FASE-INICIAL" -> "Fase inicial"
  */
