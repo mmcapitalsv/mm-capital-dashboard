@@ -7,6 +7,7 @@ import ChatModule from './ChatModule';
 import NombreAjustado from './ui/NombreAjustado';
 import { VideoBackground } from './ui/VideoBackground';
 import { HyperText } from './ui/hyper-text';
+import AvatarUsuario from './ui/AvatarUsuario';
 import { useChat } from '../context/ChatContext';
 import { motion } from 'framer-motion';
 
@@ -988,11 +989,14 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
                   return (
                     <div key={u.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-50 dark:bg-zinc-800 rounded-xl border border-gray-100 dark:border-zinc-700">
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                        <div className="w-10 h-10 rounded-full bg-mm-navy border-2 border-mm-oro flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {u.avatar_url
-                            ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
-                            : <span className="text-mm-oro text-xs font-black">{(u.email || '??').substring(0, 2).toUpperCase()}</span>}
-                        </div>
+                        <AvatarUsuario
+                          url={u.avatar_url}
+                          iniciales={(u.email || '').substring(0, 2)}
+                          className="w-10 h-10"
+                          claseContenedor="bg-mm-navy border-2 border-mm-oro"
+                          claseTexto="text-xs"
+                          claseIniciales="text-mm-oro"
+                        />
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
                             {u.nombre_completo || (u.email || '').split('@')[0] || 'Usuario'}
@@ -1673,13 +1677,16 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
               móvil, nombre proporcionado y correo legible (no diminuto). */}
           <div className="bg-white dark:bg-zinc-800 rounded-[24px] border border-gray-100 dark:border-zinc-700 shadow-sm p-6 md:p-8 flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
             <div className="relative cursor-pointer group flex-shrink-0" onClick={() => setShowAvatarModal(true)}>
-              <div className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-mm-navy border-4 border-mm-oro flex items-center justify-center shadow-lg overflow-hidden transition-transform group-hover:scale-105">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={t('perfil.fotoPerfil')} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-mm-oro text-4xl font-black tracking-widest">{initials}</span>
-                )}
-              </div>
+              <AvatarUsuario
+                url={avatarUrl}
+                iniciales={initials}
+                nombre={nombre}
+                alt={t('perfil.fotoPerfil')}
+                className="w-28 h-28 md:w-32 md:h-32 shadow-lg transition-transform group-hover:scale-105"
+                claseContenedor="bg-mm-navy border-4 border-mm-oro"
+                claseTexto="text-4xl"
+                claseIniciales="text-mm-oro"
+              />
               <button
                 onClick={(e) => { e.stopPropagation(); setShowAvatarModal(true); }}
                 className="absolute bottom-0.5 right-0.5 w-9 h-9 bg-mm-oro rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-zinc-800 hover:bg-mm-oro-hondo transition-colors active:scale-90"
@@ -1901,14 +1908,22 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
 
               {/* Vista previa: la temporal mientras sube, si no la guardada */}
               <div className="flex flex-col items-center gap-3 py-2">
-                <div className="w-28 h-28 rounded-full bg-mm-navy border-4 border-mm-oro overflow-hidden flex items-center justify-center relative">
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt={t('perfil.fotoPerfil')} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-mm-oro text-3xl font-black tracking-widest">{initials}</span>
-                  )}
+                {/* El velo de "subiendo" va FUERA del avatar, en un envoltorio
+                    propio: así el avatar sigue siendo el mismo componente que
+                    en el resto del panel y no hay que abrirle un hueco para
+                    hijos. */}
+                <div className="relative w-28 h-28">
+                  <AvatarUsuario
+                    url={avatarUrl}
+                    iniciales={initials}
+                    alt={t('perfil.fotoPerfil')}
+                    className="w-28 h-28"
+                    claseContenedor="bg-mm-navy border-4 border-mm-oro"
+                    claseTexto="text-3xl"
+                    claseIniciales="text-mm-oro"
+                  />
                   {subiendoAvatar && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full">
                       <Loader2 size={26} className="animate-spin text-white" />
                     </div>
                   )}
@@ -2200,11 +2215,13 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                     <div key={r.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900/50 border border-gray-100 dark:border-zinc-700">
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-mm-navy border border-mm-oro flex items-center justify-center flex-shrink-0 overflow-hidden">
-                            {r.avatarUrl
-                              ? <img src={r.avatarUrl} alt="" className="w-full h-full object-cover" />
-                              : <span className="text-[11px] font-black text-mm-oro">{(r.autor || '??').substring(0, 2).toUpperCase()}</span>}
-                          </div>
+                          <AvatarUsuario
+                            url={r.avatarUrl}
+                            iniciales={(r.autor || '').substring(0, 2)}
+                            className="w-8 h-8"
+                            claseContenedor="bg-mm-navy border border-mm-oro"
+                            claseIniciales="text-mm-oro"
+                          />
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{r.autor}</p>
                             <p className="text-[11px] text-slate-400 dark:text-zinc-300 truncate">{r.email}</p>
@@ -2544,13 +2561,14 @@ function MenuAvatar({
     >
       {/* Cabecera con la identidad real del usuario */}
       <div className="px-4 py-3 border-b border-gray-100 dark:border-zinc-700 bg-slate-50/70 dark:bg-zinc-900/50 flex items-center gap-3">
-        <div className="w-9 h-9 bg-mm-navy rounded-full flex items-center justify-center border border-mm-oro flex-shrink-0 overflow-hidden">
-          {userAvatarUrl ? (
-            <img src={userAvatarUrl} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-[11px] font-bold text-mm-oro tracking-wider">{iniciales}</span>
-          )}
-        </div>
+        <AvatarUsuario
+          url={userAvatarUrl}
+          iniciales={iniciales}
+          nombre={nombreUsuario}
+          className="w-9 h-9"
+          claseContenedor="bg-mm-navy border border-mm-oro"
+          claseIniciales="text-mm-oro"
+        />
         <div className="min-w-0 flex-1">
           <NombreAjustado texto={nombreUsuario} max={13} min={9} className="font-bold text-slate-900 dark:text-white leading-tight" />
           <NombreAjustado texto={cargo.texto || t(cargo.clave)} max={10} min={6.5} className="text-mm-oro-tinta dark:text-mm-oro-claro font-semibold leading-tight mt-0.5" />
@@ -3578,13 +3596,13 @@ export default function Dashboard({ user, onLogout }) {
           className="px-4 py-2.5 border-t border-white/5 flex-shrink-0 bg-mm-navy-velo/60 cursor-pointer hover:bg-mm-navy-velo transition-colors group"
         >
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-mm-oro flex items-center justify-center flex-shrink-0 overflow-hidden">
-              {userAvatarUrl ? (
-                <img src={userAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-white text-[11px] font-bold tracking-wider">{iniciales}</span>
-              )}
-            </div>
+            <AvatarUsuario
+              url={userAvatarUrl}
+              iniciales={iniciales}
+              nombre={nombreUsuario}
+              alt="Avatar"
+              className="w-8 h-8"
+            />
             {/* Nombre y cargo SIEMPRE completos y en UNA sola línea: nada de
                 truncado con "…". NombreAjustado baja el tamaño de letra hasta
                 que el texto entra en el ancho del sidebar, así caben igual
@@ -3740,13 +3758,15 @@ export default function Dashboard({ user, onLogout }) {
                     : 'border-transparent hover:bg-slate-100 dark:hover:bg-zinc-700 hover:border-gray-200'
                 }`}
               >
-                <div className="w-10 h-10 bg-mm-navy rounded-full flex items-center justify-center border-2 border-mm-oro shadow-sm overflow-hidden">
-                  {userAvatarUrl ? (
-                    <img src={userAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-[12px] font-bold text-white tracking-wider">{iniciales}</span>
-                  )}
-                </div>
+                <AvatarUsuario
+                  url={userAvatarUrl}
+                  iniciales={iniciales}
+                  nombre={nombreUsuario}
+                  alt="Avatar"
+                  className="w-10 h-10 shadow-sm"
+                  claseContenedor="bg-mm-navy border-2 border-mm-oro"
+                  claseTexto="text-[12px]"
+                />
                 <ChevronDown
                   size={14}
                   className={`text-slate-400 dark:text-zinc-200 transition-transform ${showMenuAvatar ? 'rotate-180' : ''}`}
@@ -3850,13 +3870,16 @@ export default function Dashboard({ user, onLogout }) {
                 title={t('menu.miPerfilConfig')}
                 className="flex items-center gap-1 active:scale-95 transition-transform"
               >
-                <span className="w-11 h-11 rounded-full border-2 border-mm-oro bg-mm-navy-hondo flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {userAvatarUrl ? (
-                    <img src={userAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-[13px] font-bold text-mm-oro tracking-wider">{iniciales}</span>
-                  )}
-                </span>
+                <AvatarUsuario
+                  url={userAvatarUrl}
+                  iniciales={iniciales}
+                  nombre={nombreUsuario}
+                  alt="Avatar"
+                  className="w-11 h-11"
+                  claseContenedor="bg-mm-navy-hondo border-2 border-mm-oro"
+                  claseTexto="text-[13px]"
+                  claseIniciales="text-mm-oro"
+                />
                 {/* Misma señal que en escritorio: indica que se despliega */}
                 <ChevronDown
                   size={13}

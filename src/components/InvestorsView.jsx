@@ -4,6 +4,7 @@ import {
   Wallet, Users, Plus, Trash2, Edit2, Loader2, AlertTriangle, CheckCircle2, X, Check
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
+import AvatarUsuario from './ui/AvatarUsuario';
 import { formatearMoneda } from '../services/finanzasService';
 import {
   getInversionistas, registrarInversion, actualizarInversion, eliminarInversion, getUsuarios
@@ -236,14 +237,16 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                   className="w-full flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4 md:p-5 text-left hover:bg-slate-50/70 dark:hover:bg-zinc-700/40 transition-colors"
                 >
                   <div className="flex items-center gap-3 md:gap-4 min-w-0 md:flex-1">
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 border-2 border-mm-oro text-white font-black text-sm overflow-hidden"
+                    <AvatarUsuario
+                      url={inv.avatarUrl}
+                      iniciales={iniciales}
+                      nombre={inv.nombre}
+                      className="w-12 h-12"
+                      claseContenedor="border-2 border-mm-oro"
+                      claseTexto="text-sm"
+                      claseIniciales="text-white"
                       style={{ backgroundColor: PALETA[idx % PALETA.length] }}
-                    >
-                      {inv.avatarUrl
-                        ? <img src={inv.avatarUrl} alt="" className="w-full h-full object-cover" />
-                        : iniciales}
-                    </div>
+                    />
 
                     {/* Nombre y correo COMPLETOS: parten en varias líneas antes
                         que recortarse con puntos suspensivos. */}

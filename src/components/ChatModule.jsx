@@ -6,6 +6,7 @@ import {
 import { usePrefs } from '../context/PreferenciasContext';
 import { useChat } from '../context/ChatContext';
 import { getUsuarios } from '../services/inversionesService';
+import AvatarUsuario from './ui/AvatarUsuario';
 import {
   listarMensajesDirectos, enviarMensajeDirecto, suscribirDirectos,
   editarMensaje, eliminarMensaje
@@ -81,16 +82,20 @@ export default function ChatModule({ onBack, isEditMode }) {
    * El borde y el fondo son idénticos en ambos casos para que la lista no
    * "salte" mientras cargan las imágenes.
    */
+  /* Antes este ternario solo cubría "no hay URL". Cuando la foto SÍ tenía
+     enlace pero no cargaba —borrada del bucket, enlace caducado, sin red— el
+     navegador pintaba su icono de imagen partida dentro del círculo dorado, y
+     en una lista de socios eso se repetía en cada fila. `AvatarUsuario` añade
+     el `onError` que faltaba. */
   const Avatar = ({ url, nombre, className = 'w-10 h-10', tamanoTexto = 'text-[13px]' }) => (
-    <span className={`${className} rounded-full bg-mm-navy border border-mm-oro/50 flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-      {url
-        ? <img src={url} alt="" className="w-full h-full object-cover" />
-        : (
-          <span className={`${tamanoTexto} font-bold text-mm-oro`}>
-            {String(nombre || '?').trim().charAt(0).toUpperCase()}
-          </span>
-        )}
-    </span>
+    <AvatarUsuario
+      url={url}
+      nombre={nombre}
+      className={className}
+      claseContenedor="bg-mm-navy border border-mm-oro/50"
+      claseTexto={tamanoTexto}
+      claseIniciales="text-mm-oro"
+    />
   );
 
   // Abrir el canal cuenta como leerlo: apaga el punto rojo de la campana
