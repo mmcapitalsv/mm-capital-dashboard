@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { esIdValidoDeSupabase } from './storageService';
 import { aNumeroSeguro, redondearDinero, sumarDinero } from '../lib/numeros';
+import { leerTablaCompleta } from '../lib/supabasePaginado';
 
 /**
  * Edición de las cifras financieras del proyecto.
@@ -45,13 +46,19 @@ export function aAjuste(valor) {
 }
 
 /**
- * Costo Ejecutado del proyecto, con sus tres orígenes sumados:
- *   facturas registradas + hitos del checklist ya marcados + ajuste manual.
- * Nunca baja de cero: un ajuste negativo excesivo deja la cifra en 0, no en rojo.
+ * Costo Ejecutado del proyecto: FUENTE ÚNICA, la suma real de `gastos`.
+ *
+ * Antes sumaba tres orígenes —facturas + valor de los hitos marcados + ajuste
+ * manual— y contaba el mismo dinero dos veces: la factura del proveedor que
+ * ejecutó el hito ya estaba registrada, y marcar el hito volvía a sumar su
+ * `valor`. El resultado era un sobrecosto inventado que crecía con cada hito
+ * cerrado, y encima requería que alguien lo corrigiera a mano una y otra vez.
+ *
+ * Los parámetros `hitos` y `ajuste` se aceptan y se IGNORAN a propósito: las
+ * llamadas antiguas siguen compilando, pero ya no inflan la cifra.
  */
-export function componerCostoEjecutado({ facturas = 0, hitos = 0, ajuste = 0 } = {}) {
-  const total = aNumero(facturas) + aNumero(hitos) + aAjuste(ajuste);
-  return Math.max(0, redondearDinero(total));
+export function componerCostoEjecutado({ facturas = 0 } = {}) {
+  return Math.max(0, redondearDinero(aNumero(facturas)));
 }
 
 /**
@@ -180,21 +187,27 @@ export function nombreArchivoFactura(factura) {
   return `${proveedor}_${factura?.fecha || ''}.${extension}`.replace(/_+\./, '.');
 }
 
-/** Lista las facturas/gastos registrados para un proyecto. */
+/**
+ * Lista las facturas/gastos registrados para un proyecto.
+ *
+ * Pagina con conteo exacto: un proyecto con más de 1,000 facturas devolvería
+ * solo las primeras mil —sin error— y el "Costo ejecutado" saldría corto.
+ * Se ordena por `created_at`: la tabla `gastos` no tiene columna `fecha`, y el
+ * instante de registro es justamente el orden que interesa.
+ */
 export async function getFacturas(proyectoId) {
-  if (!esIdValidoDeSupabase(proyectoId)) return { facturas: [], error: null };
+  if (!esIdValidoDeSupabase(proyectoId)) return { facturas: [], error: null, truncado: false };
 
-  // Se ordena por `created_at`: la tabla `gastos` no tiene columna `fecha`,
-  // y el instante de registro es justamente el orden que interesa.
-  const { data, error } = await supabase
-    .from('gastos')
-    .select('*')
-    .eq('proyecto_id', proyectoId)
-    .order('created_at', { ascending: false });
-
-  if (error) return { facturas: [], error: error.message };
-
-  return { facturas: (data || []).map(normalizarFactura), error: null };
+  try {
+    const { filas, truncado } = await leerTablaCompleta('gastos', '*', {
+      orden: 'created_at',
+      ascendente: false,
+      filtrar: (q) => q.eq('proyecto_id', proyectoId)
+    });
+    return { facturas: filas.map(normalizarFactura), error: null, truncado };
+  } catch (err) {
+    return { facturas: [], error: err.message || 'No se pudieron leer las facturas.', truncado: false };
+  }
 }
 
 /**
@@ -374,8 +387,8 @@ export function sumarGastos(facturas) {
  * @returns {Promise<{total: number, facturas: Array, error: string|null}>}
  */
 export async function getTotalEjecutado(proyectoId) {
-  const { facturas, error } = await getFacturas(proyectoId);
-  return { total: sumarGastos(facturas), facturas, error };
+  const { facturas, error, truncado } = await getFacturas(proyectoId);
+  return { total: sumarGastos(facturas), facturas, error, truncado };
 }
 
 /**

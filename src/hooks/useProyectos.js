@@ -5,6 +5,7 @@ import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionS
 import { montoCorto } from '../lib/formato';
 import { aNumeroSeguro, redondearDinero, sumarDinero, porcentajeSeguro } from '../lib/numeros';
 import { parchearLista, afectaFila } from '../lib/realtime';
+import { leerTablaCompleta } from '../lib/supabasePaginado';
 
 /**
  * Estado del proyecto derivado del avance real de hitos.
@@ -30,6 +31,10 @@ export function useProyectos(user) {
   // totales del panel (nada de cifras escritas a mano).
   const [aportaciones, setAportaciones] = useState([]);
   const [capitalConfigurado, setCapitalConfigurado] = useState(null);
+  // Tablas que llegaron recortadas por el techo de PostgREST: sus sumas serían
+  // parciales, así que la interfaz debe decirlo en vez de presentarlas como
+  // definitivas (ver `lib/supabasePaginado.js`).
+  const [datosParciales, setDatosParciales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rol, setRol] = useState(null);
   const [perfil, setPerfil] = useState(null);
@@ -91,13 +96,18 @@ export function useProyectos(user) {
          Ahora cada error se recoge y se lanza: la interfaz enseña el aviso de
          fallo en lugar de un dato falso. Es la misma regla que ya se aplicaba
          a `proyectos` y la razón por la que se eliminaron los proyectos de
-         ejemplo. */
+         ejemplo.
+
+         Y no se leen «las primeras mil filas»: PostgREST recorta en 1,000 sin
+         avisar (200 OK, lista corta), y sobre `gastos` o `aportaciones` eso es
+         una cifra de dinero equivocada con pinta de exacta. `leerTablaCompleta`
+         pide el conteo exacto y pagina hasta traerlas todas; lo que aun así
+         quede fuera se reporta como dato parcial. */
+      const parciales = [];
       const leer = async (tabla, columnas = '*') => {
-        const { data, error } = await supabase.from(tabla).select(columnas);
-        if (error) {
-          throw new Error(`No se pudo leer «${tabla}»: ${error.message || 'error desconocido'}`);
-        }
-        return Array.isArray(data) ? data : [];
+        const { filas, truncado } = await leerTablaCompleta(tabla, columnas);
+        if (truncado) parciales.push(tabla);
+        return filas;
       };
 
       const [
@@ -116,6 +126,7 @@ export function useProyectos(user) {
       if (!vigente()) return;
 
       setErrorCarga(null);
+      setDatosParciales(parciales);
       setProyectos(proyectosData);
       setGastos(gastosData);
       setHitos(hitosData);
@@ -137,6 +148,7 @@ export function useProyectos(user) {
       setArchivos([]);
       setAportaciones([]);
       setCapitalConfigurado(null);
+      setDatosParciales([]);
     } finally {
       if (vigente()) setLoading(false);
     }
@@ -251,17 +263,19 @@ export function useProyectos(user) {
 
     const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
     const gastosSumados = sumarDinero(gastosProyecto, g => g?.monto);
-    /* El costo ejecutado es DINÁMICO y se compone igual que en la ficha del
-       proyecto: facturas reales + dinero de los hitos ya marcados + la
-       corrección manual del Administrador. La columna `costo_ejecutado` guarda
-       el total, pero aquí se recalcula para que el Dashboard no muestre una
-       cifra vieja mientras el detalle muestra otra. */
+    /* ── Fuente ÚNICA del costo ejecutado: `gastos` ────────────────────────
+       Antes se sumaban tres orígenes —facturas + valor de los hitos marcados +
+       ajuste manual— y eso contaba el mismo dinero dos veces: la factura del
+       proveedor que ejecutó el hito ya estaba registrada, y al marcar el hito
+       su `valor` volvía a sumar. El sobrecosto era artificial y crecía con cada
+       hito cerrado. El costo ejecutado es lo que se ha pagado, y lo que se ha
+       pagado son las facturas registradas: nada más.
+
+       El valor de los hitos sigue existiendo, pero como lo que es —presupuesto
+       comprometido de obra, no dinero salido— y la columna `costo_ejecutado`
+       queda solo como espejo histórico. */
     const valorHitosHechos = sumarValoresCompletados(checklistFinal);
-    const ajusteManual = aNumeroSeguro(proyecto.ajuste_costo_manual);
-    const costoEjecutado = Math.max(
-      0,
-      redondearDinero(gastosSumados + valorHitosHechos + ajusteManual)
-    );
+    const costoEjecutado = Math.max(0, redondearDinero(gastosSumados));
     const totalGastado = costoEjecutado;
     /* `??` y no `||`: un presupuesto guardado como 0 es una decisión del
        Administrador ("aún no se asigna"), no un hueco que haya que rellenar
@@ -309,6 +323,9 @@ export function useProyectos(user) {
       // Cifras financieras reales de Supabase (editables por el Administrador)
       costo_ejecutado: costoEjecutado,
       gastosSumados,
+      // Obra cerrada, medida en dinero. NO es gasto: es avance valorizado, y
+      // por eso viaja aparte del costo ejecutado.
+      valorHitosCompletados: valorHitosHechos,
       ejecucion_mensual: Array.isArray(proyecto.ejecucion_mensual) ? proyecto.ejecucion_mensual : [],
       totalGastado,
       ejecutado: montoCorto(totalGastado),
@@ -389,41 +406,56 @@ export function useProyectos(user) {
   const notificaciones = vencimientos;
 
   /* ── Finanzas globales del portafolio ────────────────────────────────────
-     Egresos totales = suma de TODAS las inversiones registradas en la sección
-     de Inversionistas. Nunca es un número escrito a mano: si se agrega o se
-     modifica una aportación, Realtime recarga y esta cifra cambia sola. */
+     TRES cifras distintas que antes se mezclaban en una sola llamada "Egresos
+     totales", que además sumaba aportaciones — es decir, dinero que ENTRA
+     presentado como dinero que SALE. Separadas:
+
+       · Capital comprometido   — suma de los presupuestos de los proyectos.
+                                  Es una promesa de gasto, no un movimiento.
+       · Aportaciones recibidas — suma REAL de `aportaciones`. Dinero que entró.
+       · Egresos ejecutados     — suma REAL de `gastos`. Dinero que salió.
+
+     De ahí salen dos disponibles, y tampoco son lo mismo:
+       · `capitalDisponible`   = capital total − egresos ejecutados (del fondo)
+       · `liquidezDisponible`  = aportaciones recibidas − egresos ejecutados
+                                 (caja real; en negativo se está gastando más
+                                 de lo que los socios han puesto). */
   const finanzasPortafolio = useMemo(() => {
-    const egresosTotales = sumarDinero(safeAportaciones, a => a?.monto);
+    const aportacionesRecibidas = sumarDinero(safeAportaciones, a => a?.monto);
+    const egresosEjecutados = sumarDinero(safeGastos, g => g?.monto);
 
     // Capital total: el valor editado por el Administrador manda; si nunca se
     // configuró, se cae a la suma de los presupuestos de los proyectos.
-    const capitalPresupuestado = sumarDinero(proyectosConFinanzas, p => p?.presupuesto_total);
+    const capitalComprometido = sumarDinero(proyectosConFinanzas, p => p?.presupuesto_total);
     const capitalTotal = Number.isFinite(capitalConfigurado) && capitalConfigurado !== null
       ? capitalConfigurado
-      : capitalPresupuestado;
+      : capitalComprometido;
 
-    const capitalDisponible = capitalTotal - egresosTotales;
-    const pctEjecutado = porcentajeSeguro(egresosTotales, capitalTotal, { limitar: true });
+    const capitalDisponible = redondearDinero(capitalTotal - egresosEjecutados);
+    const liquidezDisponible = redondearDinero(aportacionesRecibidas - egresosEjecutados);
+    const pctEjecutado = porcentajeSeguro(egresosEjecutados, capitalTotal, { limitar: true });
     const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
     /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
-       vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
+       vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara.
+       Un sobregiro de caja (se gastó más de lo aportado) también es sobregiro,
+       aunque el fondo configurado dé de sobra. */
     const saludCapital = capitalTotal <= 0
       ? 'sin_dato'
-      : capitalDisponible < 0
+      : (capitalDisponible < 0 || liquidezDisponible < 0)
         ? 'sobregiro'
         : pctDisponible < 20
           ? 'ajustado'
           : 'holgado';
 
     return {
-      egresosTotales, capitalPresupuestado, capitalTotal,
-      capitalDisponible, pctEjecutado, pctDisponible, saludCapital
+      aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
+      capitalDisponible, liquidezDisponible, pctEjecutado, pctDisponible, saludCapital
     };
-  }, [safeAportaciones, proyectosConFinanzas, capitalConfigurado]);
+  }, [safeAportaciones, safeGastos, proyectosConFinanzas, capitalConfigurado]);
 
   const {
-    egresosTotales, capitalPresupuestado, capitalTotal,
-    capitalDisponible, pctEjecutado, pctDisponible, saludCapital
+    aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
+    capitalDisponible, liquidezDisponible, pctEjecutado, pctDisponible, saludCapital
   } = finanzasPortafolio;
 
   /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
@@ -446,15 +478,22 @@ export function useProyectos(user) {
     perfil,
     loading,
     errorCarga,
+    // Tablas recortadas por el techo de PostgREST (lista de nombres, vacía si
+    // todo llegó completo). Las sumas de dinero dependen de esto.
+    datosParciales,
     notificaciones,
     vencimientos,
     refetchData: fetchData,
     // Finanzas reactivas del portafolio
     capitalTotal,
-    capitalPresupuestado,
+    capitalComprometido,
+    // Nombre anterior de `capitalComprometido`, conservado por compatibilidad
+    capitalPresupuestado: capitalComprometido,
     capitalConfigurado,
-    egresosTotales,
+    aportacionesRecibidas,
+    egresosEjecutados,
     capitalDisponible,
+    liquidezDisponible,
     pctEjecutado,
     pctDisponible,
     saludCapital,

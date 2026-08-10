@@ -298,13 +298,19 @@ export default function Dashboard({ user, onLogout }) {
     rol,
     perfil,
     refetchData,
-    // Finanzas del portafolio: el capital lo edita el Administrador y los
-    // egresos se suman solos desde las inversiones de los socios.
+    /* Finanzas del portafolio, con las tres cifras SEPARADAS: el capital lo
+       edita el Administrador (compromiso), las aportaciones son el dinero que
+       entró y los egresos el que salió. Antes iban mezcladas en un solo
+       "Egresos totales" que en realidad sumaba aportaciones. */
     capitalTotal,
-    egresosTotales,
+    capitalComprometido,
+    aportacionesRecibidas,
+    egresosEjecutados,
+    liquidezDisponible,
     pctDisponible,
     saludCapital,
     errorCarga,
+    datosParciales,
     vencimientos,
     actualizarCapitalTotal
   } = useProyectos(user);
@@ -726,8 +732,12 @@ export default function Dashboard({ user, onLogout }) {
      de useProyectos), así que todos los agregados valen 0. Pintar "$0" ahí
      sería sustituir un fallo de lectura por un dato falso — que es justo lo
      que se acaba de corregir aguas arriba. Los KPI muestran "–", igual que
-     mientras cargan, y el aviso de error explica el porqué. */
-  const cifrasNoFiables = loading || !!errorCarga;
+     mientras cargan, y el aviso de error explica el porqué.
+
+     Lo mismo vale para una tabla que llegó recortada por el techo de PostgREST
+     (`datosParciales`): sumar las primeras mil facturas y llamar a eso "Egresos
+     ejecutados" es una cifra falsa, no una aproximación. */
+  const cifrasNoFiables = loading || !!errorCarga || (datosParciales?.length ?? 0) > 0;
 
   /* ── Listas completas para los botones "Ver todos" ─────────────────────── */
   const [modalLista, setModalLista] = useState(null);   // 'actividad' | 'hitos' | 'tareas'
@@ -1318,7 +1328,11 @@ export default function Dashboard({ user, onLogout }) {
               timePDT={timePDT}
               cifrasNoFiables={cifrasNoFiables}
               capitalTotal={capitalTotal}
-              egresosTotales={egresosTotales}
+              capitalComprometido={capitalComprometido}
+              aportacionesRecibidas={aportacionesRecibidas}
+              egresosEjecutados={egresosEjecutados}
+              liquidezDisponible={liquidezDisponible}
+              datosParciales={datosParciales}
               pctDisponible={pctDisponible}
               saludCapital={saludCapital}
               actualizarCapitalTotal={actualizarCapitalTotal}

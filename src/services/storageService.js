@@ -464,19 +464,53 @@ export function validarComprobante(file) {
   return null;
 }
 
+/** Mensajes de rechazo de la subida de comprobantes (P1-6). */
+export const AVISO_COMPROBANTE_SOLO_ADMIN =
+  'Solo el Administrador puede adjuntar comprobantes de facturas.';
+export const AVISO_COMPROBANTE_SIN_PROYECTO =
+  'El comprobante debe pertenecer a un proyecto existente en Supabase.';
+
+/** Sufijo aleatorio para que dos subidas del mismo milisegundo no colisionen. */
+function sufijoUnico() {
+  try {
+    return crypto.randomUUID().slice(0, 8);
+  } catch {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
 /**
  * Sube la foto o el PDF de una factura al bucket `facturas` y devuelve su URL
  * pública, que es lo que se guarda en `gastos.comprobante`.
+ *
+ * Blindaje (P1-6): un comprobante es respaldo contable, así que
+ *   · `upsert: false` — jamás se pisa un binario ya subido. Con `upsert: true`
+ *     bastaba con adivinar la ruta de otro proyecto para reemplazar su factura
+ *     dejando intacta la URL guardada en `gastos`: el registro apuntaría a un
+ *     archivo distinto del que se aprobó.
+ *   · ruta obligatoria por proyecto — nada de `sin_proyecto/`, que era una
+ *     carpeta común donde cualquiera escribía encima de cualquiera.
+ *   · rol de Administrador — quien registra la factura ya lo es (RLS lo exige
+ *     en `gastos`); adjuntar el binario debe pedir lo mismo.
+ * La migración 015 impone las tres del lado del servidor: esto es la interfaz
+ * del candado, no el candado.
  *
  * Las fotos se comprimen a 2000 px de lado: suficiente para que los importes
  * se lean nítidos en el visor de alta calidad sin subir 12 MB desde el móvil.
  * Los PDF viajan intactos (comprimirlos rasterizaría el texto).
  *
+ * @param {File} file
+ * @param {string} proyectoId  uuid real del proyecto (obligatorio)
+ * @param {{esAdmin?: boolean}} [quien]
  * @returns {Promise<{success: boolean, url?: string, path?: string, error?: string}>}
  */
-export async function subirComprobanteFactura(file, proyectoId) {
+export async function subirComprobanteFactura(file, proyectoId, { esAdmin = false } = {}) {
   const invalido = validarComprobante(file);
   if (invalido) return { success: false, error: invalido };
+  if (!esAdmin) return { success: false, error: AVISO_COMPROBANTE_SOLO_ADMIN };
+  if (!esIdValidoDeSupabase(proyectoId)) {
+    return { success: false, error: AVISO_COMPROBANTE_SIN_PROYECTO };
+  }
 
   const esPdf = file.type === 'application/pdf';
   const archivo = esPdf
@@ -487,19 +521,22 @@ export async function subirComprobanteFactura(file, proyectoId) {
         nombre: file.name || 'factura.jpg'
       });
 
-  const carpeta = esIdValidoDeSupabase(proyectoId) ? `proyecto_${proyectoId}` : 'sin_proyecto';
-  const filePath = `${carpeta}/${Date.now()}_${rutaSegura(archivo.name || file.name || 'factura')}`;
+  const nombre = rutaSegura(archivo.name || file.name || 'factura');
+  const filePath = `proyecto_${proyectoId}/${Date.now()}_${sufijoUnico()}_${nombre}`;
 
   try {
     const { error: upErr } = await supabase.storage
       .from(BUCKET_FACTURAS)
       .upload(filePath, archivo, {
         cacheControl: '3600',
-        upsert: true,
+        upsert: false,
         contentType: archivo.type || file.type || 'application/octet-stream'
       });
 
     if (upErr) {
+      if (esFalloDePermiso(upErr)) {
+        return { success: false, error: AVISO_COMPROBANTE_SOLO_ADMIN };
+      }
       return { success: false, error: `No se pudo subir el comprobante: ${upErr.message}` };
     }
 

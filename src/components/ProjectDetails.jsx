@@ -13,7 +13,7 @@ import {
 import { useDirectorioUsuarios } from '../hooks/useDirectorioUsuarios';
 import { supabase } from '../supabaseClient';
 import {
-  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero, aAjuste,
+  guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero,
   getFacturas, crearFactura, actualizarFactura, eliminarFactura,
   esComprobanteArchivo, esComprobantePdf, nombreArchivoFactura,
   sumarGastos, ejecucionMensualReal, componerCostoEjecutado, normalizarFactura
@@ -581,11 +581,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
          guardada, no con la que había al abrir la pantalla: así el dinero de
          un hito marcado hace un segundo ya entra en el total que se persiste. */
       if (modoEdicionFinanzas) {
-        const costoFinal = componerCostoEjecutado({
-          facturas: totalFacturas,
-          hitos: sumarValoresCompletados(listaFinal),
-          ajuste: finanzas.ajusteManual
-        });
+        // El costo ejecutado que se persiste es la suma real de `gastos`: ni el
+        // checklist recién guardado ni un ajuste a mano lo alteran (P1-9).
+        const costoFinal = componerCostoEjecutado({ facturas: totalFacturas });
 
         const fin = await guardarFinanzas(project.id, {
           ...finanzas, ...identidad, costoEjecutado: costoFinal
@@ -600,7 +598,6 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
           project.anticipo = fin.valores.anticipo;
           project.cuota_asignada = fin.valores.cuota_asignada;
           project.costo_ejecutado = fin.valores.costo_ejecutado;
-          project.ajuste_costo_manual = fin.valores.ajuste_costo_manual;
           project.ejecucion_mensual = fin.valores.ejecucion_mensual;
         }
       }
@@ -1060,7 +1057,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
         if (fac._nueva) {
           let url = '';
           if (fac._archivo) {
-            const subida = await subirComprobanteFactura(fac._archivo, project?.id);
+            // El rol viaja explícito: el bucket `facturas` solo acepta
+            // comprobantes del Administrador y bajo la carpeta del proyecto.
+            const subida = await subirComprobanteFactura(fac._archivo, project?.id, { esAdmin });
             if (!subida.success) {
               primerError = primerError || subida.error;
               nuevasPendientes.push(fac);
@@ -1382,18 +1381,14 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
      mientras el administrador escribe, así la gráfica y la alerta de
      sobrecosto reaccionan al instante.
 
-     Costo ejecutado: se COMPONE de tres orígenes (ver `totalSpent`).
-       · Facturas       — suma real de `gastos`, se mueve sola con cada factura.
-       · Hitos marcados — `valor` de las tareas del checklist ya completadas.
-       · Ajuste manual  — lo que el Administrador escribe encima en la tarjeta.
-     Solo el ajuste se guarda como tal (`proyectos.ajuste_costo_manual`): los
-     otros dos se recalculan siempre, así que corregir una factura o desmarcar
-     un hito nunca pisa la corrección escrita a mano. */
+     El costo ejecutado NO está aquí: es la suma real de `gastos` (ver
+     `totalSpent`) y no se escribe a mano. `ajuste_costo_manual` sigue en la
+     tabla como historial, pero esta pantalla ya no lo lee ni lo reescribe: era
+     la pieza que permitía que la cifra se despegara de las facturas. */
   const finanzasDesdeProyecto = () => ({
     presupuesto: Number(project?.presupuesto_total ?? 0),
     anticipo: Number(project?.anticipo ?? 0),
-    cuota: Number(project?.cuota_asignada ?? 0),
-    ajusteManual: Number(project?.ajuste_costo_manual ?? 0)
+    cuota: Number(project?.cuota_asignada ?? 0)
   });
 
   /* Identidad editable del proyecto (título y ubicación del header).
@@ -1428,7 +1423,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     project?.id, project?.presupuesto_total, project?.anticipo,
-    project?.cuota_asignada, project?.ajuste_costo_manual
+    project?.cuota_asignada
   ]);
 
   // Lo mismo para el título y la ubicación del header
@@ -1482,14 +1477,12 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
         project.anticipo = valores.anticipo;
         project.cuota_asignada = valores.cuota_asignada;
         project.costo_ejecutado = valores.costo_ejecutado;
-        project.ajuste_costo_manual = valores.ajuste_costo_manual;
       }
       // Lo guardado por Supabase es lo que se muestra: nada de valores locales
       setFinanzas({
         presupuesto: Number(valores.presupuesto_total || 0),
         anticipo: Number(valores.anticipo || 0),
-        cuota: Number(valores.cuota_asignada || 0),
-        ajusteManual: Number(valores.ajuste_costo_manual || 0)
+        cuota: Number(valores.cuota_asignada || 0)
       });
       setEditandoFinanzas(false);
       setFinanzasMsg({ tipo: 'exito', texto: t('fin.guardado') });
@@ -1510,31 +1503,18 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   // Cálculos derivados: reaccionan a cada tecla mientras se edita
   const totalBudget = aNumeroSeguro(finanzas.presupuesto);
 
-  /* Costo ejecutado DINÁMICO, con sus tres orígenes sumados:
-       · `totalFacturas` — suma de `gastos.monto`; `facturas` se recarga tras
-         cada alta/edición/borrado y por Realtime, así que se mueve sola.
-       · `totalHitos`    — dinero de las tareas del checklist ya marcadas: al
-         marcar una de $1,000 la cifra sube $1,000 y al desmarcarla baja igual.
-         Se recalcula desde la lista, nunca se acumulan deltas, así que marcar
-         y desmarcar mil veces deja exactamente el mismo número.
-       · `ajusteManual`  — la corrección escrita a mano en la tarjeta. */
+  /* ── Costo ejecutado: FUENTE ÚNICA, `gastos` ───────────────────────────────
+     `totalFacturas` es la suma real de `gastos.monto`; `facturas` se recarga
+     tras cada alta/edición/borrado y por Realtime, así que se mueve sola.
+
+     Ya NO se le suman los hitos marcados ni un ajuste manual. Sumarlos contaba
+     el mismo dinero dos veces —la factura del proveedor que ejecutó el hito ya
+     estaba registrada— y producía un sobrecosto inventado que alguien tenía que
+     corregir a mano cada semana. `totalHitos` sigue calculándose, pero como lo
+     que es: obra cerrada valorizada, que se muestra aparte y no como gasto. */
   const totalFacturas = React.useMemo(() => sumarGastos(facturas), [facturas]);
   const totalHitos = React.useMemo(() => sumarValoresCompletados(safeChecklist), [safeChecklist]);
-  const ajusteManual = aNumeroSeguro(finanzas.ajusteManual);
-  const totalSpent = componerCostoEjecutado({
-    facturas: totalFacturas, hitos: totalHitos, ajuste: ajusteManual
-  });
-
-  /* Al escribir un total a mano no se guarda el total, se guarda la DIFERENCIA
-     contra lo que la app sí sabe calcular. Así una factura registrada mañana
-     sigue sumando sobre la corrección de hoy en vez de borrarla. */
-  const handleCostoEjecutadoManual = (valor) => {
-    setFinanzas(prev => ({
-      ...prev,
-      ajusteManual: aAjuste(valor) - totalFacturas - totalHitos
-    }));
-    setFinanzasMsg(null);
-  };
+  const totalSpent = componerCostoEjecutado({ facturas: totalFacturas });
 
   /* Las dos series de la gráfica recorren TODAS las facturas y agrupan por mes:
      es el cálculo más caro de la ficha y no tenía por qué rehacerse al escribir
@@ -2215,30 +2195,25 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
                 colorValor="text-mm-1"
               />
 
-              {/* Costo ejecutado: facturas + hitos marcados + ajuste manual.
-                  En Modo Edición el Administrador escribe el total que quiera y
-                  la diferencia se guarda como ajuste, sin perder lo que la app
-                  calcula sola. El desglose se muestra debajo para que la cifra
-                  nunca sea una caja negra. */}
+              {/* Costo ejecutado: SOLO las facturas registradas. No se edita a
+                  mano ni siquiera en Modo Edición — escribir el total encima lo
+                  desconectaría de los gastos que lo producen, que es justo lo
+                  que obligaba a re-corregirlo cada semana. Para moverlo se
+                  registra o se corrige una factura. */}
               <TarjetaMonto
                 etiqueta={t('fin.costoEjecutado')}
                 pie={`${porcentajeEntero(totalSpent, totalBudget)}% ${t('fin.presupuestoEjecutado')}`}
                 valor={totalSpent}
-                editando={modoEdicionFinanzas}
-                onChange={handleCostoEjecutadoManual}
+                editando={false}
                 colorValor={isOverBudget ? 'text-red-700 dark:text-red-400' : 'text-mm-1'}
                 resaltado={isOverBudget}
               >
-                {(totalHitos > 0 || ajusteManual !== 0 || modoEdicionFinanzas) && (
-                  <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1.5 leading-relaxed font-medium">
-                    {t('fin.desgloseFacturas')} {formatearMoneda(totalFacturas)}
-                    {' · '}
-                    {t('fin.desgloseHitos')} {formatearMoneda(totalHitos)}
-                    {ajusteManual !== 0 && (
-                      <> {' · '}{t('fin.desgloseAjuste')} {ajusteManual > 0 ? '+' : '−'}{formatearMoneda(Math.abs(ajusteManual))}</>
-                    )}
-                  </p>
-                )}
+                <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1.5 leading-relaxed font-medium">
+                  {t('fin.desgloseFacturas')} {formatearMoneda(totalFacturas)}
+                  {totalHitos > 0 && (
+                    <> {' · '}{t('fin.desgloseObraCerrada')} {formatearMoneda(totalHitos)}</>
+                  )}
+                </p>
               </TarjetaMonto>
             </div>
 

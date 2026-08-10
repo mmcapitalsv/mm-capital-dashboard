@@ -149,7 +149,8 @@ export default function DashboardView({
   proyectos, loading, errorCarga, refetchData,
   isAdmin, isEditMode,
   saludo, nombreUsuario, timeCST, timePDT,
-  cifrasNoFiables, capitalTotal, egresosTotales, pctDisponible, saludCapital,
+  cifrasNoFiables, capitalTotal, capitalComprometido, aportacionesRecibidas,
+  egresosEjecutados, liquidezDisponible, pctDisponible, saludCapital, datosParciales,
   actualizarCapitalTotal,
   entradasActividad, entradasHitos, entradasTareas,
   changeView, handleCardClick, abrirProyectoDeItem, setModalLista,
@@ -163,10 +164,14 @@ export default function DashboardView({
   // Usa los proyectos reales de Supabase
   const PROJECTS = proyectos;
 
-  // ── KPIs calculados desde Supabase ─────────────────────────────────────────
-  // `capitalTotal` y `egresosTotales` vienen del hook: el primero es la cifra
-  // editable del Administrador (o la suma de presupuestos si nunca se tocó) y
-  // el segundo la suma de TODAS las inversiones registradas.
+  /* ── KPIs calculados desde Supabase ────────────────────────────────────────
+     Tres cifras distintas, y se nombran distinto:
+       · `capitalTotal`          — capital comprometido: lo editado por el
+                                   Administrador, o la suma de presupuestos.
+       · `aportacionesRecibidas` — suma real de `aportaciones` (dinero que ENTRA).
+       · `egresosEjecutados`     — suma real de `gastos` (dinero que SALE).
+     Antes el KPI "Egresos totales" mostraba las aportaciones: enseñaba el
+     ingreso rotulado como gasto. */
   const totalCapital = capitalTotal;
 
   const [featuredIndex, setFeaturedIndex] = useState(0);
@@ -458,9 +463,9 @@ export default function DashboardView({
                         // este bloque, así que es la única con lápiz.
                         { icono: DollarSign, valor: cifrasNoFiables ? '–' : montoCorto(totalCapital, locale), exacto: montoExacto(totalCapital, locale), etiqueta: t('dash.capitalTotal'), editable: true },
                         { icono: TrendingUp, valor: cifrasNoFiables ? '–' : `${avanceProm}%`, etiqueta: t('dash.avancePromedioMin') },
-                        // Mismo dato que el KPI 4 del escritorio: la suma de
-                        // TODAS las inversiones registradas, no el gasto del mes.
-                        { icono: Wallet, valor: cifrasNoFiables ? '–' : montoCorto(egresosTotales, locale), exacto: montoExacto(egresosTotales, locale), etiqueta: t('dash.egresosTotales') }
+                        // Mismo dato que el KPI 4 del escritorio: la suma real
+                        // de `gastos`, el dinero efectivamente pagado.
+                        { icono: Wallet, valor: cifrasNoFiables ? '–' : montoCorto(egresosEjecutados, locale), exacto: montoExacto(egresosEjecutados, locale), etiqueta: t('dash.egresosEjecutados') }
                       ].map((kpi, i) => {
                         const puedeEditarKpi = kpi.editable && isAdmin && isEditMode;
                         return (
@@ -958,6 +963,17 @@ export default function DashboardView({
                       misma solución del bloque móvil, que mete cuatro en
                       375px. A partir de `xl` vuelve la tarjeta horizontal
                       grande, exactamente como estaba. */}
+
+                  {/* Una tabla recortada por el techo de PostgREST se DICE: sus
+                      sumas serían parciales y aquí se toman decisiones de
+                      dinero sobre ellas. */}
+                  {datosParciales?.length > 0 && (
+                    <div className="mb-4 p-3 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 flex items-start gap-2 text-xs font-semibold text-mm-oro-tinta dark:text-mm-oro-claro">
+                      <AlertTriangle size={15} className="flex-shrink-0 mt-px" />
+                      <span>{t('dash.datosParciales')} ({datosParciales.join(', ')})</span>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-4 gap-2 xl:gap-5">
 
                     {/* Proyectos en portafolio */}
@@ -1025,7 +1041,7 @@ export default function DashboardView({
                           /* `title` con el importe completo: "$250.0K" esconde
                              hasta $99 de diferencia, y en un panel de capital
                              la cifra exacta debe estar siempre a un hover. */
-                          <p title={montoExacto(capitalTotal, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
+                          <p title={`${montoExacto(capitalTotal, locale)} · ${t('dash.capitalComprometido')}: ${montoExacto(capitalComprometido, locale)}`} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
                             {cifrasNoFiables ? '–' : montoCorto(capitalTotal, locale)}
                           </p>
                         )}
@@ -1070,22 +1086,27 @@ export default function DashboardView({
                       </div>
                     </div>
 
-                    {/* Egresos totales — suma de las inversiones registradas */}
+                    {/* Egresos ejecutados — suma REAL de `gastos`.
+                        Debajo, las aportaciones recibidas: son el otro lado del
+                        movimiento y juntas explican la liquidez. Nunca se
+                        presentan como la misma cifra. */}
                     <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
                       <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <Wallet size={18} className="text-mm-oro" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] text-slate-400 dark:text-zinc-300 font-bold tracking-wide mb-1 truncate">{t('dash.egresosTotales')}</p>
-                        <p title={montoExacto(egresosTotales, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
-                          {cifrasNoFiables ? '–' : montoCorto(egresosTotales, locale)}
+                        <p className="text-[11px] text-slate-400 dark:text-zinc-300 font-bold tracking-wide mb-1 truncate">{t('dash.egresosEjecutados')}</p>
+                        <p title={montoExacto(egresosEjecutados, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
+                          {cifrasNoFiables ? '–' : montoCorto(egresosEjecutados, locale)}
                         </p>
                         <button
                           onClick={() => changeView('investors')}
-                          title={t('dash.egresosAutoTooltip')}
+                          title={`${t('dash.aportacionesRecibidas')}: ${montoExacto(aportacionesRecibidas, locale)} · ${t('dash.liquidez')}: ${montoExacto(liquidezDisponible, locale)}`}
                           className="text-slate-400 dark:text-zinc-300 text-[11px] font-medium flex items-center gap-1 mt-1.5 truncate hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors"
                         >
-                          {t('dash.egresosAuto')}
+                          {cifrasNoFiables
+                            ? t('dash.egresosAuto')
+                            : `${t('dash.aportacionesRecibidas')}: ${montoCorto(aportacionesRecibidas, locale)}`}
                         </button>
                       </div>
                     </div>

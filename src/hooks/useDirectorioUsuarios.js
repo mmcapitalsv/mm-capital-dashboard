@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient';
 import { tituloCase } from '../lib/formato';
+import { leerTablaCompleta } from '../lib/supabasePaginado';
 
 /**
  * Directorio { id -> nombre } de las personas registradas.
@@ -26,23 +26,23 @@ export function olvidarDirectorio() {
 
 function pedirDirectorio() {
   if (!cachePromesa) {
-    cachePromesa = supabase
-      .from('usuarios')
-      .select('id, nombre_completo, email')
-      .then(({ data, error }) => {
-        if (error) {
-          // Un fallo no se cachea: la siguiente vista vuelve a intentarlo.
-          cachePromesa = null;
-          console.warn('No se pudo leer el directorio de usuarios:', error.message);
-          return {};
-        }
+    // Paginado con conteo exacto: pasadas las 1,000 fichas, PostgREST recorta
+    // sin avisar y los archivos de quien quedara fuera saldrían sin firma.
+    cachePromesa = leerTablaCompleta('usuarios', 'id, nombre_completo, email')
+      .then(({ filas }) => {
         const mapa = {};
-        for (const u of (data || [])) {
+        for (const u of filas) {
           if (!u?.id) continue;
           mapa[String(u.id)] = tituloCase(u.nombre_completo) || (u.email || '').split('@')[0] || '';
         }
         cacheDirectorio = mapa;
         return mapa;
+      })
+      .catch((err) => {
+        // Un fallo no se cachea: la siguiente vista vuelve a intentarlo.
+        cachePromesa = null;
+        console.warn('No se pudo leer el directorio de usuarios:', err?.message || err);
+        return {};
       });
   }
   return cachePromesa;
