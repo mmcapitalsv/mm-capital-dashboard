@@ -43,35 +43,32 @@ export const CHECKLIST_SEEDS = {
   ]
 };
 
-// Tras ejecutar la migración, los proyectos pasan a tener UUID real y ya no
-// coinciden con las claves '1','2','3'. Este índice por nombre permite que la
-// plantilla siga apareciendo para que el administrador la guarde de una vez.
-const SEEDS_POR_NOMBRE = {
-  'proyecto san martin': '1',
-  'proyecto chalchuapa': '2',
-  'proyecto san juan opico': '3'
-};
+/* ── Por qué YA NO se busca por nombre ──────────────────────────────────────
+   Aquí había un índice `SEEDS_POR_NOMBRE` que asociaba 'proyecto chalchuapa'
+   a la semilla '2', etc. La intención era buena —tras la migración a UUID las
+   claves '1','2','3' dejaron de coincidir y la plantilla desaparecía—, pero el
+   efecto era grave: un proyecto REAL de Supabase, con su UUID y sin ningún
+   hito registrado, heredaba una lista con `done: true` escritos a mano solo
+   por llamarse igual. De ahí salían el % de avance de obra, el estado
+   (Planificación / En progreso / Finalizado) y el KPI "Avance promedio" del
+   panel. Cifras inventadas, indistinguibles de las reales, exactamente el
+   mismo problema por el que se eliminaron los proyectos de ejemplo.
 
-function normalizar(texto) {
-  return String(texto || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .trim();
-}
+   Peor todavía: bastaba renombrar un proyecto nuevo como uno viejo para que
+   se le colara el avance del viejo.
+
+   Ahora la coincidencia es ÚNICAMENTE por id exacto. Como las claves son
+   '1','2','3', en la práctica solo responde a los proyectos de demostración
+   sin UUID. Un proyecto real sin hitos devuelve lista vacía, y entonces cada
+   consumidor hace lo correcto: el panel cae a `proyectos.porcentaje_avance`
+   (el dato guardado) y la ficha muestra su checklist vacío. */
 
 /**
- * Devuelve una copia segura de la checklist semilla (nunca null).
- * Busca primero por id y, si no hay coincidencia, por nombre del proyecto.
+ * Copia segura de la checklist semilla (nunca null).
+ * SOLO por id exacto: ver la nota de arriba.
  */
-export function getChecklistSeed(proyectoId, nombreProyecto) {
-  let seed = CHECKLIST_SEEDS[String(proyectoId ?? '')];
-
-  if (!Array.isArray(seed) && nombreProyecto) {
-    const clave = SEEDS_POR_NOMBRE[normalizar(nombreProyecto)];
-    if (clave) seed = CHECKLIST_SEEDS[clave];
-  }
-
+export function getChecklistSeed(proyectoId) {
+  const seed = CHECKLIST_SEEDS[String(proyectoId ?? '')];
   if (!Array.isArray(seed)) return [];
   return seed.map((item) => ({ ...item }));
 }

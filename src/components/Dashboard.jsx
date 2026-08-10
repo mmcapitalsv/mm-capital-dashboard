@@ -8,6 +8,7 @@ import NombreAjustado from './ui/NombreAjustado';
 import { VideoBackground } from './ui/VideoBackground';
 import { HyperText } from './ui/hyper-text';
 import AvatarUsuario from './ui/AvatarUsuario';
+import PortadaProyecto from './ui/PortadaProyecto';
 import { useChat } from '../context/ChatContext';
 import { motion } from 'framer-motion';
 
@@ -1397,13 +1398,13 @@ function AllProjectsView({
                     Proyecto Destacado del panel: mismo control en móvil y en
                     escritorio, siempre visible (nada de hover). */}
                 <div className="relative w-full h-36 rounded-xl overflow-hidden mb-4 bg-slate-100 dark:bg-zinc-700">
-                  {p.imagen_url ? (
-                    <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Building2 size={36} className="text-slate-300 dark:text-zinc-200" />
-                    </div>
-                  )}
+                  <PortadaProyecto
+                    url={p.imagen_url}
+                    alt={p.nombre}
+                    claseImg="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    tamanoIcono={36}
+                    claseIcono="text-slate-300 dark:text-zinc-200"
+                  />
                   {puedeEditar && typeof onCambiarPortada === 'function' && (
                     <label
                       htmlFor={ID_INPUT_PORTADA}
@@ -3171,6 +3172,14 @@ export default function Dashboard({ user, onLogout }) {
   // el segundo la suma de TODAS las inversiones registradas.
   const totalCapital = capitalTotal;
 
+  /* ── Cuándo NO se puede enseñar una cifra ────────────────────────────────
+     Con `errorCarga` las colecciones quedan vacías a propósito (ver el `catch`
+     de useProyectos), así que todos los agregados valen 0. Pintar "$0" ahí
+     sería sustituir un fallo de lectura por un dato falso — que es justo lo
+     que se acaba de corregir aguas arriba. Los KPI muestran "–", igual que
+     mientras cargan, y el aviso de error explica el porqué. */
+  const cifrasNoFiables = loading || !!errorCarga;
+
   // Avance FÍSICO promedio: promedio del % de checklist real de cada proyecto (Supabase)
   const avanceProm = Array.isArray(proyectos) && proyectos.length > 0
     ? (proyectos.reduce((s, p) => s + (Number(p?.avanceFisico) || 0), 0) / proyectos.length).toFixed(0)
@@ -4055,14 +4064,14 @@ export default function Dashboard({ user, onLogout }) {
                         partir la rejilla. */}
                     <div className="grid grid-cols-4 gap-1.5 mt-2">
                       {[
-                        { icono: Building2, valor: loading ? '–' : String(PROJECTS.length), etiqueta: t('dash.proyectosActivos') },
+                        { icono: Building2, valor: cifrasNoFiables ? '–' : String(PROJECTS.length), etiqueta: t('dash.proyectosActivos') },
                         // El Capital Total es la ÚNICA cifra escrita a mano de
                         // este bloque, así que es la única con lápiz.
-                        { icono: DollarSign, valor: loading ? '–' : montoCorto(totalCapital, locale), exacto: montoExacto(totalCapital, locale), etiqueta: t('dash.capitalTotal'), editable: true },
-                        { icono: TrendingUp, valor: loading ? '–' : `${avanceProm}%`, etiqueta: t('dash.avancePromedioMin') },
+                        { icono: DollarSign, valor: cifrasNoFiables ? '–' : montoCorto(totalCapital, locale), exacto: montoExacto(totalCapital, locale), etiqueta: t('dash.capitalTotal'), editable: true },
+                        { icono: TrendingUp, valor: cifrasNoFiables ? '–' : `${avanceProm}%`, etiqueta: t('dash.avancePromedioMin') },
                         // Mismo dato que el KPI 4 del escritorio: la suma de
                         // TODAS las inversiones registradas, no el gasto del mes.
-                        { icono: Wallet, valor: loading ? '–' : montoCorto(egresosTotales, locale), exacto: montoExacto(egresosTotales, locale), etiqueta: t('dash.egresosTotales') }
+                        { icono: Wallet, valor: cifrasNoFiables ? '–' : montoCorto(egresosTotales, locale), exacto: montoExacto(egresosTotales, locale), etiqueta: t('dash.egresosTotales') }
                       ].map((kpi, i) => {
                         const puedeEditarKpi = kpi.editable && isAdmin && isEditMode;
                         return (
@@ -4217,13 +4226,14 @@ export default function Dashboard({ user, onLogout }) {
                                       estrecha, y una foto de terreno en formato
                                       vertical no se lee. */}
                                   <div className="w-[46%] flex-shrink-0 rounded-2xl overflow-hidden bg-slate-100 dark:bg-zinc-700 mt-7 relative">
-                                    {p.imagen_url ? (
-                                      <img src={p.imagen_url} alt={p.nombre} className="absolute inset-0 w-full h-full object-cover" />
-                                    ) : (
-                                      <div className="absolute inset-0 flex items-center justify-center">
-                                        <Building2 size={30} className="text-slate-300 dark:text-zinc-300" />
-                                      </div>
-                                    )}
+                                    <PortadaProyecto
+                                      url={p.imagen_url}
+                                      alt={p.nombre}
+                                      claseImg="absolute inset-0 w-full h-full object-cover"
+                                      claseRespaldo="absolute inset-0"
+                                      tamanoIcono={30}
+                                      claseIcono="text-slate-300 dark:text-zinc-300"
+                                    />
                                     {/* Cambiar la portada DESDE EL TELÉFONO. Sin hover
                                         que valga: con el Modo Edición encendido el
                                         control está siempre a la vista y es tocable.
@@ -4571,7 +4581,7 @@ export default function Dashboard({ user, onLogout }) {
                         {/* Sin `|| 3`: cero proyectos es una respuesta válida
                             y hay que mostrarla, no inventar un tres. */}
                         <p className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
-                          {loading ? '–' : PROJECTS.length}
+                          {cifrasNoFiables ? '–' : PROJECTS.length}
                         </p>
                         <p className="text-slate-400 dark:text-zinc-300 text-[11px] font-medium flex items-center gap-1 mt-1.5 truncate">{t('dash.enPortafolio')}</p>
                       </div>
@@ -4627,7 +4637,7 @@ export default function Dashboard({ user, onLogout }) {
                              hasta $99 de diferencia, y en un panel de capital
                              la cifra exacta debe estar siempre a un hover. */
                           <p title={montoExacto(capitalTotal, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
-                            {loading ? '–' : montoCorto(capitalTotal, locale)}
+                            {cifrasNoFiables ? '–' : montoCorto(capitalTotal, locale)}
                           </p>
                         )}
 
@@ -4665,7 +4675,7 @@ export default function Dashboard({ user, onLogout }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-[11px] text-slate-400 dark:text-zinc-300 font-bold tracking-wide mb-1 truncate">{t('dash.avancePromedio')}</p>
                         <p className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
-                          {loading ? '–' : `${avanceProm}%`}
+                          {cifrasNoFiables ? '–' : `${avanceProm}%`}
                         </p>
                         <p className="text-slate-400 dark:text-zinc-300 text-[11px] font-medium flex items-center gap-1 mt-1.5 truncate">{t('dash.avanceSufijo')}</p>
                       </div>
@@ -4679,7 +4689,7 @@ export default function Dashboard({ user, onLogout }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-[11px] text-slate-400 dark:text-zinc-300 font-bold tracking-wide mb-1 truncate">{t('dash.egresosTotales')}</p>
                         <p title={montoExacto(egresosTotales, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
-                          {loading ? '–' : montoCorto(egresosTotales, locale)}
+                          {cifrasNoFiables ? '–' : montoCorto(egresosTotales, locale)}
                         </p>
                         <button
                           onClick={() => changeView('investors')}
@@ -4832,17 +4842,12 @@ export default function Dashboard({ user, onLogout }) {
                                donde vuelve a ser la columna del 46%. */
                             className="w-full max-w-[520px] mx-auto max-h-[240px] xl:max-w-none xl:mx-0 xl:max-h-none xl:w-[46%] xl:min-w-[210px] xl:self-stretch min-h-[220px] rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer group bg-slate-100 dark:bg-zinc-700 relative shadow-sm"
                           >
-                            {fp.imagen_url ? (
-                              <img
-                                src={fp.imagen_url}
-                                alt={fp.nombre}
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <Building2 size={44} className="text-slate-300 dark:text-zinc-500" />
-                              </div>
-                            )}
+                            <PortadaProyecto
+                              url={fp.imagen_url}
+                              alt={fp.nombre}
+                              claseImg="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                              tamanoIcono={44}
+                            />
                             {/* Cambiar la portada del proyecto: sube a Storage y
                                 actualiza proyectos.imagen_url */}
                             {isEditMode && (

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
-import { getChecklistSeed } from '../data/checklistSeeds';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 import { montoCorto } from '../lib/formato';
 
@@ -63,76 +62,59 @@ export function useProyectos(user) {
         }
       }
 
-      // 2. Fetch Projects from Supabase
-      const { data: proyectosData, error: proyectosError } = await supabase
-        .from('proyectos')
-        .select('*');
+      /* ── Lecturas del portafolio ──────────────────────────────────────────
+         Un error de lectura NO se traga. Antes, `gastos`, `hitos`, `archivos`
+         y `aportaciones` fallaban en silencio y se quedaban en `[]`:
+         consecuencia práctica, si RLS bloqueaba `aportaciones` o se caía la
+         red a media carga, el panel anunciaba "Egresos totales: $0" con toda
+         naturalidad. Un cero por fallo de lectura es indistinguible de un cero
+         real, y sobre esa cifra se toman decisiones de dinero.
 
-      /* Sin proyectos NO se inventan proyectos: la lista queda vacía y la
-         interfaz dice que está vacía. Antes se caía a tres proyectos de ejemplo
-         con montos que parecían reales, indistinguibles de los verdaderos. */
-      if (proyectosError) {
-        console.error('Error al leer proyectos:', proyectosError);
-        setErrorCarga(proyectosError.message || 'No se pudieron leer los proyectos.');
-        setProyectos([]);
-      } else {
-        setErrorCarga(null);
-        setProyectos(Array.isArray(proyectosData) ? proyectosData : []);
-      }
+         Ahora cada error se recoge y se lanza: la interfaz enseña el aviso de
+         fallo en lugar de un dato falso. Es la misma regla que ya se aplicaba
+         a `proyectos` y la razón por la que se eliminaron los proyectos de
+         ejemplo. */
+      const leer = async (tabla, columnas = '*') => {
+        const { data, error } = await supabase.from(tabla).select(columnas);
+        if (error) {
+          throw new Error(`No se pudo leer «${tabla}»: ${error.message || 'error desconocido'}`);
+        }
+        return Array.isArray(data) ? data : [];
+      };
 
-      // 3. Fetch Gastos from Supabase
-      const { data: gastosData, error: gastosError } = await supabase
-        .from('gastos')
-        .select('*');
+      const [
+        proyectosData, gastosData, hitosData, archivosData, aportacionesData, capital
+      ] = await Promise.all([
+        leer('proyectos'),
+        leer('gastos'),
+        leer('checklist_hitos'),
+        leer('archivos'),
+        leer('aportaciones', 'id, usuario_id, proyecto_id, monto, fecha, nota'),
+        // El capital configurable ya devuelve su propio fallo controlado
+        getCapitalTotal()
+      ]);
 
-      if (!gastosError && Array.isArray(gastosData)) {
-        setGastos(gastosData);
-      } else {
-        setGastos([]);
-      }
-
-      // 4. Fetch Hitos from Supabase
-      const { data: hitosData, error: hitosError } = await supabase
-        .from('checklist_hitos')
-        .select('*');
-
-      if (!hitosError && Array.isArray(hitosData)) {
-        setHitos(hitosData);
-      } else {
-        setHitos([]);
-      }
-
-      // 5. Fetch Archivos from Supabase
-      const { data: archivosData, error: archivosError } = await supabase
-        .from('archivos')
-        .select('*');
-
-      if (!archivosError && Array.isArray(archivosData)) {
-        setArchivos(archivosData);
-      } else {
-        setArchivos([]);
-      }
-
-      // 6. Aportaciones (Inversionistas) -> egresos totales del portafolio
-      const { data: aportacionesData, error: aportacionesError } = await supabase
-        .from('aportaciones')
-        .select('id, usuario_id, proyecto_id, monto, fecha, nota');
-
-      if (!aportacionesError && Array.isArray(aportacionesData)) {
-        setAportaciones(aportacionesData);
-      } else {
-        setAportaciones([]);
-      }
-
-      // 7. Capital total configurable (tabla `configuracion`, migración 005)
-      const { monto } = await getCapitalTotal();
-      setCapitalConfigurado(Number.isFinite(monto) ? monto : null);
+      setErrorCarga(null);
+      setProyectos(proyectosData);
+      setGastos(gastosData);
+      setHitos(hitosData);
+      setArchivos(archivosData);
+      setAportaciones(aportacionesData);
+      setCapitalConfigurado(Number.isFinite(capital?.monto) ? capital.monto : null);
 
     } catch (error) {
       console.error("Error fetching data from Supabase:", error);
-      // Un fallo se dice, no se disimula con datos de ejemplo.
+      /* Un fallo se dice, no se disimula. Y se vacía TODO, no solo los
+         proyectos: dejar las colecciones anteriores en pie mientras se muestra
+         un aviso de error produce lo peor de los dos mundos — cifras viejas
+         con pinta de vigentes junto a un cartel rojo. */
       setErrorCarga(error?.message || 'No se pudo conectar con la base de datos.');
       setProyectos([]);
+      setGastos([]);
+      setHitos([]);
+      setArchivos([]);
+      setAportaciones([]);
+      setCapitalConfigurado(null);
     } finally {
       setLoading(false);
     }
@@ -202,8 +184,16 @@ export function useProyectos(user) {
     } else if (Array.isArray(proyecto.checklist) && proyecto.checklist.length > 0) {
       checklistFinal = proyecto.checklist.map((h, i) => normalizeHito(h, i)).filter(Boolean);
     } else {
-      checklistFinal = getChecklistSeed(pIdStr, proyecto.nombre || proyecto.title).map((h, i) => normalizeHito(h, i)).filter(Boolean);
+      /* SIN semilla. El panel resume el portafolio entero: aquí una plantilla
+         de ejemplo no es una sugerencia, es una mentira que se propaga al
+         avance de obra, al estado del proyecto y al KPI "Avance promedio".
+         La plantilla sigue existiendo, pero solo en la ficha del proyecto,
+         donde se muestra rotulada como "plantilla inicial" y el administrador
+         decide si la guarda. Ver la nota en data/checklistSeeds.js. */
+      checklistFinal = [];
     }
+    /* Sin hitos reales manda el dato GUARDADO en la fila, no una estimación:
+       `porcentaje_avance` es lo último que alguien escribió a conciencia. */
     const avanceFisico = checklistFinal.length > 0
       ? calcularAvance(checklistFinal)
       : Math.round(Number(proyecto.porcentaje_avance) || 0);

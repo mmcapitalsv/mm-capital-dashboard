@@ -246,7 +246,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
         setChecklist(items);
         setChecklistPersistido(true);
       } else {
-        setChecklist(getChecklistSeed(project.id, project.nombre || project.title)
+        setChecklist(getChecklistSeed(project.id)
           .map((item, i) => ({ ...item, text: sinNumeracion(item.text), id: null, orden: i })));
         setChecklistPersistido(false);
       }
@@ -254,7 +254,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
       setHitosPorEliminar([]);
     } catch (err) {
       console.error('Error cargando el checklist desde Supabase:', err);
-      setChecklist(getChecklistSeed(project?.id, project?.nombre || project?.title)
+      setChecklist(getChecklistSeed(project?.id)
         .map((item, i) => ({ ...item, text: sinNumeracion(item.text), id: null, orden: i })));
       setChecklistPersistido(false);
     } finally {
