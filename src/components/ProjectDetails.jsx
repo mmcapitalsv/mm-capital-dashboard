@@ -33,6 +33,7 @@ import { getChecklistSeed } from '../data/checklistSeeds';
 import { puedeEditarHitos } from '../lib/perfilUsuario';
 import { analizarComprobante } from '../services/geminiService';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { aNumeroSeguro, sumarDinero, porcentajeEntero } from '../lib/numeros';
 
 // Se guarda la CLAVE de traducción, no el texto: la etiqueta se resuelve en
 // cada render para que el cambio de idioma se refleje al instante.
@@ -1431,7 +1432,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   };
 
   // Cálculos derivados: reaccionan a cada tecla mientras se edita
-  const totalBudget = Number(finanzas.presupuesto) || 0;
+  const totalBudget = aNumeroSeguro(finanzas.presupuesto);
 
   /* Costo ejecutado DINÁMICO, con sus tres orígenes sumados:
        · `totalFacturas` — suma de `gastos.monto`; `facturas` se recarga tras
@@ -1443,7 +1444,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
        · `ajusteManual`  — la corrección escrita a mano en la tarjeta. */
   const totalFacturas = sumarGastos(facturas);
   const totalHitos = sumarValoresCompletados(safeChecklist);
-  const ajusteManual = Number(finanzas.ajusteManual) || 0;
+  const ajusteManual = aNumeroSeguro(finanzas.ajusteManual);
   const totalSpent = componerCostoEjecutado({
     facturas: totalFacturas, hitos: totalHitos, ajuste: ajusteManual
   });
@@ -1471,9 +1472,11 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
   /* Capital inyectado: suma REAL de las aportaciones registradas para este
      proyecto en la sección de Inversionistas. Nunca es una cifra escrita a
      mano: si se registra o corrige una aportación, esto se mueve solo. */
-  const capitalInyectado = (Array.isArray(aportaciones) ? aportaciones : [])
-    .filter(a => String(a?.proyecto_id ?? '') === String(project?.id ?? ''))
-    .reduce((suma, a) => suma + (Number(a?.monto) || 0), 0);
+  const capitalInyectado = sumarDinero(
+    (Array.isArray(aportaciones) ? aportaciones : [])
+      .filter(a => String(a?.proyecto_id ?? '') === String(project?.id ?? '')),
+    a => a?.monto
+  );
 
   /* Estado del proyecto: NO es texto fijo, sale del % de hitos completados.
      0% = Planificación · 1–99% = En progreso · 100% = Finalizado. */
@@ -2134,7 +2137,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                   nunca sea una caja negra. */}
               <TarjetaMonto
                 etiqueta={t('fin.costoEjecutado')}
-                pie={`${Math.round((totalSpent / (totalBudget || 1)) * 100)}% ${t('fin.presupuestoEjecutado')}`}
+                pie={`${porcentajeEntero(totalSpent, totalBudget)}% ${t('fin.presupuestoEjecutado')}`}
                 valor={totalSpent}
                 editando={modoEdicionFinanzas}
                 onChange={handleCostoEjecutadoManual}
@@ -2268,7 +2271,7 @@ export default function ProjectDetails({ project, onBack, userRole, isEditMode, 
                     {t('fin.gastosPorMes')}
                   </p>
                   <span className="text-xs font-black text-slate-900 dark:text-white">
-                    {formatearMoneda(gastosPorMes.reduce((s, m) => s + m.total, 0))}
+                    {formatearMoneda(sumarDinero(gastosPorMes, m => m?.total))}
                   </span>
                 </div>
                 <div className="h-56 w-full">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { usePrefs } from '../../context/PreferenciasContext';
 import { montoCorto, montoExacto } from '../../lib/formato';
+import { aNumeroSeguro } from '../../lib/numeros';
 
 /**
  * Las DOS métricas de un proyecto, presentadas por separado.
@@ -25,7 +26,7 @@ import { montoCorto, montoExacto } from '../../lib/formato';
 
 /** Grado de salud del gasto: por debajo del 75% va holgado; el 100% es sobregiro. */
 export function gradoFinanciero(porcentaje) {
-  const p = Number(porcentaje) || 0;
+  const p = aNumeroSeguro(porcentaje);
   if (p > 100) return 'sobregiro';
   if (p >= 75) return 'ajustado';
   return 'holgado';
@@ -45,9 +46,9 @@ const TONO_FINANCIERO = {
 export function BarraMetrica({
   etiqueta, porcentaje, colorBarra, colorTexto, detalle, tituloDetalle, compacta = false
 }) {
-  const pct = Math.max(0, Math.min(100, Math.round(Number(porcentaje) || 0)));
+  const pct = Math.max(0, Math.min(100, Math.round(aNumeroSeguro(porcentaje))));
   // El valor real puede pasar de 100 (sobregiro); la barra se llena, el número no miente
-  const real = Math.round(Number(porcentaje) || 0);
+  const real = Math.round(aNumeroSeguro(porcentaje));
 
   return (
     <div className="min-w-0">
@@ -80,8 +81,8 @@ export function BarraMetrica({
 /** Avance de obra: hitos completados del checklist. Siempre en dorado de marca. */
 export function AvanceObra({ proyecto, compacta = false }) {
   const { t } = usePrefs();
-  const hechos = Number(proyecto?.hitosCompletados) || 0;
-  const total = Number(proyecto?.hitosTotales) || 0;
+  const hechos = aNumeroSeguro(proyecto?.hitosCompletados);
+  const total = aNumeroSeguro(proyecto?.hitosTotales);
 
   return (
     <BarraMetrica
@@ -101,9 +102,9 @@ export function AvanceObra({ proyecto, compacta = false }) {
  */
 export function EjecucionFinanciera({ proyecto, compacta = false }) {
   const { t, locale } = usePrefs();
-  const gastado = Number(proyecto?.totalGastado) || 0;
-  const presupuesto = Number(proyecto?.presupuesto_total) || 0;
-  const pct = Number(proyecto?.porcentajeGastado) || 0;
+  const gastado = aNumeroSeguro(proyecto?.totalGastado);
+  const presupuesto = aNumeroSeguro(proyecto?.presupuesto_total);
+  const pct = aNumeroSeguro(proyecto?.porcentajeGastado);
   const tono = TONO_FINANCIERO[gradoFinanciero(pct)];
 
   return (

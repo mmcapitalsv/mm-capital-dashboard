@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { redondearDinero, sumarDinero, porcentajeEntero } from '../lib/numeros';
 
 /**
  * Servicio de persistencia real del checklist de obra en Supabase.
@@ -192,10 +193,7 @@ export function normalizeHito(row, index = 0) {
 
 /** Lo que el usuario escribió en la casilla de dinero -> número no negativo. */
 export function aMonto(valor) {
-  if (valor === '' || valor === null || valor === undefined) return 0;
-  const n = Number(String(valor).replace(/[^\d.-]/g, ''));
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.round(n * 100) / 100);
+  return Math.max(0, redondearDinero(valor));
 }
 
 /**
@@ -206,12 +204,9 @@ export function aMonto(valor) {
  * que la cifra nunca se desincroniza aunque se marque y desmarque mil veces.
  */
 export function sumarValoresCompletados(items) {
-  if (!Array.isArray(items)) return 0;
-  const total = items.reduce(
-    (s, i) => s + (i && (i.done === true || i.estado === 'completado') ? aMonto(i.valor ?? i.valor_asociado) : 0),
-    0
+  return sumarDinero(items, (i) =>
+    i && (i.done === true || i.estado === 'completado') ? aMonto(i.valor ?? i.valor_asociado) : 0
   );
-  return Math.round(total * 100) / 100;
 }
 
 /**
@@ -251,7 +246,7 @@ function sortHitos(rows) {
 export function calcularAvance(items) {
   if (!Array.isArray(items) || items.length === 0) return 0;
   const completados = items.filter((i) => i && (i.done === true || i.estado === 'completado')).length;
-  return Math.round((completados / items.length) * 100);
+  return porcentajeEntero(completados, items.length, { limitar: true });
 }
 
 /* ───────────────────────────────── Lectura ────────────────────────────────── */

@@ -89,6 +89,7 @@ import { formatoArchivo, claveFormato, ACEPTA_BOVEDA } from '../lib/archivos';
 import InputMonto from './ui/InputMonto';
 import MetricasProyecto, { EjecucionFinanciera } from './ui/MetricasProyecto';
 import { montoCorto, montoExacto } from '../lib/formato';
+import { aNumeroSeguro, promedioSeguro } from '../lib/numeros';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 
 /* Colores de las gráficas. Recharts pinta con atributos SVG, no con clases de
@@ -3181,16 +3182,14 @@ export default function Dashboard({ user, onLogout }) {
   const cifrasNoFiables = loading || !!errorCarga;
 
   // Avance FÍSICO promedio: promedio del % de checklist real de cada proyecto (Supabase)
-  const avanceProm = Array.isArray(proyectos) && proyectos.length > 0
-    ? (proyectos.reduce((s, p) => s + (Number(p?.avanceFisico) || 0), 0) / proyectos.length).toFixed(0)
-    : 0;
+  const avanceProm = promedioSeguro(proyectos, p => p?.avanceFisico).toFixed(0);
 
   // Avance físico del proyecto activo del carrusel (0-100), blindado contra nulos
   const avanceProyectoActivo = fp
-    ? Math.max(0, Math.min(100, Math.round(Number(fp.avanceFisico) || 0)))
+    ? Math.max(0, Math.min(100, Math.round(aNumeroSeguro(fp.avanceFisico))))
     : 0;
-  const hitosHechos = Number(fp?.hitosCompletados) || 0;
-  const hitosTotales = Number(fp?.hitosTotales) || 0;
+  const hitosHechos = aNumeroSeguro(fp?.hitosCompletados);
+  const hitosTotales = aNumeroSeguro(fp?.hitosTotales);
 
   /* ── Proyecto visible en el carrusel táctil móvil ────────────────────────
      No se mezcla con `featuredIndex` (que rota solo cada 6 s en escritorio):
@@ -3200,22 +3199,22 @@ export default function Dashboard({ user, onLogout }) {
     : 0;
   const fpMovil = PROJECTS[indiceMovilSeguro] || null;
   const avanceMovil = fpMovil
-    ? Math.max(0, Math.min(100, Math.round(Number(fpMovil.avanceFisico) || 0)))
+    ? Math.max(0, Math.min(100, Math.round(aNumeroSeguro(fpMovil.avanceFisico))))
     : 0;
-  const hitosHechosMovil = Number(fpMovil?.hitosCompletados) || 0;
-  const hitosTotalesMovil = Number(fpMovil?.hitosTotales) || 0;
+  const hitosHechosMovil = aNumeroSeguro(fpMovil?.hitosCompletados);
+  const hitosTotalesMovil = aNumeroSeguro(fpMovil?.hitosTotales);
   /* Ejecución financiera del proyecto centrado. Se lee de `porcentajeGastado`,
      la MISMA fuente que usa la barra verde de la tarjeta: si se recalculara
      aquí a mano, el anillo y la barra podrían acabar diciendo cifras distintas
      del mismo dato. */
   const pctFinancieroMovil = fpMovil
-    ? Math.max(0, Math.min(100, Math.round(Number(fpMovil.porcentajeGastado) || 0)))
+    ? Math.max(0, Math.min(100, Math.round(aNumeroSeguro(fpMovil.porcentajeGastado))))
     : 0;
 
   /* Lo mismo para el proyecto del carrusel de escritorio, que rota por su
      cuenta cada 6 s y no tiene por qué coincidir con el del móvil. */
   const pctFinancieroActivo = fp
-    ? Math.max(0, Math.min(100, Math.round(Number(fp.porcentajeGastado) || 0)))
+    ? Math.max(0, Math.min(100, Math.round(aNumeroSeguro(fp.porcentajeGastado))))
     : 0;
 
   /* ── Bucle del carrusel táctil ─────────────────────────────────────────────
@@ -3277,7 +3276,7 @@ export default function Dashboard({ user, onLogout }) {
   }, [isEditMode]);
 
   const abrirEdicionCapital = () => {
-    setCapitalBorrador(String(Math.round(Number(capitalTotal) || 0)));
+    setCapitalBorrador(String(Math.round(aNumeroSeguro(capitalTotal))));
     setCapitalMsg(null);
     setEditandoCapital(true);
   };

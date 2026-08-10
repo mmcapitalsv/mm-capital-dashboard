@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { esIdValidoDeSupabase } from './storageService';
+import { aNumeroSeguro, redondearDinero, sumarDinero } from '../lib/numeros';
 
 /**
  * Edición de las cifras financieras del proyecto.
@@ -31,12 +32,8 @@ function faltaAjusteManual(error) {
 
 /** Convierte lo que el usuario escribió a un número válido y no negativo. */
 export function aNumero(valor) {
-  if (valor === '' || valor === null || valor === undefined) return 0;
-  // Acepta "1,480,000" y "1480000.50"
-  const limpio = String(valor).replace(/[^\d.-]/g, '');
-  const n = Number(limpio);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, n);
+  // Acepta "1,480,000" y "1480000.50" (ver `aNumeroSeguro`).
+  return Math.max(0, aNumeroSeguro(valor));
 }
 
 /**
@@ -44,10 +41,7 @@ export function aNumero(valor) {
  * cuando el Administrador escribe un total menor que facturas + hitos.
  */
 export function aAjuste(valor) {
-  if (valor === '' || valor === null || valor === undefined) return 0;
-  const n = Number(String(valor).replace(/[^\d.-]/g, ''));
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100) / 100;
+  return redondearDinero(valor);
 }
 
 /**
@@ -57,7 +51,7 @@ export function aAjuste(valor) {
  */
 export function componerCostoEjecutado({ facturas = 0, hitos = 0, ajuste = 0 } = {}) {
   const total = aNumero(facturas) + aNumero(hitos) + aAjuste(ajuste);
-  return Math.max(0, Math.round(total * 100) / 100);
+  return Math.max(0, redondearDinero(total));
 }
 
 /**
@@ -335,7 +329,7 @@ export function agruparGastosPorMes(facturas, idioma = 'es') {
     if (!fecha) continue;
 
     const clave = `${fecha.getFullYear()}-${String(fecha.getMonth()).padStart(2, '0')}`;
-    const monto = Number(f.monto) || 0;
+    const monto = aNumeroSeguro(f.monto);
 
     const previo = acumulado.get(clave) || {
       clave,
@@ -353,7 +347,7 @@ export function agruparGastosPorMes(facturas, idioma = 'es') {
     .sort((a, b) => (a.anio - b.anio) || (a.mes - b.mes))
     .map(x => ({
       name: `${meses[x.mes]} ${String(x.anio).slice(2)}`,
-      total: Math.round(x.total * 100) / 100,
+      total: redondearDinero(x.total),
       cantidad: x.cantidad
     }));
 }
@@ -363,9 +357,7 @@ export function agruparGastosPorMes(facturas, idioma = 'es') {
  * Es el único origen del "Costo Ejecutado": no hay cifras de relleno.
  */
 export function sumarGastos(facturas) {
-  if (!Array.isArray(facturas)) return 0;
-  const total = facturas.reduce((s, f) => s + (Number(f?.monto) || 0), 0);
-  return Math.round(total * 100) / 100;
+  return sumarDinero(facturas, (f) => f?.monto);
 }
 
 /**

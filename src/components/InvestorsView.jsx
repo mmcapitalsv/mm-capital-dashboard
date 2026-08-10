@@ -12,6 +12,7 @@ import {
 import { supabase } from '../supabaseClient';
 import InputMonto from './ui/InputMonto';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { sumarDinero, porcentajeSeguro } from '../lib/numeros';
 
 const PALETA = ['#C5A059', '#0B1B2C', '#7C8DA6', '#8B6914'];
 
@@ -83,7 +84,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
     return () => { supabase.removeChannel(canal); };
   }, [cargar]);
 
-  const capitalGlobal = inversionistas.reduce((s, i) => s + (Number(i.total) || 0), 0);
+  const capitalGlobal = sumarDinero(inversionistas, i => i?.total);
 
   const avisar = (tipo, texto) => {
     setMensaje({ tipo, texto });
@@ -225,7 +226,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
           ) : inversionistas.map((inv, idx) => {
             const abierto = expandido === inv.id;
             const iniciales = (inv.nombre || '??').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
-            const pctPortafolio = capitalGlobal > 0 ? (inv.total / capitalGlobal) * 100 : 0;
+            const pctPortafolio = porcentajeSeguro(inv.total, capitalGlobal);
             const grupos = agruparPorProyecto(inv.aportaciones);
 
             return (
@@ -297,7 +298,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
                     <div className="space-y-2.5">
                       {grupos.map((g) => {
                         const proyecto = listaProyectos.find(p => String(p.id) === String(g.proyectoId));
-                        const pct = inv.total > 0 ? (g.total / inv.total) * 100 : 0;
+                        const pct = porcentajeSeguro(g.total, inv.total);
                         const claveDesglose = `${inv.id}:${g.proyectoId}`;
                         const desplegado = desglose === claveDesglose;
 

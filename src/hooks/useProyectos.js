@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 import { montoCorto } from '../lib/formato';
+import { aNumeroSeguro, redondearDinero, sumarDinero, porcentajeSeguro } from '../lib/numeros';
 
 /**
  * Estado del proyecto derivado del avance real de hitos.
@@ -10,7 +11,7 @@ import { montoCorto } from '../lib/formato';
  * Se devuelve el valor canónico que entiende `etiquetaEstado()`.
  */
 export function estadoPorAvance(porcentaje, totalHitos = 1) {
-  const pct = Math.max(0, Math.min(100, Math.round(Number(porcentaje) || 0)));
+  const pct = Math.max(0, Math.min(100, Math.round(aNumeroSeguro(porcentaje))));
   if (!totalHitos || pct === 0) return 'Planificación';
   if (pct >= 100) return 'Finalizado';
   return 'En progreso';
@@ -196,26 +197,35 @@ export function useProyectos(user) {
        `porcentaje_avance` es lo último que alguien escribió a conciencia. */
     const avanceFisico = checklistFinal.length > 0
       ? calcularAvance(checklistFinal)
-      : Math.round(Number(proyecto.porcentaje_avance) || 0);
+      : Math.round(aNumeroSeguro(proyecto.porcentaje_avance));
 
     const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
-    const gastosSumados = gastosProyecto.reduce((sum, g) => sum + (Number(g?.monto) || 0), 0);
+    const gastosSumados = sumarDinero(gastosProyecto, g => g?.monto);
     /* El costo ejecutado es DINÁMICO y se compone igual que en la ficha del
        proyecto: facturas reales + dinero de los hitos ya marcados + la
        corrección manual del Administrador. La columna `costo_ejecutado` guarda
        el total, pero aquí se recalcula para que el Dashboard no muestre una
        cifra vieja mientras el detalle muestra otra. */
     const valorHitosHechos = sumarValoresCompletados(checklistFinal);
-    const ajusteManual = Number(proyecto.ajuste_costo_manual) || 0;
+    const ajusteManual = aNumeroSeguro(proyecto.ajuste_costo_manual);
     const costoEjecutado = Math.max(
       0,
-      Math.round((gastosSumados + valorHitosHechos + ajusteManual) * 100) / 100
+      redondearDinero(gastosSumados + valorHitosHechos + ajusteManual)
     );
     const totalGastado = costoEjecutado;
-    const presupuestoTotal = Number(proyecto.presupuesto_total || proyecto.presupuesto || 0);
+    /* `??` y no `||`: un presupuesto guardado como 0 es una decisión del
+       Administrador ("aún no se asigna"), no un hueco que haya que rellenar
+       con el siguiente campo. */
+    const presupuestoTotal = aNumeroSeguro(proyecto.presupuesto_total ?? proyecto.presupuesto);
     const balance = presupuestoTotal - totalGastado;
-    const calcPct = presupuestoTotal > 0 ? (totalGastado / presupuestoTotal) * 100 : 0;
-    const porcentajeGastado = Number(proyecto.porcentajeGastado || proyecto.porcentaje_manual || calcPct);
+    /* División blindada: con presupuesto 0 el resultado es 0, NO "totalGastado
+       / 1" — que es lo que producía porcentajes como "500000%". */
+    const calcPct = porcentajeSeguro(totalGastado, presupuestoTotal);
+    /* Mismo motivo con `??`: 0% gastado es una cifra legítima y no debe caer al
+       siguiente candidato de la cadena. */
+    const porcentajeGastado = aNumeroSeguro(
+      proyecto.porcentajeGastado ?? proyecto.porcentaje_manual ?? calcPct
+    );
 
     const nombreFinal = proyecto.nombre || proyecto.title || 'Proyecto';
     const ubicacionFinal = proyecto.ubicacion || proyecto.location || '';
@@ -317,21 +327,17 @@ export function useProyectos(user) {
      Egresos totales = suma de TODAS las inversiones registradas en la sección
      de Inversionistas. Nunca es un número escrito a mano: si se agrega o se
      modifica una aportación, Realtime recarga y esta cifra cambia sola. */
-  const egresosTotales = safeAportaciones
-    .reduce((suma, a) => suma + (Number(a?.monto) || 0), 0);
+  const egresosTotales = sumarDinero(safeAportaciones, a => a?.monto);
 
   // Capital total: el valor editado por el Administrador manda; si nunca se
   // configuró, se cae a la suma de los presupuestos de los proyectos.
-  const capitalPresupuestado = proyectosConFinanzas
-    .reduce((suma, p) => suma + (Number(p?.presupuesto_total) || 0), 0);
+  const capitalPresupuestado = sumarDinero(proyectosConFinanzas, p => p?.presupuesto_total);
   const capitalTotal = Number.isFinite(capitalConfigurado) && capitalConfigurado !== null
     ? capitalConfigurado
     : capitalPresupuestado;
 
   const capitalDisponible = capitalTotal - egresosTotales;
-  const pctEjecutado = capitalTotal > 0
-    ? Math.min(100, Math.max(0, (egresosTotales / capitalTotal) * 100))
-    : 0;
+  const pctEjecutado = porcentajeSeguro(egresosTotales, capitalTotal, { limitar: true });
   const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
   /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
      vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
