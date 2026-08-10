@@ -33,19 +33,22 @@ export default function TubesCursor() {
   // This effect runs once when the component mounts
   useEffect(() => {
     /* El fondo animado cuesta 761 KB de three.js (210 KB comprimidos) y se
-       descarga antes de que nadie haya entrado.
+       descarga antes de que nadie haya entrado. El coste se asume: las luces
+       son la primera impresión de la marca y sin ellas la pantalla de acceso
+       queda plana.
 
-       Se llegó a desactivar en el teléfono para ahorrar esos datos, pero es
-       justamente donde más se valora: las luces son la primera impresión de
-       la marca y sin ellas la pantalla de acceso queda plana. Decisión
-       tomada a conciencia: el coste se asume.
+       Aquí había dos guardas —`prefers-reduced-motion` y `saveData`— que
+       apagaban el efecto ENTERO y en silencio. El problema práctico es que
+       ninguna de las dos avisa: en el equipo donde no salía el láser todo
+       parecía correcto (WebGL disponible, el módulo cargando, cero errores en
+       consola) y la pantalla se quedaba negra sin explicación. Basta con que
+       el equipo tenga desactivados los efectos de animación de Windows, o con
+       que una extensión encienda el ahorro de datos, para perder la portada.
 
-       Lo que sí se sigue respetando son las dos señales que el usuario pide
-       de forma explícita en su sistema — menos movimiento y ahorro de datos.
-       Esas no se ignoran nunca. */
-    const menosMovimiento = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const ahorroDatos = navigator.connection?.saveData === true;
-    if (menosMovimiento || ahorroDatos) return;
+       Decisión del dueño del producto: la portada se ve siempre. Lo que sí se
+       respeta es la señal del sistema DENTRO del panel, que es donde el
+       movimiento acompaña en vez de presentar — ahí `VideoBackground` sigue
+       honrando ambas preferencias. */
 
     // The error "Computed radius is NaN" suggests a race condition where the animation
     // library initializes before the canvas element has its final dimensions, leading

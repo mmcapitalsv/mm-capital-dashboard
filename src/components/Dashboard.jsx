@@ -3580,6 +3580,8 @@ export default function Dashboard({ user, onLogout }) {
             <div className="flex flex-col overflow-hidden min-w-0 flex-1">
               <NombreAjustado
                 texto={nombreUsuario}
+                descifrar
+                esperando={loading}
                 max={15}
                 min={8}
                 className="text-white font-bold tracking-tight leading-tight group-hover:text-mm-oro-tinta dark:group-hover:text-mm-oro-claro transition-colors"
@@ -3965,6 +3967,8 @@ export default function Dashboard({ user, onLogout }) {
                       que encogerlo si es larguísimo. */}
                   <NombreAjustado
                     texto={nombreUsuario}
+                    descifrar
+                    esperando={loading}
                     max={21}
                     min={14}
                     className="text-mm-oro-tinta dark:text-mm-oro-claro font-bold tracking-tight leading-tight mt-0.5"
@@ -4489,7 +4493,7 @@ export default function Dashboard({ user, onLogout }) {
                               `<span>` dorado que lo envuelve. */}
                           {t(saludo)}{' '}
                           <span className="text-mm-oro-tinta dark:text-mm-oro-claro">
-                            <HyperText text={nombreUsuario} esperando={loading} duration={900} />
+                            <HyperText text={nombreUsuario} esperando={loading} />
                           </span>
                         </h1>
                         <p className="text-slate-500 dark:text-zinc-200 text-sm mt-1 font-medium flex items-center gap-2">

@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
+import { HyperText } from './hyper-text';
 
 /**
  * Nombre que SIEMPRE cabe en UNA sola línea.
@@ -7,6 +8,15 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
  * el ancho disponible (sin pasar de `min`). Se recalcula cuando cambia el
  * texto o cuando el contenedor cambia de ancho, así se ve igual de bien con
  * "Ing. Luis Panameño" que con un nombre largo tipo "Ing. Juan Carlos Meléndez".
+ *
+ * ── `descifrar` ─────────────────────────────────────────────────────────────
+ * Con `descifrar`, el nombre entra con el efecto de HyperText en vez de
+ * aparecer de golpe. Las dos piezas conviven porque miden cosas distintas:
+ * HyperText deja EN EL FLUJO un molde invisible con el texto final y pinta las
+ * letras que bailan encima, en absoluto. Lo que esta medición ve es siempre el
+ * molde —el nombre ya resuelto—, así que el tamaño de letra se calcula una vez
+ * y no se mueve mientras dura la animación. Al revés no funcionaría: midiendo
+ * el revoltijo, cada fotograma daría un ancho distinto y la letra temblaría.
  */
 export default function NombreAjustado({
   texto,
@@ -14,6 +24,8 @@ export default function NombreAjustado({
   min = 11,
   className = '',
   style,
+  descifrar = false,
+  esperando = false,
   ...rest
 }) {
   const ref = useRef(null);
@@ -58,7 +70,7 @@ export default function NombreAjustado({
       className={`block w-full whitespace-nowrap overflow-hidden text-ellipsis ${className}`}
       {...rest}
     >
-      {texto}
+      {descifrar ? <HyperText text={texto} esperando={esperando} /> : texto}
     </span>
   );
 }
