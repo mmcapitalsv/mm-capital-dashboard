@@ -2489,15 +2489,24 @@ export default function Dashboard({ user, onLogout }) {
   const hayAvisos = hayAvisosNuevos || chatNoLeido;
 
   /* Los avisos que ya no existen se olvidan de la copia local: si no, crecería
-     sin límite. En la base los limpia la migración 013. */
+     sin límite. En la base los limpia la migración 013.
+
+     La guarda de `loading`/`errorCarga` es lo que hacía que la campana volviera
+     a encenderse en cada recarga por mucho que se pulsara "Marcar leídas".
+     Mientras el portafolio carga, `notificaciones` está vacío — no porque no
+     haya avisos, sino porque todavía no han llegado — y esta limpieza leía ese
+     vacío como "ninguno sigue vigente" y borraba la lista entera de vistos,
+     incluida la que acababa de llegar de la base. Un dato que aún no ha llegado
+     no es un dato que ya no existe. */
   useEffect(() => {
+    if (loading || errorCarga) return;
     if (!user?.id || avisosVistos.length === 0) return;
     const vigentes = avisosVistos.filter(id => idsAvisosActuales.includes(id));
     if (vigentes.length !== avisosVistos.length) {
       setAvisosVistos(vigentes);
       guardarAvisosLocales(user.id, vigentes);
     }
-  }, [idsAvisosActuales, avisosVistos, user?.id]);
+  }, [idsAvisosActuales, avisosVistos, user?.id, loading, errorCarga]);
 
   /** "Marcar leídas": apaga a la vez el chat y los vencimientos. */
   const marcarTodoLeido = () => {
