@@ -27,34 +27,12 @@ const ID_INPUT_PORTADA = 'input-portada-proyecto';
  */
 const sinNumeracion = (texto) => String(texto || '').replace(/^\d+\.\s*/, '');
 
-/* ── Avisos ya revisados, recordados entre sesiones ─────────────────────────
-   Se guardan los ids de los vencimientos que el usuario ya vio. Sin esto, el
-   punto rojo de la campana volvía a aparecer en cada recarga aunque no hubiera
-   nada nuevo, porque el estado arrancaba vacío en memoria.
-   La clave lleva el id del usuario: en un equipo compartido, los avisos vistos
-   de uno no apagan la campana del otro. */
-const CLAVE_AVISOS = 'mmcapital:avisosVistos:';
-
-function leerAvisosVistos(usuarioId) {
-  if (!usuarioId) return [];
-  try {
-    const crudo = localStorage.getItem(CLAVE_AVISOS + usuarioId);
-    const lista = crudo ? JSON.parse(crudo) : [];
-    return Array.isArray(lista) ? lista.map(String) : [];
-  } catch {
-    return [];   // localStorage bloqueado o JSON corrupto: se empieza de cero
-  }
-}
-
-function guardarAvisosVistos(usuarioId, ids) {
-  if (!usuarioId) return;
-  try {
-    localStorage.setItem(CLAVE_AVISOS + usuarioId, JSON.stringify(ids));
-  } catch {
-    /* Sin almacenamiento disponible se pierde entre sesiones, pero la campana
-       sigue funcionando dentro de la sesión actual. */
-  }
-}
+/* ── Avisos ya revisados ────────────────────────────────────────────────────
+   La marca de lectura vive en Supabase (`avisos_leidos`, migración 013), no en
+   el navegador: antes se guardaba solo en `localStorage` y entrar desde el
+   teléfono o desde otro equipo devolvía todos los avisos a "sin leer".
+   `localStorage` sigue como copia de arranque y red de seguridad — el porqué
+   está explicado en services/avisosService.js. */
 
 /**
  * Color de la etiqueta de estado, mapeado por los valores CANÓNICOS que emite
@@ -76,6 +54,10 @@ const colorEstado = (estado) =>
   COLOR_ESTADO[estado] || COLOR_ESTADO['Planificación'];
 
 import { crearUsuario, actualizarUsuario } from '../services/inversionesService';
+import {
+  leerAvisosLocales, guardarAvisosLocales,
+  leerAvisosLeidos, marcarAvisoLeidoEnBD, marcarAvisosLeidosEnBD
+} from '../services/avisosService';
 import { etiquetaEstado } from '../i18n/diccionario';
 import { etiquetaCategoria } from '../i18n/diccionario';
 import ProjectDetails from './ProjectDetails';
@@ -3040,9 +3022,9 @@ export default function Dashboard({ user, onLogout }) {
      enciende por el mero hecho de que exista, acaba encendida siempre — y una
      señal que está siempre activa deja de ser una señal.
 
-     Por eso se recuerda QUÉ avisos concretos se han visto, por su id, y en
-     `localStorage`: antes el estado vivía solo en memoria y arrancaba vacío,
-     así que bastaba recargar la página para que el punto reapareciera. */
+     Por eso se recuerda QUÉ avisos concretos se han visto, por su id, y la
+     marca vive en Supabase: guardada solo en el navegador, entrar desde el
+     teléfono devolvía todo a "sin leer". */
   const cantidadAvisos = Array.isArray(notificaciones) ? notificaciones.length : 0;
 
   const idsAvisosActuales = React.useMemo(
@@ -3051,23 +3033,46 @@ export default function Dashboard({ user, onLogout }) {
     [notificaciones]
   );
 
-  const [avisosVistos, setAvisosVistos] = useState(() => leerAvisosVistos(user?.id));
+  /* Arranca con la copia local para que el primer fotograma ya sea correcto:
+     esperar a la consulta encendería el punto rojo en cada carga. */
+  const [avisosVistos, setAvisosVistos] = useState(() => leerAvisosLocales(user?.id));
 
-  // Al cambiar de usuario se lee su propia lista, no la del anterior
-  useEffect(() => { setAvisosVistos(leerAvisosVistos(user?.id)); }, [user?.id]);
+  /* Al cambiar de usuario se lee SU lista, no la del anterior; primero la
+     local (instantánea) y después la de la base, que es la que manda. */
+  useEffect(() => {
+    let vigente = true;
+    const locales = leerAvisosLocales(user?.id);
+    setAvisosVistos(locales);
+    if (!user?.id) return;
+
+    leerAvisosLeidos(user.id).then(deLaBase => {
+      /* `null` = no se pudo preguntar (sin red, o la migración 013 todavía sin
+         aplicar). Ahí se conserva la copia local en vez de vaciar la lista y
+         hacer que reaparezcan como no leídos avisos que sí se revisaron. */
+      if (!vigente || deLaBase === null) return;
+      const union = [...new Set([...locales, ...deLaBase])];
+      setAvisosVistos(union);
+      guardarAvisosLocales(user.id, union);
+      // Lo que solo estaba en este navegador sube a la base y deja de ser suyo
+      const soloLocales = locales.filter(id => !deLaBase.includes(id));
+      if (soloLocales.length > 0) marcarAvisosLeidosEnBD(user.id, soloLocales);
+    });
+
+    return () => { vigente = false; };
+  }, [user?.id]);
 
   /* Hay novedad solo si algún aviso actual NO está en la lista de vistos. */
   const hayAvisosNuevos = idsAvisosActuales.some(id => !avisosVistos.includes(id));
   const hayAvisos = hayAvisosNuevos || chatNoLeido;
 
-  /* Los avisos que ya no existen se olvidan: si no, la lista de vistos
-     crecería sin límite en `localStorage`. */
+  /* Los avisos que ya no existen se olvidan de la copia local: si no, crecería
+     sin límite. En la base los limpia la migración 013. */
   useEffect(() => {
     if (!user?.id || avisosVistos.length === 0) return;
     const vigentes = avisosVistos.filter(id => idsAvisosActuales.includes(id));
     if (vigentes.length !== avisosVistos.length) {
       setAvisosVistos(vigentes);
-      guardarAvisosVistos(user.id, vigentes);
+      guardarAvisosLocales(user.id, vigentes);
     }
   }, [idsAvisosActuales, avisosVistos, user?.id]);
 
@@ -3075,16 +3080,24 @@ export default function Dashboard({ user, onLogout }) {
   const marcarTodoLeido = () => {
     marcarChatLeido();
     setAvisosVistos(idsAvisosActuales);
-    guardarAvisosVistos(user?.id, idsAvisosActuales);
+    guardarAvisosLocales(user?.id, idsAvisosActuales);
+    marcarAvisosLeidosEnBD(user?.id, idsAvisosActuales);
   };
 
-  /** Marca UNA notificación como leída y lo persiste. */
+  /**
+   * Marca UNA notificación como leída: en pantalla al instante, en la base
+   * inmediatamente después. El estado local no espera a la respuesta —a nadie
+   * le sirve una bandeja que tarda en reaccionar al clic— y si la escritura
+   * falla, la copia de `localStorage` sostiene la marca hasta el siguiente
+   * intento.
+   */
   const marcarAvisoLeido = (id) => {
     const clave = String(id ?? '');
     if (!clave || avisosVistos.includes(clave)) return;
     const siguiente = [...avisosVistos, clave];
     setAvisosVistos(siguiente);
-    guardarAvisosVistos(user?.id, siguiente);
+    guardarAvisosLocales(user?.id, siguiente);
+    marcarAvisoLeidoEnBD(user?.id, clave);
   };
 
   /* ── Qué se pinta en la bandeja ──────────────────────────────────────────
@@ -3637,8 +3650,12 @@ export default function Dashboard({ user, onLogout }) {
         </div>
 
         {/* ── HEADER SUPERIOR GLOBAL Y ESTÁTICO (Desktop) ── */}
-        <header className="hidden md:flex items-center justify-between px-8 py-3.5 bg-white dark:bg-zinc-800 border-b border-gray-200 dark:border-zinc-700 flex-shrink-0 z-30 shadow-sm">
-          <div className="flex flex-col">
+        {/* `flex-wrap` + `gap-y-2`: si en monitor vertical no cupiera todo en
+            una línea, el bloque de la derecha baja entero en vez de desbordar
+            o de comprimir el título. En escritorio horizontal nunca llega a
+            envolver, así que ahí no cambia nada. */}
+        <header className="hidden md:flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-3.5 bg-white dark:bg-zinc-800 border-b border-gray-200 dark:border-zinc-700 flex-shrink-0 z-30 shadow-sm">
+          <div className="flex flex-col min-w-0">
             {/* Tipografía corporativa: ligera y espaciada, sin peso excesivo */}
             <h2 className="text-lg lg:text-xl font-light text-slate-900 dark:text-white tracking-[0.18em] uppercase">{t('dash.panelSocios')}</h2>
             <p className="text-xs text-slate-500 dark:text-zinc-200 font-normal tracking-wide">{t('dash.gestionInmob')}</p>
@@ -3660,8 +3677,12 @@ export default function Dashboard({ user, onLogout }) {
             )}
 
             {/* Reloj dual SV / US — alineado a la derecha, antes de la campana.
-                Se oculta en pantallas medianas para no apretar el header. */}
-            <div className="hidden lg:flex items-center gap-3 text-xs font-semibold tracking-widest text-slate-500 dark:text-zinc-200 bg-slate-50 dark:bg-zinc-900 px-4 py-2 rounded-full border border-gray-200 dark:border-zinc-700 uppercase">
+                Antes era `hidden lg:flex` y desaparecía en todo el tramo
+                mediano. Ahora se ve desde `md`, solo que más apretado
+                (menos aire y sin espacio entre las dos horas hasta `lg`): la
+                información no se pierde, y con el `flex-wrap` del header no
+                hay riesgo de desbordar. */}
+            <div className="flex items-center gap-2 lg:gap-3 text-xs font-semibold tracking-widest text-slate-500 dark:text-zinc-200 bg-slate-50 dark:bg-zinc-900 px-3 lg:px-4 py-1.5 lg:py-2 rounded-full border border-gray-200 dark:border-zinc-700 uppercase whitespace-nowrap">
               <span className="flex items-center gap-1.5">SV <span className="text-sm text-slate-900 dark:text-white font-bold tracking-wide">{timeCST || '--:--'}</span></span>
               <span className="text-gray-300 dark:text-zinc-600">|</span>
               <span className="flex items-center gap-1.5">US <span className="text-sm text-slate-900 dark:text-white font-bold tracking-wide">{timePDT || '--:--'}</span></span>
@@ -4641,12 +4662,17 @@ export default function Dashboard({ user, onLogout }) {
                 </div>
 
                 {/* ── Layout central: Proyecto Destacado + Gráfica ── */}
-                {/* Una sola columna hasta lg: con el sidebar puesto, en tablet
-                    quedaban ~540px para dos columnas y todo se estrangulaba. */}
+                {/* Una sola columna hasta XL, antes hasta lg. El corte estaba
+                    mal puesto para el monitor VERTICAL: 1080 px de ancho entra
+                    en `lg` (1024), así que se partía en dos columnas y, con el
+                    sidebar de 230 px descontado, al destacado le quedaban unos
+                    470 px — la fotografía se estripaba. A partir de `xl`
+                    (1280) hay sitio de sobra y el escritorio horizontal se
+                    queda exactamente como está. */}
                 {/* El panel de la gráfica cede ancho al destacado: la dona se
                     lee igual de bien en menos sitio, y la fotografía de la
                     propiedad es lo que de verdad tiene que resaltar. */}
-                <div className="px-8 grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] xl:grid-cols-[1.9fr_1fr] gap-6 lg:gap-7 mb-7">
+                <div className="px-8 grid grid-cols-1 xl:grid-cols-[1.9fr_1fr] gap-6 lg:gap-7 mb-7">
 
                   {/* Proyecto Destacado */}
                   {(() => {
@@ -4755,7 +4781,14 @@ export default function Dashboard({ user, onLogout }) {
                                clavados mientras la columna de texto crecía con
                                la descripción y las dos barras, así que la foto
                                terminaba muy por encima y se veía pequeña. */
-                            className="w-full sm:w-[46%] sm:min-w-[210px] sm:self-stretch min-h-[220px] rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer group bg-slate-100 dark:bg-zinc-700 relative shadow-sm"
+                            /* El reparto a dos columnas empieza en `xl`, no en
+                               `sm`. Este bloque solo existe de `md` en adelante
+                               (el móvil tiene su propia tarjeta), así que un
+                               corte en `sm` significaba "siempre al 46%": en
+                               monitor vertical la foto quedaba en una columna
+                               estrecha y alargada. Hasta `xl` va a lo ancho y
+                               apilada, como en el móvil. */
+                            className="w-full xl:w-[46%] xl:min-w-[210px] xl:self-stretch min-h-[220px] rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer group bg-slate-100 dark:bg-zinc-700 relative shadow-sm"
                           >
                             {fp.imagen_url ? (
                               <img
@@ -5034,8 +5067,12 @@ export default function Dashboard({ user, onLogout }) {
                   Sin tarjetas: tres columnas que respiran sobre el lienzo,
                   separadas por su propio filete. El aire entre ellas es
                   generoso a propósito, porque ahora no hay bordes que hagan
-                  ese trabajo. */}
-              <div className="hidden md:grid grid-cols-3 gap-6 px-8 pb-8 mt-2">
+                  ese trabajo.
+                  Las tres columnas empiezan en `xl`. Antes arrancaban en `md`:
+                  en monitor vertical eran tres columnas de ~250 px y cada fila
+                  —tarea, proyecto y fecha— se partía en varios renglones. Por
+                  debajo de `xl` van una debajo de otra, como en el móvil. */}
+              <div className="hidden md:grid grid-cols-1 xl:grid-cols-3 gap-6 px-8 pb-8 mt-2">
 
                 {/* Actividad Reciente */}
                 <SeccionOperacional
