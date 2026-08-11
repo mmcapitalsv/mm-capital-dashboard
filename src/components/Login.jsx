@@ -1,8 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { supabase } from '../supabaseClient';
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
-import TubesCursor from './ui/tubes-curor';
+/* El fondo WebGL arrastra tres cuartos de megabyte de Three.js — más que TODO
+   el resto de la aplicación junta— y es puramente decorativo: nadie inicia
+   sesión con los tubos. Diferido, el formulario se puede escribir mientras la
+   animación sigue bajando, y con la red caída la pantalla de acceso funciona
+   igual sobre el fondo negro. */
+const TubesCursor = lazy(() => import('./ui/tubes-curor'));
 
 export default function Login() {
   const { t } = usePrefs();
@@ -46,7 +51,11 @@ export default function Login() {
 
       {/* Fondo WebGL: detrás de todo y sin capturar clics del formulario */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <TubesCursor />
+        {/* Sin marcador de carga: el hueco ya es el fondo oscuro de la pantalla,
+            y un spinner detrás de la tarjeta solo sería ruido. */}
+        <Suspense fallback={null}>
+          <TubesCursor />
+        </Suspense>
       </div>
 
       {/* Velo suave para que el láser no compita con el texto.

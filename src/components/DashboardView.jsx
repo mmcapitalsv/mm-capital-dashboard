@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 import NombreAjustado from './ui/NombreAjustado';
 import { HyperText } from './ui/hyper-text';
 import PortadaProyecto from './ui/PortadaProyecto';
@@ -158,6 +159,8 @@ export default function DashboardView({
 }) {
   // Preferencias de interfaz (tema e idioma) compartidas por toda la app
   const { modoOscuro, t, locale } = usePrefs();
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
   // Colores de las gráficas: recharts no entiende `dark:`, hay que dárselos
   const { colorPendiente, estiloTooltip } = useColoresGrafica(modoOscuro);
 
@@ -366,7 +369,7 @@ export default function DashboardView({
     if (success) {
       setEditandoCapital(false);
       setCapitalMsg({ tipo: 'exito', texto: t('dash.capitalGuardado') });
-      setTimeout(() => setCapitalMsg(null), 4000);
+      programar(() => setCapitalMsg(null), 4000);
     } else {
       setCapitalMsg({ tipo: 'error', texto: error });
     }
@@ -1147,7 +1150,9 @@ export default function DashboardView({
                         <div className="text-center max-w-sm">
                           <AlertTriangle size={38} className="text-red-500 mx-auto mb-3" />
                           <p className="text-slate-900 dark:text-white text-sm font-bold">{t('dash.errorCarga')}</p>
-                          <p className="text-mm-2 text-xs mt-1.5 break-words">{errorCarga}</p>
+                          {/* `t()` traduce si lo que llega es una clave nuestra y deja pasar
+                              tal cual el mensaje técnico de Supabase. */}
+                          <p className="text-mm-2 text-xs mt-1.5 break-words">{t(errorCarga)}</p>
                           <button
                             onClick={refetchData}
                             className="mt-4 px-4 py-2 rounded-xl bg-mm-navy text-white text-xs font-bold hover:bg-slate-800 transition-colors"

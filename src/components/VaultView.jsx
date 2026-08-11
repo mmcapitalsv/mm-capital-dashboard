@@ -6,6 +6,8 @@ import {
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useDirectorioUsuarios } from '../hooks/useDirectorioUsuarios';
+import { useTemporizadores } from '../hooks/useTemporizadores';
+import { parchearLista } from '../lib/realtime';
 import { supabase } from '../supabaseClient';
 import {
   uploadArchivoProyecto, getArchivosProyecto,
@@ -25,6 +27,8 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
   const { t, locale } = usePrefs();
   // Confirmación con la estética de la app en vez del `confirm()` del navegador
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
+  // Los avisos se borran solos a los 5 s, y se cancelan si se sale de la bóveda
+  const { programar } = useTemporizadores();
   // Nombre de quien subió cada documento, para la firma bajo el archivo
   const { nombreDe } = useDirectorioUsuarios();
   /* Fuente ÚNICA de datos: la tabla `archivos` de Supabase (proyecto_id null).
@@ -54,7 +58,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
     setConfirmandoVault(false);
     setCambiosPendientes(false);
     setUploadMsg({ type: 'success', text: t('vault.cambiosGuardados') });
-    setTimeout(() => setUploadMsg(null), 5000);
+    programar(() => setUploadMsg(null), 5000);
   };
 
   // Edit Doc modal state
@@ -76,18 +80,35 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
     }
   };
 
+  /* ── Realtime de la bóveda ─────────────────────────────────────────────────
+     Estaba roto y de la peor manera: en silencio. El filtro era
+     `proyecto_id=eq.global_vault`, pero 'global_vault' no es un valor guardado
+     en ninguna fila — es la etiqueta que usa la aplicación para decir "esto es
+     de la bóveda, no de un proyecto"; en la tabla `archivos` esas filas llevan
+     `proyecto_id` en NULL (ver `getArchivosProyecto`, que consulta con
+     `.is('proyecto_id', null)`). Comparar una columna uuid contra ese texto no
+     casa con NADA, así que el canal se suscribía correctamente y no entregaba
+     un solo evento: los documentos nuevos no aparecían hasta recargar la
+     página. Y tampoco servía cambiar el filtro a `is.null`, porque
+     `postgres_changes` solo admite eq/neq/lt/lte/gt/gte/in.
+
+     El alcance se decide aquí, en el cliente: llegan todos los eventos de
+     `archivos` y `pertenece` deja pasar únicamente los que no tienen proyecto.
+     Es lo mismo que ya hace el detalle de proyecto con los suyos.
+
+     Y en vez de releer la tabla entera en cada evento, la fila se aplica sobre
+     la lista en memoria (`parchearLista`): subir seis documentos disparaba seis
+     lecturas completas para acabar en el mismo sitio. */
   useEffect(() => {
     loadVaultFiles();
-    // Realtime: un documento subido desde otra sesión aparece solo
-    /* Filtrado por la bóveda: sin `filter`, subir una factura de CUALQUIER
-       proyecto disparaba una relectura completa de los documentos
-       corporativos, que no tienen nada que ver. */
+
+    const esDeLaBoveda = (fila) => fila?.proyecto_id === null || fila?.proyecto_id === undefined;
+
     const canal = supabase
       .channel('boveda-archivos')
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'archivos',
-        filter: 'proyecto_id=eq.global_vault'
-      }, loadVaultFiles)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'archivos' }, (payload) => {
+        setDbFiles(parchearLista(payload, { pertenece: esDeLaBoveda }));
+      })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
   }, []);
@@ -125,7 +146,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
       // Aviso en línea, no `alert()` del navegador: la tarjeta ya tiene su
       // propio sitio para mensajes y el diálogo nativo rompe la estética.
       setUploadMsg({ type: 'error', text: t('vault.seleccionaArchivo') });
-      setTimeout(() => setUploadMsg(null), 5000);
+      programar(() => setUploadMsg(null), 5000);
       return;
     }
 
@@ -147,7 +168,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
     if (!res.success && res.tamanoExcedido) {
       // El `alert()` que había aquí duplicaba literalmente el aviso de abajo
       setUploadMsg({ type: 'error', text: t('vault.archivoDemasiadoGrande') });
-      setTimeout(() => setUploadMsg(null), 5000);
+      programar(() => setUploadMsg(null), 5000);
       return;
     }
 
@@ -163,10 +184,10 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
       setCambiosPendientes(true);
       await loadVaultFiles();
     } else {
-      setUploadMsg({ type: 'error', text: res.error || t('msg.errorSupabase') });
+      setUploadMsg({ type: 'error', text: t(res.error) || t('msg.errorSupabase') });
     }
 
-    setTimeout(() => setUploadMsg(null), 5000);
+    programar(() => setUploadMsg(null), 5000);
   };
 
   const handleSaveEditDoc = async (e) => {
@@ -179,8 +200,8 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
     });
 
     if (!success) {
-      setUploadMsg({ type: 'error', text: error || t('msg.errorSupabase') });
-      setTimeout(() => setUploadMsg(null), 5000);
+      setUploadMsg({ type: 'error', text: t(error) || t('msg.errorSupabase') });
+      programar(() => setUploadMsg(null), 5000);
       return;
     }
 
@@ -199,8 +220,8 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
 
     const { success, error } = await eliminarArchivo(doc.raw || doc);
     if (!success) {
-      setUploadMsg({ type: 'error', text: error || t('msg.errorSupabase') });
-      setTimeout(() => setUploadMsg(null), 5000);
+      setUploadMsg({ type: 'error', text: t(error) || t('msg.errorSupabase') });
+      programar(() => setUploadMsg(null), 5000);
       return;
     }
 
@@ -485,7 +506,7 @@ export default function VaultView({ userRole, onBack, isAdmin, isEditMode, userI
                 <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('vault.nombreDoc')}</label>
                 <input
                   type="text"
-                  placeholder="Ej. Escritura_Constitucion_MM_Capital.pdf"
+                  placeholder={t('vault.nombreDocPh')}
                   value={newDocName}
                   onChange={(e) => setNewDocName(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-slate-800"

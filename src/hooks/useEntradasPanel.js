@@ -1,5 +1,6 @@
 ﻿import React from 'react';
 import { montoCorto, sinNumeracion } from '../lib/formato';
+import { useDiaActual } from './useDiaActual';
 
 /**
  * Las tres listas del panel: actividad reciente, próximos hitos y tareas
@@ -22,16 +23,12 @@ export function useEntradasPanel({ proyectos, gastos, hitos, archivos, vencimien
       return fa - fb;
     }), [hitos]);
 
-  /* "Hoy", fijado al inicio del día y UNA sola vez. Con `new Date()` dentro del
-     cálculo, cada render producía un instante distinto: las listas dependientes
-     no podían memorizarse y los días restantes se recalculaban en cascada sin
-     que hubiera cambiado ningún dato. Un plazo de obra se mide en días, no en
-     milisegundos. */
-  const inicioDeHoy = React.useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, []);
+  /* "Hoy", fijado al inicio del día y renovado a la medianoche. Un plazo de obra
+     se mide en días, no en milisegundos —por eso no se recalcula en cada
+     render—, pero tampoco puede congelarse: la aplicación instalada en el
+     teléfono sigue abierta al día siguiente y "vence en 1 día" tenía que pasar a
+     "vence hoy" sin que nadie refresque. */
+  const inicioDeHoy = useDiaActual();
 
   /** Devuelve el proyecto completo a partir de un proyecto_id (uuid). */
   const buscarProyecto = (id) => PROJECTS.find(x => String(x.id) === String(id)) || null;

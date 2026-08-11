@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 import { supabase } from '../supabaseClient';
 import { crearUsuario, actualizarUsuario } from '../services/inversionesService';
 import AvatarUsuario from './ui/AvatarUsuario';
@@ -26,6 +27,8 @@ function etiquetaRol(rol, t) {
 
 function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
   const { t } = usePrefs();
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   // El Modo Edición es la llave maestra: sin él la vista es solo lectura
   const puedeEditar = isAdmin && isEditMode;
@@ -82,7 +85,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
       setForm({ nombre: '', email: '', rol: 'inversionista' });
       setMensaje({ tipo: 'exito', texto: t('admin.usuarioCreado') });
       await cargarUsuarios();
-      setTimeout(() => setMensaje(null), 5000);
+      programar(() => setMensaje(null), 5000);
     } else {
       setMensaje({ tipo: 'error', texto: error });
     }
@@ -106,7 +109,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
       setEditando(null);
       setMensaje({ tipo: 'exito', texto: t('admin.usuarioActualizado') });
       await cargarUsuarios();
-      setTimeout(() => setMensaje(null), 5000);
+      programar(() => setMensaje(null), 5000);
     } else {
       setMensaje({ tipo: 'error', texto: error });
     }
@@ -128,7 +131,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
       await cargarUsuarios();
     } else {
       setMensaje({ tipo: 'exito', texto: t('msg.rolCambiado', { email: usuario.email, rol: etiquetaRol(nuevoRol, t) }) });
-      setTimeout(() => setMensaje(null), 5000);
+      programar(() => setMensaje(null), 5000);
     }
     setGuardandoId(null);
   };
@@ -155,7 +158,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
     } else {
       setUsuarios(prev => prev.filter(u => u.id !== usuario.id));
       setMensaje({ tipo: 'exito', texto: t('msg.usuarioEliminado', { email: usuario.email }) });
-      setTimeout(() => setMensaje(null), 5000);
+      programar(() => setMensaje(null), 5000);
     }
     setGuardandoId(null);
   };

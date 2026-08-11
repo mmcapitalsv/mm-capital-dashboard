@@ -12,6 +12,7 @@ import {
 import { supabase } from '../supabaseClient';
 import InputMonto from './ui/InputMonto';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 import { sumarDinero, porcentajeSeguro } from '../lib/numeros';
 
 const PALETA = ['#C5A059', '#0B1B2C', '#7C8DA6', '#8B6914'];
@@ -48,6 +49,8 @@ function agruparPorProyecto(aportaciones) {
 
 export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto, isEditMode, isAdmin }) {
   const { t } = usePrefs();
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
 
   const [inversionistas, setInversionistas] = useState([]);
@@ -118,7 +121,7 @@ export default function InvestorsView({ onBack, proyectos = [], onAbrirProyecto,
 
   const avisar = (tipo, texto) => {
     setMensaje({ tipo, texto });
-    if (tipo === 'exito') setTimeout(() => setMensaje(null), 5000);
+    if (tipo === 'exito') programar(() => setMensaje(null), 5000);
   };
 
   /** Abre el modal ya apuntando al inversionista de la tarjeta. */

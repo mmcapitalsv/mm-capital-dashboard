@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 import {
   cambiarCorreo, cambiarPassword, leerDatosBancarios, guardarDatosBancarios,
   enviarReporte, getReportes, actualizarEstadoReporte, responderReporte, eliminarReporte
@@ -26,6 +27,8 @@ import RecorteAvatar from './RecorteAvatar';
  */
 function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, setAvatarUrl, nombre, iniciales, cargo }) {
   const { t, locale } = usePrefs();
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   const initials = iniciales || (user?.email ? user.email.substring(0, 2).toUpperCase() : 'MM');
   const cargoTexto = cargo?.texto || (cargo?.clave ? t(cargo.clave) : t('cargo.socioInversionista'));
@@ -47,7 +50,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
 
   const notificar = (tipo, texto) => {
     setAvisoPerfil({ tipo, texto });
-    if (tipo === 'exito') setTimeout(() => setAvisoPerfil(null), 6000);
+    if (tipo === 'exito') programar(() => setAvisoPerfil(null), 6000);
   };
 
   // Guardar NO ejecuta el cambio: solo valida en local y abre el doble check.

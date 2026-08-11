@@ -10,18 +10,23 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
-      /* Sin esto, el teléfono se queda con la versión vieja guardada por el
-         Service Worker: la app instalada en la pantalla de inicio sigue
-         sirviendo el paquete anterior hasta que se cierran TODAS sus
-         ventanas, y por eso una función nueva "no aparece" en el celular
-         aunque ya esté desplegada.
-           · skipWaiting        — la versión nueva toma el control enseguida.
-           · clientsClaim       — y se aplica a la pestaña ya abierta.
-           · cleanupOutdatedCaches — borra los paquetes viejos en vez de
-             acumularlos. */
+      /* `prompt`, no `autoUpdate`.
+
+         El problema de origen sigue siendo el mismo: la app instalada en el
+         teléfono se queda con el paquete viejo y una función nueva "no
+         aparece". Pero `autoUpdate` con `skipWaiting` lo resolvía a ciegas —el
+         trabajador nuevo tomaba el control sin avisar y la pestaña abierta
+         quedaba con código nuevo sirviendo una interfaz ya montada con el
+         viejo—, y sobre todo lo resolvía en silencio: el usuario no tenía forma
+         de saber que había una versión nueva ni que debía recargar.
+
+         Ahora el trabajador nuevo ESPERA y `AvisoActualizacion` lo anuncia con
+         un botón; al pulsarlo se le manda el `skipWaiting` y se recarga la
+         página entera, así el código y lo que se ve pertenecen a la misma
+         versión. `cleanupOutdatedCaches` sigue borrando los paquetes viejos en
+         vez de acumularlos. */
+      registerType: 'prompt',
       workbox: {
-        skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true
       },

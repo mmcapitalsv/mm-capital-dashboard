@@ -691,6 +691,18 @@ export const DICCIONARIO = {
     'act.en2026': 'en 2026',
     'perfil.avatarPreset': 'Avatar predeterminado',
 
+    // ── Resiliencia: errores de vista, red y versión de la aplicación ──
+    'err.vistaTitulo': 'No se pudo mostrar esta sección',
+    'err.vistaDetalle': 'Puede ser un corte de conexión mientras se descargaba la pantalla. Vuelve a intentarlo; si sigue igual, recarga la aplicación.',
+    'err.reintentar': 'Reintentar',
+    'err.recargar': 'Recargar aplicación',
+    'err.sinConexion': 'No se pudo conectar con la base de datos.',
+    'sw.versionNueva': 'Hay una versión nueva de la aplicación.',
+    'sw.actualizar': 'Actualizar',
+    'sw.sinConexionLista': 'Listo para funcionar sin conexión.',
+    'cargo.propietarioRepresentante': 'Socio propietario y representante legal',
+    'vault.nombreDocPh': 'Ej. Escritura_Constitucion_MM_Capital.pdf',
+
     // ── Menú de preferencias ──
     'pref.titulo': 'Preferencias',
     'pref.modoOscuro': 'Modo Oscuro',
@@ -1368,6 +1380,18 @@ export const DICCIONARIO = {
     'act.enDias': 'in {n} days',
     'act.en2026': 'in 2026',
     'perfil.avatarPreset': 'Default avatar',
+
+    // ── Resilience: view errors, network and app version ──
+    'err.vistaTitulo': 'This section could not be displayed',
+    'err.vistaDetalle': 'The connection may have dropped while the screen was downloading. Try again; if it persists, reload the app.',
+    'err.reintentar': 'Try again',
+    'err.recargar': 'Reload app',
+    'err.sinConexion': 'Could not connect to the database.',
+    'sw.versionNueva': 'A new version of the app is available.',
+    'sw.actualizar': 'Update',
+    'sw.sinConexionLista': 'Ready to work offline.',
+    'cargo.propietarioRepresentante': 'Owner partner and legal representative',
+    'vault.nombreDocPh': 'e.g. Articles_of_Incorporation_MM_Capital.pdf',
 
     // ── Preferences menu ──
     'pref.titulo': 'Preferences',

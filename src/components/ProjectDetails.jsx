@@ -36,6 +36,7 @@ import { analizarComprobante } from '../services/geminiService';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { aNumeroSeguro, sumarDinero, porcentajeEntero } from '../lib/numeros';
 import { parchearLista } from '../lib/realtime';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 
 // Se guarda la CLAVE de traducción, no el texto: la etiqueta se resuelve en
 // cada render para que el cambio de idioma se refleje al instante.
@@ -104,6 +105,8 @@ function TarjetaMonto({ etiqueta, pie, valor, editando, onChange, colorValor, re
 
 export default function ProjectDetails({ project, onBack, userRole, userId, isEditMode, onUpdateProject, aportaciones = [] }) {
   const { t, locale, language, modoOscuro } = usePrefs();
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   // Nombres para la firma "Subido por" de documentos, álbumes y fotos
   const { nombreDe } = useDirectorioUsuarios();
@@ -565,7 +568,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       const { success, items, porcentaje, error } = await saveChecklist(project.id, listaAGuardar);
 
       if (!success) {
-        setSaveErrorMsg(t('msg.errorGuardarCambios', { error: error || t('msg.errorDesconocido') }));
+        setSaveErrorMsg(t('msg.errorGuardarCambios', { error: t(error) || t('msg.errorDesconocido') }));
         return;
       }
 
@@ -595,7 +598,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
           setSaveErrorMsg(
             fin.conflicto || fin.montoInvalido
               ? fin.error
-              : t('msg.errorGuardarCambios', { error: fin.error || t('msg.errorDesconocido') })
+              : t('msg.errorGuardarCambios', { error: t(fin.error) || t('msg.errorDesconocido') })
           );
           if (fin.conflicto && fin.updatedAtRemoto) versionProyecto.current = fin.updatedAtRemoto;
           return;
@@ -616,7 +619,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
 
       const hechos = listaFinal.filter(c => c && c.done).length;
       setSaveSuccessMsg(t('msg.cambiosGuardados', { pct: porcentaje, hechos, total: listaFinal.length }));
-      setTimeout(() => setSaveSuccessMsg(null), 6000);
+      programar(() => setSaveSuccessMsg(null), 6000);
     } catch (err) {
       console.error('Error guardando cambios:', err);
       setSaveErrorMsg(t('msg.errorGuardar', { error: err?.message || err }));
@@ -693,10 +696,10 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
 
     setUploadMessage(success
       ? { type: 'success', text: t('msg.archivoRenombrado', { nombre: nuevo.trim() }) }
-      : { type: 'error', text: error || t('msg.errorRenombrar') });
+      : { type: 'error', text: t(error) || t('msg.errorRenombrar') });
 
     await loadProjectArchivos();
-    setTimeout(() => setUploadMessage(null), 5000);
+    programar(() => setUploadMessage(null), 5000);
   };
 
   const handleDeleteArchivo = async (archivo) => {
@@ -709,10 +712,10 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
 
     setUploadMessage(success
       ? { type: 'success', text: t('msg.archivoEliminado', { nombre: archivo.nombre_archivo }) }
-      : { type: 'error', text: error || t('msg.errorEliminarArchivo') });
+      : { type: 'error', text: t(error) || t('msg.errorEliminarArchivo') });
 
     await loadProjectArchivos();
-    setTimeout(() => setUploadMessage(null), 6000);
+    programar(() => setUploadMessage(null), 6000);
   };
 
   const handleFileUpload = async (event, tipo) => {
@@ -730,11 +733,11 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setUploadMessage({ type: 'success', text: t('msg.archivoSubido', { nombre: file.name }) });
       await loadProjectArchivos();
     } else {
-      setUploadMessage({ type: 'error', text: result.error || t('msg.errorSubir') });
+      setUploadMessage({ type: 'error', text: t(result.error) || t('msg.errorSubir') });
     }
 
     event.target.value = '';
-    setTimeout(() => setUploadMessage(null), 5000);
+    programar(() => setUploadMessage(null), 5000);
   };
 
   /* ── Identidad y estado de una factura del borrador ────────────────────────
@@ -761,7 +764,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     const { facturas: lista, error } = await getFacturas(idPedido);
     if (!vigente(idPedido)) return;
     setFacturas(Array.isArray(lista) ? lista : []);
-    setFacturasMsg(error ? { tipo: 'error', texto: error } : null);
+    setFacturasMsg(error ? { tipo: 'error', texto: t(error) } : null);
   };
 
   useEffect(() => {
@@ -866,7 +869,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     setExtrayendoIA(false);
 
     if (error || !datos) {
-      setFacturasMsg({ tipo: 'error', texto: error || t('msg.errorSupabase') });
+      setFacturasMsg({ tipo: 'error', texto: t(error) || t('msg.errorSupabase') });
       return;
     }
 
@@ -1121,7 +1124,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       }
 
       setFacturasOkMsg(t('fac.cambiosGuardados', { creadas, actualizadas, eliminadas }));
-      setTimeout(() => setFacturasOkMsg(null), 6000);
+      programar(() => setFacturasOkMsg(null), 6000);
 
       // El costo ejecutado del panel depende de estas cifras
       if (typeof onUpdateProject === 'function') {
@@ -1217,7 +1220,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     const { albumes, error } = await getAlbumes(idPedido);
     if (!vigente(idPedido)) return;
     setAlbums(Array.isArray(albumes) ? albumes : []);
-    if (error) setGaleriaMsg({ tipo: 'error', texto: error });
+    if (error) setGaleriaMsg({ tipo: 'error', texto: t(error) });
   };
 
   useEffect(() => {
@@ -1258,9 +1261,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setShowCreateAlbumModal(false);
       setGaleriaMsg({ tipo: 'exito', texto: t('gal.albumCreado') });
       await cargarAlbumes();
-      setTimeout(() => setGaleriaMsg(null), 5000);
+      programar(() => setGaleriaMsg(null), 5000);
     } else {
-      setGaleriaMsg({ tipo: 'error', texto: error });
+      setGaleriaMsg({ tipo: 'error', texto: t(error) });
     }
   };
 
@@ -1283,9 +1286,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setNuevaPortadaFile(null);
       setGaleriaMsg({ tipo: 'exito', texto: t('gal.albumActualizado') });
       await cargarAlbumes();
-      setTimeout(() => setGaleriaMsg(null), 5000);
+      programar(() => setGaleriaMsg(null), 5000);
     } else {
-      setGaleriaMsg({ tipo: 'error', texto: error });
+      setGaleriaMsg({ tipo: 'error', texto: t(error) });
     }
   };
 
@@ -1304,9 +1307,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setActiveAlbumModal(null);
       setGaleriaMsg({ tipo: 'exito', texto: t('gal.albumEliminado') });
       await cargarAlbumes();
-      setTimeout(() => setGaleriaMsg(null), 5000);
+      programar(() => setGaleriaMsg(null), 5000);
     } else {
-      setGaleriaMsg({ tipo: 'error', texto: error });
+      setGaleriaMsg({ tipo: 'error', texto: t(error) });
     }
   };
 
@@ -1361,7 +1364,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       tipo: 'exito',
       texto: subidas === 1 ? t('gal.fotoSubida') : t('gal.fotosSubidas', { n: subidas })
     });
-    setTimeout(() => setGaleriaMsg(null), 5000);
+    programar(() => setGaleriaMsg(null), 5000);
   };
 
   /** Elimina una foto concreta dentro del álbum. */
@@ -1378,9 +1381,9 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setAlbums(albumes);
       if (albumId) setActiveAlbumModal(albumes.find(a => String(a.id) === String(albumId)) || null);
       setGaleriaMsg({ tipo: 'exito', texto: t('gal.fotoEliminada') });
-      setTimeout(() => setGaleriaMsg(null), 5000);
+      programar(() => setGaleriaMsg(null), 5000);
     } else {
-      setGaleriaMsg({ tipo: 'error', texto: error });
+      setGaleriaMsg({ tipo: 'error', texto: t(error) });
     }
   };
 
@@ -1513,7 +1516,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       setEditandoFinanzas(false);
       setFinanzasMsg({ tipo: 'exito', texto: t('fin.guardado') });
       if (typeof onUpdateProject === 'function') await onUpdateProject();
-      setTimeout(() => setFinanzasMsg(null), 5000);
+      programar(() => setFinanzasMsg(null), 5000);
     } else {
       // Conflicto de concurrencia: se adopta el testigo remoto y se recargan
       // las cifras reales, para que el reintento parta de lo que hay guardado
@@ -1522,7 +1525,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
         if (updatedAtRemoto) versionProyecto.current = updatedAtRemoto;
         if (typeof onUpdateProject === 'function') await onUpdateProject();
       }
-      setFinanzasMsg({ tipo: 'error', texto: error });
+      setFinanzasMsg({ tipo: 'error', texto: t(error) });
     }
   };
 

@@ -91,7 +91,8 @@ const CARGOS_NOMINATIVOS = [
   {
     // Juan Carlos Meléndez — con o sin tratamiento y sin depender de acentos
     coincide: /juan\s*carlos.*mel[eé]ndez/i,
-    texto: 'Socio propietario y representante legal'
+    // Clave, no texto: el cargo se traduce como cualquier otro rótulo
+    clave: 'cargo.propietarioRepresentante'
   }
 ];
 
@@ -102,7 +103,7 @@ const CARGOS_NOMINATIVOS = [
 export function cargoUsuario(rol, perfil, user) {
   const nombre = nombreSimple(user, perfil);
   const nominativo = CARGOS_NOMINATIVOS.find(c => c.coincide.test(nombre));
-  if (nominativo) return { texto: nominativo.texto, clave: null };
+  if (nominativo) return { texto: null, clave: nominativo.clave };
 
   const literal = String(perfil?.cargo || '').trim();
   if (literal) return { texto: literal, clave: null };

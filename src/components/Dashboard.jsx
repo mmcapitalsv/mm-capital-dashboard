@@ -1,25 +1,33 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useProyectos } from '../hooks/useProyectos';
+import { useTemporizadores } from '../hooks/useTemporizadores';
 import { usePrefs } from '../context/PreferenciasContext';
-import InvestorsView from './InvestorsView';
-/* La bóveda documental se fue a su propio archivo: era el bloque más grande de
-   este componente y no comparte estado con el resto del panel. */
-import VaultView from './VaultView';
-/* El perfil también salió por su cuenta: era el bloque más grande que quedaba
-   y solo necesita la identidad ya resuelta que le pasa el panel. */
-import ProfileView from './ProfileView';
-import ChatModule from './ChatModule';
-/* Administración de usuarios y chat de IA: dos vistas completas, cada una con
-   su propio estado y sus propios servicios, que no comparten nada con el
-   panel más allá de la identidad y el botón de volver. */
-import AdminUsersView from './AdminUsersView';
-import AIChatView from './AIChatView';
-/* Limpieza final: el listado de proyectos y el panel propiamente dicho —con
-   sus dos carruseles, sus KPIs y la edición del Capital Total— también viven
-   ya en su propio archivo. Lo que queda aquí es el ORQUESTADOR: identidad,
-   navegación, campana, selector de portada y el reparto de vistas. */
-import AllProjectsView from './AllProjectsView';
-import DashboardView from './DashboardView';
+
+/* ── Las nueve vistas entran por carga diferida ────────────────────────────────
+   Todas estaban importadas de golpe, así que el paquete inicial incluía el
+   detalle de proyecto (3,700 líneas, con `recharts`), la bóveda, el chat, la
+   administración de usuarios y el chat de IA aunque el usuario solo fuera a
+   mirar el panel — que es lo que hace la mayoría de las veces. Con `lazy` cada
+   vista viaja en su propio archivo y se descarga la primera vez que se abre.
+
+   Lo que NO se difiere: nada de lo que se ve antes del primer clic. La cabecera,
+   el menú lateral y la barra inferior siguen siendo parte del paquete principal.
+
+   El comentario de siempre sigue valiendo: cada una de estas vistas salió de
+   este archivo porque no comparte estado con el resto del panel. Justo por eso
+   se pueden cortar aquí sin arrastrar dependencias cruzadas. */
+const InvestorsView = lazy(() => import('./InvestorsView'));
+const VaultView = lazy(() => import('./VaultView'));
+const ProfileView = lazy(() => import('./ProfileView'));
+const ChatModule = lazy(() => import('./ChatModule'));
+const AdminUsersView = lazy(() => import('./AdminUsersView'));
+const AIChatView = lazy(() => import('./AIChatView'));
+const AllProjectsView = lazy(() => import('./AllProjectsView'));
+const DashboardView = lazy(() => import('./DashboardView'));
+const ProjectDetails = lazy(() => import('./ProjectDetails'));
+
+import ErrorBoundary from './ErrorBoundary';
+import CargandoVista from './ui/CargandoVista';
 import NombreAjustado from './ui/NombreAjustado';
 import { VideoBackground } from './ui/VideoBackground';
 import AvatarUsuario from './ui/AvatarUsuario';
@@ -49,7 +57,6 @@ import {
    comparten las tarjetas del Dashboard y el modal "Ver todos", que se abre
    desde la campana estando en cualquier pantalla. */
 import { useEntradasPanel } from '../hooks/useEntradasPanel';
-import ProjectDetails from './ProjectDetails';
 import ListaCompletaModal from './ListaCompletaModal';
 import {
   AlertTriangle, Bell, Building2, Briefcase, ChevronDown, ChevronLeft,
@@ -141,7 +148,10 @@ function PanelNotificaciones({
                 <AlertTriangle size={12} /> {t('notif.vencimientoCritico')}
               </p>
               <p className={`text-[11px] mt-0.5 ${leida ? 'text-slate-400 dark:text-zinc-400' : 'text-slate-600 dark:text-zinc-100 font-semibold'}`}>
-                {t('notif.tareaProyecto', { tarea: n.tarea, proyecto: n.proyectoNombre || t('inv.proyectoNoDisponible') })}
+                {t('notif.tareaProyecto', {
+                  tarea: n.tarea || t('proy.hitoSinTitulo'),
+                  proyecto: n.proyectoNombre || t('inv.proyectoNoDisponible')
+                })}
               </p>
               <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1">{t('notif.vence')} {n.fecha_vencimiento}</p>
             </button>
@@ -315,6 +325,9 @@ export default function Dashboard({ user, onLogout }) {
     actualizarCapitalTotal
   } = useProyectos(user);
 
+  // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
+  const { programar } = useTemporizadores();
+
   // Identidad real del usuario autenticado (nada codificado a mano)
   const nombreUsuario = nombreMostrado(user, perfil);
   const iniciales = inicialesUsuario(user, perfil);
@@ -460,7 +473,7 @@ export default function Dashboard({ user, onLogout }) {
       : { tipo: 'error', texto: error });
 
     if (success) await refetchData();
-    setTimeout(() => setPortadaMsg(null), 5000);
+    programar(() => setPortadaMsg(null), 5000);
   };
 
   // Preferencias de interfaz (tema e idioma) compartidas por toda la app
@@ -1260,6 +1273,13 @@ export default function Dashboard({ user, onLogout }) {
             En móvil se reserva el alto de la barra inferior fija para que
             ninguna vista quede tapada por ella. */}
         <div className="flex-1 flex flex-col overflow-hidden relative pb-[68px] md:pb-0">
+          {/* Cada vista se descarga por su cuenta (`lazy`), así que cada una
+              puede fallar por su cuenta: si la red se corta a mitad del
+              `import()`, el error se queda AQUÍ y el menú, la cabecera y la
+              barra inferior siguen respondiendo. `claveReinicio` limpia el
+              aviso al navegar a otra vista. */}
+          <ErrorBoundary claveReinicio={currentView}>
+          <Suspense fallback={<CargandoVista />}>
           {currentView === 'project-details' && activeProject ? (
             <ProjectDetails project={activeProject} onBack={handleBack} userRole={rol} userId={user?.id} isEditMode={isEditMode} onUpdateProject={refetchData} aportaciones={aportaciones} />
           ) : currentView === 'project-details' && proyectoPendiente ? (
@@ -1348,6 +1368,8 @@ export default function Dashboard({ user, onLogout }) {
               pedirPortadaProyecto={pedirPortadaProyecto}
             />
       )}
+          </Suspense>
+          </ErrorBoundary>
       </div>
 
       {/* ════════════════════════════════════════════════

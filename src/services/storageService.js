@@ -58,9 +58,16 @@ export function puedeGestionar(fila, { userId, esAdmin } = {}) {
   return !!esAdmin || esMio(fila, userId);
 }
 
-/** Mensaje único para cuando la base rechaza por autoría. */
-export const AVISO_SIN_PERMISO =
-  'Solo puedes modificar o eliminar lo que tú subiste. Pídeselo al Administrador.';
+/**
+ * Aviso único para cuando la base rechaza por autoría.
+ *
+ * Es una CLAVE del diccionario, no un texto: los servicios no tienen acceso al
+ * traductor (no son componentes) y este mensaje salía siempre en español aunque
+ * la interfaz estuviera en inglés. Las vistas lo pasan por `t(...)`, que
+ * devuelve la clave intacta si no la reconoce — así los mensajes técnicos de
+ * Supabase siguen llegando tal cual.
+ */
+export const AVISO_SIN_PERMISO = 'fb.soloAutor';
 
 /**
  * ¿El fallo de Supabase es «RLS te dejó fuera» y no un error de verdad?

@@ -6,6 +6,7 @@ import { montoCorto } from '../lib/formato';
 import { aNumeroSeguro, redondearDinero, sumarDinero, porcentajeSeguro } from '../lib/numeros';
 import { parchearLista, afectaFila } from '../lib/realtime';
 import { leerTablaCompleta } from '../lib/supabasePaginado';
+import { useDiaActual } from './useDiaActual';
 
 /**
  * Estado del proyecto derivado del avance real de hitos.
@@ -141,7 +142,11 @@ export function useProyectos(user) {
          proyectos: dejar las colecciones anteriores en pie mientras se muestra
          un aviso de error produce lo peor de los dos mundos — cifras viejas
          con pinta de vigentes junto a un cartel rojo. */
-      setErrorCarga(error?.message || 'No se pudo conectar con la base de datos.');
+      /* Clave del diccionario, no texto: este hook no tiene traductor y el
+         aviso salía siempre en español. La vista lo pasa por `t(...)`, que
+         devuelve la cadena intacta cuando lo que llega es el mensaje técnico
+         de Supabase. */
+      setErrorCarga(error?.message || 'err.sinConexion');
       setProyectos([]);
       setGastos([]);
       setHitos([]);
@@ -357,18 +362,13 @@ export function useProyectos(user) {
   // margen ya no es una alerta, es historia.
   const DIAS_GRACIA_VENCIDO = 30;
 
-  /* "Hoy" se fija UNA vez y al inicio del día, no en cada render.
-     `new Date()` dentro del cuerpo del componente devolvía un objeto distinto
-     cada vez —y con milisegundos distintos—, así que ningún `useMemo` que
-     dependiera de él podía sostenerse y los días restantes se recalculaban en
-     cascada sin que nada hubiera cambiado. Anclado al arranque del día, "faltan
-     3 días" significa lo mismo a las 9:00 y a las 17:00, que es justamente lo
-     que un plazo de obra quiere decir. */
-  const inicioDeHoy = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, []);
+  /* "Hoy", anclado al inicio del día y renovado al cruzar la medianoche.
+     `new Date()` en el cuerpo del hook daba un instante distinto en cada render
+     y ningún `useMemo` aguantaba; fijarlo una sola vez arreglaba eso pero dejaba
+     la PWA del teléfono —que puede pasar días abierta sin recargarse— midiendo
+     los plazos contra la fecha de anteayer. `useDiaActual` hace las dos cosas.
+     Ver la explicación completa en `hooks/useDiaActual.js`. */
+  const inicioDeHoy = useDiaActual();
 
   /** Hitos pendientes que merecen atención: vencidos (recientes) o ≤7 días. */
   const vencimientos = useMemo(() => {
@@ -384,7 +384,9 @@ export function useProyectos(user) {
       const dias = diasHasta(hito.fecha_vencimiento);
       return {
         ...hito,
-        tarea: hito.titulo || hito.tarea || 'Hito sin título',
+        /* Sin título NO se rellena aquí: el texto de relleno es cosa de la
+           vista, que sí sabe en qué idioma está (`t('proy.hitoSinTitulo')`). */
+        tarea: hito.titulo || hito.tarea || '',
         proyectoNombre: proyecto?.nombre || proyecto?.title || '',
         proyecto,
         dias,
