@@ -419,6 +419,54 @@ export async function eliminarFactura(facturaId) {
   return { success: true };
 }
 
+/* ───────────────── Borrado del proyecto completo ──────────────────────────── */
+
+/** Tablas que cuelgan del proyecto por `proyecto_id`. Se vacían antes que el
+    padre: sin `ON DELETE CASCADE` el DELETE fallaría por clave foránea. */
+const DEPENDENCIAS_PROYECTO = ['gastos', 'aportaciones', 'checklist_hitos', 'archivos', 'galeria_albumes'];
+
+/** true si el error es "esa tabla no existe en este proyecto", que no es un fallo. */
+function tablaInexistente(error) {
+  const msg = `${error?.message || ''} ${error?.details || ''}`;
+  return /does not exist|schema cache|relation .* does not exist/i.test(msg);
+}
+
+/**
+ * Elimina un proyecto y todo lo que cuelga de él. Irreversible.
+ *
+ * Los archivos del bucket no se tocan: quedan huérfanos pero recuperables, que
+ * es preferible a borrar la única copia de una foto de obra por un clic.
+ */
+export async function eliminarProyecto(proyectoId) {
+  if (!esIdValidoDeSupabase(proyectoId)) {
+    return { success: false, error: 'Este proyecto no existe en Supabase, así que no se puede eliminar.' };
+  }
+
+  for (const tabla of DEPENDENCIAS_PROYECTO) {
+    const { error } = await supabase.from(tabla).delete().eq('proyecto_id', proyectoId);
+    if (error && !tablaInexistente(error)) {
+      return { success: false, error: `No se pudieron borrar los datos asociados (${tabla}): ${error.message}` };
+    }
+  }
+
+  // `.select()` distingue "RLS lo bloqueó" (cero filas, sin error) de "se borró".
+  const { data, error } = await supabase
+    .from('proyectos')
+    .delete()
+    .eq('id', proyectoId)
+    .select('id, nombre');
+
+  if (error) return { success: false, error: error.message };
+  if (!data || data.length === 0) {
+    return {
+      success: false,
+      error: 'No se eliminó nada: el proyecto ya no existe o solo el Administrador puede borrarlo.'
+    };
+  }
+
+  return { success: true, proyecto: data[0] };
+}
+
 /* ───────────────── Agrupación de gastos por mes para la gráfica ───────────── */
 
 const MESES_CORTOS = {

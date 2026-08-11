@@ -703,6 +703,12 @@ export const DICCIONARIO = {
     'dlg.eliminarArchivo': '¿Eliminar "{nombre}" permanentemente?\n\nSe borra del bucket archivos_mmcapital y de la base de datos. No se puede deshacer.',
     'dlg.eliminarFactura': '¿Eliminar la factura de "{proveedor}" permanentemente?\n\nSe borra el registro de la tabla gastos y no se puede deshacer.',
     'dlg.eliminarUsuario': '¿Eliminar a {email} de la tabla de usuarios?\n\nPierde su rol y sus permisos. La cuenta de acceso (Auth) debe borrarse aparte desde el panel de Supabase.',
+    'dlg.eliminarProyecto': 'Eliminar proyecto',
+    'dlg.eliminarProyectoTitulo': 'Eliminar "{nombre}" permanentemente',
+    'dlg.eliminarProyectoAviso': 'Se borran el proyecto y todo lo que cuelga de él: gastos, aportaciones, hitos del checklist y registros de la galería. No se puede deshacer.',
+    'dlg.eliminarProyectoEscribe': 'Para confirmar, escribe el nombre del proyecto:',
+    'dlg.eliminarProyectoConfirmar': 'Eliminar definitivamente',
+    'dlg.eliminarProyectoEliminando': 'Eliminando…',
 
     // ── Detalle de alerta de sobrecosto ──
     'fin.sobrecostoDetalle': 'El gasto ejecutado ({gastado}) ha superado el presupuesto total asignado ({presupuesto}) por un exceso de {exceso}.',
@@ -1413,6 +1419,12 @@ export const DICCIONARIO = {
     'dlg.eliminarArchivo': 'Permanently delete "{nombre}"?\n\nIt will be removed from the archivos_mmcapital bucket and from the database. This cannot be undone.',
     'dlg.eliminarFactura': 'Permanently delete the invoice from "{proveedor}"?\n\nThe record is removed from the gastos table and cannot be undone.',
     'dlg.eliminarUsuario': 'Remove {email} from the users table?\n\nThey lose their role and permissions. The sign-in account (Auth) must be deleted separately from the Supabase panel.',
+    'dlg.eliminarProyecto': 'Delete project',
+    'dlg.eliminarProyectoTitulo': 'Permanently delete "{nombre}"',
+    'dlg.eliminarProyectoAviso': 'The project and everything attached to it are removed: expenses, contributions, checklist milestones and gallery records. This cannot be undone.',
+    'dlg.eliminarProyectoEscribe': 'To confirm, type the project name:',
+    'dlg.eliminarProyectoConfirmar': 'Delete permanently',
+    'dlg.eliminarProyectoEliminando': 'Deleting…',
 
     // ── Cost overrun alert detail ──
     'fin.sobrecostoDetalle': 'Spending to date ({gastado}) has exceeded the total assigned budget ({presupuesto}) by {exceso}.',

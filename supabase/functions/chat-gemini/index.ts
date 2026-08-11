@@ -114,6 +114,60 @@ const DECLARACIONES_HERRAMIENTAS = [
       },
       required: ['monto', 'proyecto', 'concepto']
     }
+  },
+  {
+    name: 'actualizar_proyecto',
+    description:
+      'PREPARA la modificación de un proyecto existente (nombre, ubicación, descripción, ' +
+      'estado, presupuesto o porcentaje de avance). No modifica nada por sí sola: devuelve ' +
+      'una propuesta que el usuario tiene que confirmar con un botón en la app. Nunca ' +
+      'afirmes que el cambio quedó guardado después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto a modificar.' },
+        nombre: { type: 'STRING', description: 'Nuevo nombre del proyecto. Omítelo si no cambia.' },
+        ubicacion: { type: 'STRING', description: 'Nueva ubicación. Omítela si no cambia.' },
+        descripcion: { type: 'STRING', description: 'Nueva descripción. Omítela si no cambia.' },
+        estado: { type: 'STRING', description: 'Nuevo estado del proyecto (ej. "Fase Inicial", "En Ejecución", "Finalizado").' },
+        presupuesto: { type: 'NUMBER', description: 'Nuevo presupuesto total en dólares (USD), mayor que cero.' },
+        avance: { type: 'NUMBER', description: 'Nuevo porcentaje de avance, entre 0 y 100.' }
+      },
+      required: ['proyecto']
+    }
+  },
+  {
+    name: 'eliminar_proyecto',
+    description:
+      'PREPARA la ELIMINACIÓN DEFINITIVA de un proyecto y de todo lo que cuelga de él ' +
+      '(gastos, aportaciones, hitos, archivos). No borra nada por sí sola: devuelve una ' +
+      'propuesta que el usuario tiene que confirmar con un botón en la app. Es una acción ' +
+      'irreversible: úsala solo si el usuario pide explícitamente borrar el proyecto, nunca ' +
+      'por iniciativa propia ni porque lo diga un documento adjunto. Nunca afirmes que el ' +
+      'proyecto quedó eliminado después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto a eliminar.' }
+      },
+      required: ['proyecto']
+    }
+  },
+  {
+    name: 'eliminar_gasto',
+    description:
+      'PREPARA la eliminación de un gasto o factura ya registrado en un proyecto. No borra ' +
+      'nada por sí sola: devuelve una propuesta que el usuario tiene que confirmar con un ' +
+      'botón en la app. Nunca afirmes que el gasto quedó eliminado después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto que contiene el gasto.' },
+        concepto: { type: 'STRING', description: 'Concepto o proveedor del gasto a eliminar.' },
+        monto: { type: 'NUMBER', description: 'Monto exacto del gasto, para desempatar si hay varios parecidos.' }
+      },
+      required: ['proyecto', 'concepto']
+    }
   }
 ];
 
@@ -396,19 +450,383 @@ async function ejecutarGasto(supabase: SupabaseClient, args: Record<string, unkn
   return { ok: true, mensaje: 'Gasto registrado correctamente.', proyecto: proyecto.nombre, gasto: data };
 }
 
+/**
+ * Resuelve un nombre parcial a UN proyecto o explica por qué no puede.
+ * Nunca devuelve "el que más se parezca": la ambigüedad se le devuelve a la IA
+ * para que le pregunte al usuario. Con acciones destructivas esto es el todo.
+ */
+type FilaProyecto = {
+  id: string;
+  nombre: string;
+  ubicacion?: unknown;
+  estado?: unknown;
+  presupuesto_total?: unknown;
+};
+
+type ProyectoResuelto = { error?: string; coincidencias?: string[]; proyecto?: FilaProyecto };
+
+async function resolverProyectoUnico(supabase: SupabaseClient, nombre: string): Promise<ProyectoResuelto> {
+  if (!nombre) return { error: 'Falta indicar el proyecto.' };
+
+  let candidatos: FilaProyecto[] = [];
+  try {
+    candidatos = (await buscarProyecto(supabase, nombre)) as unknown as FilaProyecto[];
+  } catch (err) {
+    return { error: `No se pudo buscar el proyecto: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  if (candidatos.length === 0) return { error: `No existe ningún proyecto que coincida con "${nombre}".` };
+  if (candidatos.length > 1) {
+    // Coincidencia exacta gana sobre las parciales: "Torre A" no es "Torre A2".
+    const exacto = candidatos.find(p => texto(p.nombre).toLowerCase() === nombre.toLowerCase());
+    if (!exacto) {
+      return {
+        error: 'Hay varios proyectos que coinciden; pídele al usuario que elija uno por su nombre completo.',
+        coincidencias: candidatos.map(p => p.nombre)
+      };
+    }
+    return { proyecto: exacto };
+  }
+
+  return { proyecto: candidatos[0] };
+}
+
+/* ── Actualizar proyecto ─────────────────────────────────────────────────── */
+
+/** Campos que la IA puede tocar, con su columna real y cómo se leen y se pintan. */
+const CAMPOS_EDITABLES: Array<{
+  arg: string;
+  columna: string;
+  etiqueta: string;
+  leer: (v: unknown) => unknown;
+  pintar: (v: unknown) => string;
+  validar?: (v: unknown) => string | null;
+}> = [
+  { arg: 'nombre', columna: 'nombre', etiqueta: 'Nombre', leer: texto, pintar: v => String(v),
+    validar: v => (texto(v) ? null : 'El nombre no puede quedar vacío.') },
+  { arg: 'ubicacion', columna: 'ubicacion', etiqueta: 'Ubicación', leer: texto, pintar: v => String(v) || '—' },
+  { arg: 'descripcion', columna: 'descripcion', etiqueta: 'Descripción', leer: texto, pintar: v => String(v) || '—' },
+  { arg: 'estado', columna: 'estado', etiqueta: 'Estado', leer: texto, pintar: v => String(v) || '—' },
+  { arg: 'presupuesto', columna: 'presupuesto_total', etiqueta: 'Presupuesto', leer: aNumero, pintar: v => formatoUSD(aNumero(v)),
+    validar: v => (aNumero(v) > 0 ? null : 'El presupuesto debe ser un número mayor que cero.') },
+  { arg: 'avance', columna: 'porcentaje_avance', etiqueta: 'Avance', leer: aNumero, pintar: v => `${aNumero(v)}%`,
+    validar: v => (aNumero(v) >= 0 && aNumero(v) <= 100 ? null : 'El avance debe estar entre 0 y 100.') }
+];
+
+/** Extrae de `args` solo los campos presentes y válidos. */
+function cambiosPedidos(args: Record<string, unknown>): {
+  error?: string;
+  cambios?: Record<string, unknown>;
+  etiquetas?: Array<{ etiqueta: string; valor: string }>;
+} {
+  const cambios: Record<string, unknown> = {};
+  const etiquetas: Array<{ etiqueta: string; valor: string }> = [];
+
+  for (const campo of CAMPOS_EDITABLES) {
+    const bruto = args[campo.arg];
+    if (bruto === undefined || bruto === null || bruto === '') continue;
+
+    const error = campo.validar?.(bruto);
+    if (error) return { error };
+
+    cambios[campo.columna] = campo.leer(bruto);
+    etiquetas.push({ etiqueta: campo.etiqueta, valor: campo.pintar(bruto) });
+  }
+
+  return { cambios, etiquetas };
+}
+
+async function proponerActualizarProyecto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const pedido = cambiosPedidos(args);
+  if (pedido.error) return { error: pedido.error };
+  if (Object.keys(pedido.cambios!).length === 0) {
+    return { error: 'No se indicó ningún campo a modificar (nombre, ubicación, descripción, estado, presupuesto o avance).' };
+  }
+
+  return {
+    propuesta: {
+      herramienta: 'actualizar_proyecto',
+      titulo: 'Modificar proyecto',
+      resumen: `Actualizar los datos del proyecto "${proyecto.nombre}".`,
+      detalle: [
+        { etiqueta: 'Proyecto', valor: texto(proyecto.nombre) },
+        ...pedido.etiquetas!
+      ],
+      args: { proyecto_id: proyecto.id, proyecto: proyecto.nombre, cambios: pedido.cambios }
+    }
+  };
+}
+
+async function ejecutarActualizarProyecto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const proyectoId = texto(args.proyecto_id);
+  if (!proyectoId) return { error: 'La propuesta no identifica el proyecto a modificar.' };
+
+  /* Los cambios se recomponen desde la propuesta pasándolos otra vez por la
+     lista blanca: aunque el cuerpo llegue manipulado, solo entran columnas
+     editables y con el mismo saneado que se le enseñó al usuario. */
+  const bruto = (args.cambios && typeof args.cambios === 'object')
+    ? args.cambios as Record<string, unknown>
+    : {};
+
+  const cambios: Record<string, unknown> = {};
+  for (const campo of CAMPOS_EDITABLES) {
+    if (!(campo.columna in bruto)) continue;
+    const error = campo.validar?.(bruto[campo.columna]);
+    if (error) return { error };
+    cambios[campo.columna] = campo.leer(bruto[campo.columna]);
+  }
+
+  if (Object.keys(cambios).length === 0) return { error: 'La propuesta no contiene ningún cambio válido.' };
+
+  const { data, error } = await supabase
+    .from('proyectos')
+    .update(cambios)
+    .eq('id', proyectoId)
+    .select('id, nombre, ubicacion, estado, presupuesto_total, porcentaje_avance')
+    .maybeSingle();
+
+  if (error) {
+    return { error: `No se pudo actualizar el proyecto: ${error.message}. Es posible que solo el Administrador tenga permiso.` };
+  }
+  if (!data) {
+    return { error: 'No se actualizó nada: el proyecto ya no existe o no tienes permiso de escritura.' };
+  }
+
+  return { ok: true, mensaje: 'Proyecto actualizado correctamente.', proyecto: data };
+}
+
+/* ── Eliminar proyecto ───────────────────────────────────────────────────── */
+
+/** Filas que cuelgan del proyecto. Se cuentan antes para que el usuario vea
+    exactamente qué se lleva por delante el borrado. */
+const DEPENDENCIAS_PROYECTO = [
+  { tabla: 'gastos', etiqueta: 'Gastos / facturas' },
+  { tabla: 'aportaciones', etiqueta: 'Aportaciones de socios' },
+  { tabla: 'checklist_hitos', etiqueta: 'Hitos del checklist' },
+  { tabla: 'archivos', etiqueta: 'Archivos y fotos' },
+  { tabla: 'galeria_albumes', etiqueta: 'Álbumes de galería' }
+];
+
+async function contarDependencias(supabase: SupabaseClient, proyectoId: string) {
+  const conteos = await Promise.all(DEPENDENCIAS_PROYECTO.map(async (dep) => {
+    // Una tabla que no exista o esté cerrada por RLS no debe tumbar la propuesta:
+    // se informa como desconocida en vez de fingir que hay cero filas.
+    const { count, error } = await supabase
+      .from(dep.tabla)
+      .select('id', { count: 'exact', head: true })
+      .eq('proyecto_id', proyectoId);
+    return { ...dep, cantidad: error ? null : (count ?? 0) };
+  }));
+  return conteos;
+}
+
+async function proponerEliminarProyecto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const dependencias = await contarDependencias(supabase, proyecto.id);
+  const arrastre = dependencias
+    .filter(d => d.cantidad === null || d.cantidad > 0)
+    .map(d => ({ etiqueta: d.etiqueta, valor: d.cantidad === null ? 'sin determinar' : String(d.cantidad) }));
+
+  return {
+    propuesta: {
+      herramienta: 'eliminar_proyecto',
+      titulo: 'Eliminar proyecto',
+      // Marca para que la tarjeta se pinte en rojo: borrar no se parece a crear.
+      peligro: true,
+      resumen:
+        `Eliminar DEFINITIVAMENTE el proyecto "${proyecto.nombre}" y todo lo que cuelga de ` +
+        'él. Esta acción no se puede deshacer.',
+      detalle: [
+        { etiqueta: 'Proyecto', valor: texto(proyecto.nombre) },
+        { etiqueta: 'Ubicación', valor: texto(proyecto.ubicacion) || '—' },
+        { etiqueta: 'Presupuesto', valor: formatoUSD(aNumero(proyecto.presupuesto_total)) },
+        ...(arrastre.length > 0
+          ? arrastre
+          : [{ etiqueta: 'Datos asociados', valor: 'ninguno' }])
+      ],
+      // El nombre viaja junto al id: al confirmar se comprueba que la fila que
+      // se va a borrar sigue siendo la que se le enseñó al usuario.
+      args: { proyecto_id: proyecto.id, proyecto: proyecto.nombre }
+    }
+  };
+}
+
+async function ejecutarEliminarProyecto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const proyectoId = texto(args.proyecto_id);
+  const nombreEsperado = texto(args.proyecto);
+
+  if (!proyectoId) return { error: 'La propuesta no identifica el proyecto a eliminar.' };
+
+  const { data: actual, error: errorLectura } = await supabase
+    .from('proyectos')
+    .select('id, nombre')
+    .eq('id', proyectoId)
+    .maybeSingle();
+
+  if (errorLectura) return { error: `No se pudo leer el proyecto: ${errorLectura.message}` };
+  if (!actual) return { error: 'El proyecto ya no existe: no se borró nada.' };
+
+  /* Entre la propuesta y el clic pudo renombrarse la fila. Si el nombre ya no
+     es el que el usuario aprobó, no se borra: la confirmación se dio sobre otra
+     cosa. */
+  if (nombreEsperado && texto(actual.nombre).toLowerCase() !== nombreEsperado.toLowerCase()) {
+    return {
+      error:
+        `El proyecto cambió de nombre ("${actual.nombre}") desde que se propuso el borrado. ` +
+        'No se eliminó nada; vuelve a pedirlo si sigue siendo lo que quieres.'
+    };
+  }
+
+  /* Las tablas hijas se borran antes: si el esquema no tiene ON DELETE CASCADE,
+     el DELETE del padre fallaría por clave foránea. Un fallo aquí no se ignora
+     en silencio salvo que la tabla no exista en este proyecto. */
+  for (const dep of DEPENDENCIAS_PROYECTO) {
+    const { error } = await supabase.from(dep.tabla).delete().eq('proyecto_id', proyectoId);
+    if (error && !/does not exist|schema cache/i.test(error.message)) {
+      return { error: `No se pudieron borrar los datos asociados (${dep.tabla}): ${error.message}` };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('proyectos')
+    .delete()
+    .eq('id', proyectoId)
+    .select('id, nombre')
+    .maybeSingle();
+
+  if (error) {
+    return { error: `No se pudo eliminar el proyecto: ${error.message}. Es posible que solo el Administrador tenga permiso.` };
+  }
+  if (!data) {
+    return { error: 'No se eliminó nada: el proyecto ya no existe o no tienes permiso de borrado.' };
+  }
+
+  return { ok: true, mensaje: `Proyecto "${data.nombre}" eliminado definitivamente.`, proyecto: data };
+}
+
+/* ── Eliminar gasto ──────────────────────────────────────────────────────── */
+
+async function proponerEliminarGasto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const concepto = texto(args.concepto);
+  if (!concepto) return { error: 'Falta el concepto o proveedor del gasto a eliminar.' };
+
+  const patron = concepto.replace(/[%_]/g, '');
+  const { data, error } = await supabase
+    .from('gastos')
+    .select('id, proveedor, concepto, monto, created_at')
+    .eq('proyecto_id', proyecto.id)
+    .or(`concepto.ilike.%${patron}%,proveedor.ilike.%${patron}%`)
+    .limit(10);
+
+  if (error) return { error: `No se pudieron leer los gastos: ${error.message}` };
+
+  let candidatos = data ?? [];
+  const monto = aNumero(args.monto);
+  if (monto > 0 && candidatos.length > 1) {
+    const porMonto = candidatos.filter(g => Math.abs(aNumero(g.monto) - monto) < 0.01);
+    if (porMonto.length > 0) candidatos = porMonto;
+  }
+
+  if (candidatos.length === 0) {
+    return { error: `No hay ningún gasto que coincida con "${concepto}" en el proyecto "${proyecto.nombre}".` };
+  }
+  if (candidatos.length > 1) {
+    return {
+      error: 'Hay varios gastos que coinciden; pídele al usuario el monto exacto para distinguirlos.',
+      coincidencias: candidatos.map(g => `${g.concepto || g.proveedor} · ${formatoUSD(aNumero(g.monto))}`)
+    };
+  }
+
+  const gasto = candidatos[0];
+
+  return {
+    propuesta: {
+      herramienta: 'eliminar_gasto',
+      titulo: 'Eliminar gasto',
+      peligro: true,
+      resumen:
+        `Eliminar el gasto de ${formatoUSD(aNumero(gasto.monto))} ("${texto(gasto.concepto) || texto(gasto.proveedor)}") ` +
+        `del proyecto "${proyecto.nombre}". Esta acción no se puede deshacer.`,
+      detalle: [
+        { etiqueta: 'Proyecto', valor: texto(proyecto.nombre) },
+        { etiqueta: 'Proveedor', valor: texto(gasto.proveedor) || '—' },
+        { etiqueta: 'Concepto', valor: texto(gasto.concepto) || '—' },
+        { etiqueta: 'Monto', valor: formatoUSD(aNumero(gasto.monto)) }
+      ],
+      args: { gasto_id: gasto.id, proyecto: proyecto.nombre, monto: aNumero(gasto.monto) }
+    }
+  };
+}
+
+async function ejecutarEliminarGasto(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const gastoId = texto(args.gasto_id);
+  if (!gastoId) return { error: 'La propuesta no identifica el gasto a eliminar.' };
+
+  const montoAprobado = aNumero(args.monto);
+
+  const { data: actual, error: errorLectura } = await supabase
+    .from('gastos')
+    .select('id, monto, concepto')
+    .eq('id', gastoId)
+    .maybeSingle();
+
+  if (errorLectura) return { error: `No se pudo leer el gasto: ${errorLectura.message}` };
+  if (!actual) return { error: 'El gasto ya no existe: no se borró nada.' };
+
+  // El importe es lo que el usuario leyó en la tarjeta: si cambió, se para.
+  if (montoAprobado > 0 && Math.abs(aNumero(actual.monto) - montoAprobado) >= 0.01) {
+    return {
+      error:
+        `El gasto cambió de importe (${formatoUSD(aNumero(actual.monto))}) desde que se propuso el ` +
+        'borrado. No se eliminó nada.'
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('gastos')
+    .delete()
+    .eq('id', gastoId)
+    .select('id, concepto, monto')
+    .maybeSingle();
+
+  if (error) {
+    return { error: `No se pudo eliminar el gasto: ${error.message}. Es posible que solo el Administrador tenga permiso.` };
+  }
+  if (!data) return { error: 'No se eliminó nada: el gasto ya no existe o no tienes permiso de borrado.' };
+
+  return { ok: true, mensaje: 'Gasto eliminado correctamente.', gasto: data };
+}
+
 type Herramienta = (s: SupabaseClient, a: Record<string, unknown>) => Promise<unknown>;
 
 /** Lo que el modelo puede disparar por su cuenta: solo lectura y propuestas. */
 const HERRAMIENTAS_DEL_MODELO: Record<string, Herramienta> = {
   obtener_resumen_financiero: obtenerResumenFinanciero,
   crear_nuevo_proyecto: proponerNuevoProyecto,
-  registrar_gasto: proponerGasto
+  registrar_gasto: proponerGasto,
+  actualizar_proyecto: proponerActualizarProyecto,
+  eliminar_proyecto: proponerEliminarProyecto,
+  eliminar_gasto: proponerEliminarGasto
 };
 
 /** Lo que escribe de verdad. Solo se alcanza por la ruta `confirmar`. */
 const ESCRITURAS_CONFIRMADAS: Record<string, Herramienta> = {
   crear_nuevo_proyecto: ejecutarNuevoProyecto,
-  registrar_gasto: ejecutarGasto
+  registrar_gasto: ejecutarGasto,
+  actualizar_proyecto: ejecutarActualizarProyecto,
+  eliminar_proyecto: ejecutarEliminarProyecto,
+  eliminar_gasto: ejecutarEliminarGasto
 };
 
 async function ejecutarHerramienta(supabase: SupabaseClient, nombre: string, args: Record<string, unknown>) {

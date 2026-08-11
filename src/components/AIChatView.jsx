@@ -42,11 +42,20 @@ function PropuestaAccion({ propuesta, estado, onConfirmar, onDescartar, t }) {
   const ejecutando = estado === 'ejecutando';
   const hecha = estado === 'hecha';
   const descartada = estado === 'descartada';
+  // `peligro` lo marca la Edge Function en los borrados: una tarjeta roja no se
+  // confunde con la de crear un proyecto, y eso importa cuando no hay deshacer.
+  const peligro = propuesta.peligro === true;
 
   return (
-    <div className="mt-3 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50/70 dark:bg-amber-500/10 p-3">
-      <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
-        <ShieldAlert size={14} />
+    <div className={`mt-3 rounded-xl border p-3 ${
+      peligro
+        ? 'border-red-300 dark:border-red-500/40 bg-red-50/70 dark:bg-red-500/10'
+        : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/70 dark:bg-amber-500/10'
+    }`}>
+      <div className={`flex items-center gap-2 text-xs font-bold ${
+        peligro ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'
+      }`}>
+        {peligro ? <Trash2 size={14} /> : <ShieldAlert size={14} />}
         {propuesta.titulo || t('ia.confirmarTitulo')}
       </div>
 
@@ -79,7 +88,9 @@ function PropuestaAccion({ propuesta, estado, onConfirmar, onDescartar, t }) {
             type="button"
             onClick={onConfirmar}
             disabled={ejecutando}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-mm-navy text-white text-xs font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-white text-xs font-bold transition-colors disabled:opacity-50 ${
+              peligro ? 'bg-red-600 hover:bg-red-700' : 'bg-mm-navy hover:bg-slate-800'
+            }`}
           >
             {ejecutando
               ? <><Loader2 size={13} className="animate-spin" /> {t('ia.confirmarEjecutando')}</>
@@ -113,6 +124,7 @@ function AIChatView({ onBack }) {
   const [errorIA, setErrorIA] = useState(hayClaveGemini() ? null : t('ia.sinClave'));
   const [copiadoIdx, setCopiadoIdx] = useState(null);
   const clipRef = useRef(null);
+  const composerIARef = useRef(null);
   const finIARef = useRef(null);
   const copiaTimerRef = useRef(null);
 
@@ -149,6 +161,23 @@ function AIChatView({ onBack }) {
   useEffect(() => {
     finIARef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, pensando]);
+
+  /* El textarea crece con el texto hasta un tope y luego hace scroll. Se mide
+     aquí y no en `onInput` porque el ajuste también hace falta al montar y al
+     vaciar el campo: con `rows=1` el marcador de posición largo se cortaba y
+     dejaba una barra de scroll a la vista sin haber escrito nada. */
+  useEffect(() => {
+    const caja = composerIARef.current;
+    if (!caja) return;
+    caja.style.height = 'auto';
+    /* `scrollHeight` no incluye el borde y la caja mide en `border-box`: sin
+       sumar esos 2px el alto se queda corto y aparece una barra de scroll con
+       el campo vacío. */
+    const borde = caja.offsetHeight - caja.clientHeight;
+    const alto = caja.scrollHeight + borde;
+    caja.style.height = `${Math.min(alto, 140)}px`;
+    caja.style.overflowY = alto > 140 ? 'auto' : 'hidden';
+  }, [inputMsg]);
 
   const agregarAdjuntos = (lista) => {
     const nuevos = Array.from(lista || []);
@@ -355,7 +384,7 @@ function AIChatView({ onBack }) {
             </div>
           )}
 
-          <form onSubmit={handleSend} className="flex gap-3">
+          <form onSubmit={handleSend} className="flex items-end gap-3">
             {/* Clip: imágenes o documentos, se envían como Base64 inline */}
             <input
               type="file"
@@ -374,12 +403,18 @@ function AIChatView({ onBack }) {
               <Paperclip size={18} />
             </button>
 
-            <input
-              type="text"
+            {/* Textarea, no input: Enter inserta un salto de línea y el mensaje
+                se envía ÚNICAMENTE con el botón de la derecha. El alto crece
+                con el texto hasta un tope y luego hace scroll. */}
+            <textarea
+              ref={composerIARef}
+              rows={1}
               value={inputMsg}
               onChange={(e) => setInputMsg(e.target.value)}
               placeholder={t('ia.placeholder')}
-              className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:border-slate-400 dark:focus:border-mm-oro/50 focus:bg-white dark:focus:bg-zinc-900 transition-colors"
+              enterKeyHint="enter"
+              autoComplete="off"
+              className="flex-1 min-w-0 resize-none max-h-[140px] bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm leading-snug text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:border-slate-400 dark:focus:border-mm-oro/50 focus:bg-white dark:focus:bg-zinc-900 transition-colors"
             />
             <button
               type="submit"

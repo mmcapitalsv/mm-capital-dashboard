@@ -16,7 +16,8 @@ import {
   guardarFinanzas, agruparGastosPorMes, formatearMoneda, aNumero,
   getFacturas, crearFactura, actualizarFactura, eliminarFactura,
   esComprobanteArchivo, esComprobantePdf, nombreArchivoFactura,
-  sumarGastos, ejecucionMensualReal, componerCostoEjecutado, normalizarFactura
+  sumarGastos, ejecucionMensualReal, componerCostoEjecutado, normalizarFactura,
+  eliminarProyecto
 } from '../services/finanzasService';
 import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
@@ -355,6 +356,11 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     if (isEditMode) return;
     setEditingHitoIndex(null);
     setConfirmandoBorrado(false);
+    // El diálogo de borrar el proyecto vive detrás del Modo Edición: si se
+    // apaga con el diálogo abierto, se cierra y se olvida lo tecleado.
+    setConfirmarBorradoProyecto(false);
+    setConfirmacionNombre('');
+    setErrorBorrado(null);
     if (hayCambiosSinGuardar) cargarChecklist();
     // Las facturas siguen la misma regla: salir del Modo Edición es cancelar,
     // así que el borrador se descarta y vuelve lo que hay en Supabase.
@@ -1419,6 +1425,13 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   const [guardandoFinanzas, setGuardandoFinanzas] = useState(false);
   const [finanzasMsg, setFinanzasMsg] = useState(null);
 
+  /* Borrado del proyecto entero: el diálogo pide teclear el nombre, así que
+     necesita su propio estado además del interruptor de apertura. */
+  const [confirmarBorradoProyecto, setConfirmarBorradoProyecto] = useState(false);
+  const [confirmacionNombre, setConfirmacionNombre] = useState('');
+  const [borrandoProyecto, setBorrandoProyecto] = useState(false);
+  const [errorBorrado, setErrorBorrado] = useState(null);
+
   /* P2-17 · Testigo de versión para el bloqueo optimista.
      Guarda el `updated_at` que tenía el proyecto cuando esta pantalla lo leyó.
      Viaja en cada guardado: si otro administrador escribió entretanto, el
@@ -1456,6 +1469,36 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     setIdentidad(identidadDesdeProyecto());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.nombre, project?.title, project?.ubicacion, project?.location]);
+
+  /* ── Borrado del proyecto entero (solo Admin en Modo Edición) ─────────────
+     Es la acción menos reversible de la ficha, así que no basta con el clic:
+     hay que teclear el nombre del proyecto. Lo mismo que exige la IA cuando
+     propone `eliminar_proyecto`, pero desde la interfaz. */
+  const nombreProyecto = project?.nombre || project?.title || '';
+  const puedeEliminarProyecto = isAdmin && !!isEditMode;
+
+  const handleEliminarProyecto = async () => {
+    if (!puedeEliminarProyecto || borrandoProyecto) return;
+    if (confirmacionNombre.trim().toLowerCase() !== nombreProyecto.trim().toLowerCase()) return;
+
+    setBorrandoProyecto(true);
+    setErrorBorrado(null);
+
+    const { success, error } = await eliminarProyecto(project?.id);
+
+    setBorrandoProyecto(false);
+
+    if (!success) {
+      setErrorBorrado(error || t('msg.errorSupabase'));
+      return;
+    }
+
+    // La ficha que se está viendo ya no existe: se cierra y se releen los datos
+    // del panel para que la tarjeta desaparezca de la lista.
+    setConfirmarBorradoProyecto(false);
+    onUpdateProject?.();
+    onBack?.();
+  };
 
   const handleCampoIdentidad = (campo, valor) => {
     setIdentidad(prev => ({ ...prev, [campo]: valor }));
@@ -1683,6 +1726,26 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
             </p>
           </div>
         </div>
+
+        {/* Basurero rojo: solo aparece con el Modo Edición encendido y siendo
+            Administrador. No borra al pulsarlo, abre el diálogo que exige
+            teclear el nombre del proyecto. */}
+        {puedeEliminarProyecto && (
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmacionNombre('');
+              setErrorBorrado(null);
+              setConfirmarBorradoProyecto(true);
+            }}
+            title={t('dlg.eliminarProyecto')}
+            aria-label={t('dlg.eliminarProyecto')}
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-400 transition-colors active:scale-95"
+          >
+            <Trash2 size={17} />
+            <span className="hidden md:inline text-xs font-bold">{t('dlg.eliminarProyecto')}</span>
+          </button>
+        )}
       </header>
 
       {/* Banner Notificación de Guardado */}
@@ -3472,6 +3535,72 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
               >
                 <Trash2 size={13} />
                 {t('dlg.eliminarHitosConfirmar')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ CONFIRMACIÓN DEL BORRADO DEL PROYECTO COMPLETO ════
+          Un clic de más aquí borra la obra entera: gastos, aportaciones, hitos
+          y galería. Por eso el botón rojo no se habilita hasta que el nombre
+          tecleado coincide con el del proyecto. */}
+      {confirmarBorradoProyecto && puedeEliminarProyecto && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-10 h-10 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-500" />
+              </span>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white break-words">
+                {t('dlg.eliminarProyectoTitulo', { nombre: nombreProyecto })}
+              </h3>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-zinc-300">
+              {t('dlg.eliminarProyectoAviso')}
+            </p>
+
+            <label className="block mt-4 text-[12px] font-bold text-slate-500 dark:text-zinc-300">
+              {t('dlg.eliminarProyectoEscribe')}
+              <input
+                type="text"
+                autoFocus
+                value={confirmacionNombre}
+                onChange={(e) => setConfirmacionNombre(e.target.value)}
+                placeholder={nombreProyecto}
+                className="mt-1.5 w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-600 rounded-xl px-3 py-2 text-sm font-medium text-slate-800 dark:text-zinc-100 placeholder:text-slate-300 dark:placeholder:text-zinc-600 focus:outline-none focus:border-red-400"
+              />
+            </label>
+
+            {errorBorrado && (
+              <p className="mt-3 flex items-start gap-2 text-[12px] font-semibold text-red-600 dark:text-red-400">
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                <span className="break-words">{errorBorrado}</span>
+              </p>
+            )}
+
+            <div className="pt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarBorradoProyecto(false)}
+                disabled={borrandoProyecto}
+                className="px-4 py-2 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl disabled:opacity-60"
+              >
+                {t('comun.cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={handleEliminarProyecto}
+                disabled={
+                  borrandoProyecto ||
+                  confirmacionNombre.trim().toLowerCase() !== nombreProyecto.trim().toLowerCase()
+                }
+                className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm disabled:opacity-40 disabled:hover:bg-red-600"
+              >
+                {borrandoProyecto
+                  ? <><Loader2 size={13} className="animate-spin" /> {t('dlg.eliminarProyectoEliminando')}</>
+                  : <><Trash2 size={13} /> {t('dlg.eliminarProyectoConfirmar')}</>}
               </button>
             </div>
           </div>
