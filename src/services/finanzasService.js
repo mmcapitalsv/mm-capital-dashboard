@@ -1,6 +1,9 @@
 import { supabase } from '../supabaseClient';
 import { esIdValidoDeSupabase } from './storageService';
-import { aNumeroSeguro, redondearDinero, sumarDinero } from '../lib/numeros';
+import {
+  aNumeroSeguro, redondearDinero, sumarDinero,
+  parsearMontoEstricto, MontoInvalidoError
+} from '../lib/numeros';
 import { leerTablaCompleta } from '../lib/supabasePaginado';
 
 /**
@@ -31,6 +34,12 @@ function faltaAjusteManual(error) {
   return /ajuste_costo_manual/i.test(`${error.message || ''} ${error.details || ''}`);
 }
 
+/** true si falta `updated_at` (migración 016 sin aplicar): sin testigo no hay bloqueo. */
+function faltaUpdatedAt(error) {
+  if (!columnaFaltante(error)) return false;
+  return /updated_at/i.test(`${error.message || ''} ${error.details || ''}`);
+}
+
 /** Convierte lo que el usuario escribió a un número válido y no negativo. */
 export function aNumero(valor) {
   // Acepta "1,480,000" y "1480000.50" (ver `aNumeroSeguro`).
@@ -44,6 +53,40 @@ export function aNumero(valor) {
 export function aAjuste(valor) {
   return redondearDinero(valor);
 }
+
+/* ─────────────────── Entrada contable estricta (P2-18) ─────────────────────
+   `aNumero` sigue siendo el parseo TOLERANTE que usan los `onChange` mientras
+   se teclea. Al PERSISTIR se usan estos, que se niegan a degradar una cifra
+   corrupta a 0: prefieren abortar el guardado con un mensaje entendible. */
+
+/** Importe contable no negativo. Lanza `MontoInvalidoError` si no es cifra. */
+export function aMontoContable(valor, campo) {
+  return parsearMontoEstricto(valor, { campo });
+}
+
+/** Igual, pero admite el signo (el ajuste manual puede ser negativo). */
+export function aAjusteContable(valor, campo) {
+  return parsearMontoEstricto(valor, { campo, permitirNegativo: true });
+}
+
+/**
+ * Ejecuta un parseo estricto y traduce el fallo a la forma de respuesta que ya
+ * consume la UI (`{success:false, error}`), en vez de reventar la vista.
+ */
+function conMontosValidados(construir) {
+  try {
+    return { ok: true, valores: construir() };
+  } catch (err) {
+    if (err instanceof MontoInvalidoError) return { ok: false, error: err.message };
+    throw err;
+  }
+}
+
+/** Mensaje único del choque de guardados simultáneos (P2-17). */
+export const AVISO_CONFLICTO_CONCURRENCIA =
+  'Otro administrador guardó cambios en este proyecto mientras editabas. ' +
+  'Para no sobrescribir sus cifras, tus cambios NO se guardaron: recarga el ' +
+  'proyecto, revisa los valores actuales y vuelve a aplicarlos.';
 
 /**
  * Costo Ejecutado del proyecto: FUENTE ÚNICA, la suma real de `gastos`.
@@ -103,7 +146,7 @@ export function normalizarEjecucionMensual(bruto) {
  */
 export async function guardarFinanzas(
   proyectoId,
-  { presupuesto, anticipo, cuota, costoEjecutado, ajusteManual, ejecucionMensual, nombre, ubicacion }
+  { presupuesto, anticipo, cuota, costoEjecutado, ajusteManual, ejecucionMensual, nombre, ubicacion, updatedAt }
 ) {
   if (!esIdValidoDeSupabase(proyectoId)) {
     return {
@@ -112,42 +155,66 @@ export async function guardarFinanzas(
     };
   }
 
-  const valores = {
-    presupuesto_total: aNumero(presupuesto),
-    anticipo: aNumero(anticipo),
-    cuota_asignada: aNumero(cuota)
-  };
+  // P2-18: si alguna cifra llega corrupta se aborta ANTES de tocar la base.
+  const parseo = conMontosValidados(() => {
+    const v = {
+      presupuesto_total: aMontoContable(presupuesto, 'El presupuesto total'),
+      anticipo: aMontoContable(anticipo, 'El anticipo'),
+      cuota_asignada: aMontoContable(cuota, 'La cuota asignada')
+    };
 
-  // El costo ejecutado se COMPONE: facturas + hitos marcados + ajuste manual.
-  // `costo_ejecutado` guarda el total ya calculado (lo leen reportes y vistas
-  // antiguas) y `ajuste_costo_manual` guarda solo la parte escrita a mano, que
-  // es lo único que la aplicación no puede recalcular por su cuenta.
-  // Ambas y la ejecución mensual se escriben solo si quien llama las manda
-  // explícitamente (así un guardado normal no pisa la columna con ceros).
-  if (costoEjecutado !== undefined) valores.costo_ejecutado = aNumero(costoEjecutado);
-  if (ajusteManual !== undefined) valores.ajuste_costo_manual = aAjuste(ajusteManual);
-  if (ejecucionMensual !== undefined) valores.ejecucion_mensual = normalizarEjecucionMensual(ejecucionMensual);
+    // El costo ejecutado se COMPONE: facturas + hitos marcados + ajuste manual.
+    // `costo_ejecutado` guarda el total ya calculado (lo leen reportes y vistas
+    // antiguas) y `ajuste_costo_manual` guarda solo la parte escrita a mano, que
+    // es lo único que la aplicación no puede recalcular por su cuenta.
+    // Ambas y la ejecución mensual se escriben solo si quien llama las manda
+    // explícitamente (así un guardado normal no pisa la columna con ceros).
+    if (costoEjecutado !== undefined) v.costo_ejecutado = aMontoContable(costoEjecutado, 'El costo ejecutado');
+    if (ajusteManual !== undefined) v.ajuste_costo_manual = aAjusteContable(ajusteManual, 'El ajuste manual');
+    if (ejecucionMensual !== undefined) v.ejecucion_mensual = normalizarEjecucionMensual(ejecucionMensual);
+
+    return v;
+  });
+
+  if (!parseo.ok) return { success: false, error: parseo.error, montoInvalido: true };
+
+  const valores = parseo.valores;
 
   // Identidad del proyecto: solo se toca si llegó algo escrito.
   // El nombre nunca se vacía: un título en blanco dejaría la tarjeta sin rótulo.
   if (typeof nombre === 'string' && nombre.trim()) valores.nombre = nombre.trim();
   if (typeof ubicacion === 'string') valores.ubicacion = ubicacion.trim();
 
-  const actualizar = (cuerpo) => supabase
-    .from('proyectos')
-    .update(cuerpo)
-    .eq('id', proyectoId)
-    .select()
-    .single();
+  /* P2-17 · Bloqueo optimista.
+     `updatedAt` es el testigo de versión que el cliente leyó al abrir la ficha
+     (columna `proyectos.updated_at`, migración 016). Al viajar en el WHERE, si
+     otro administrador guardó entretanto el testigo ya cambió, el UPDATE afecta
+     CERO filas y aquí se rechaza. Antes, el último clic ganaba en silencio y el
+     presupuesto del compañero desaparecía sin dejar rastro.
+     `maybeSingle()` en vez de `single()`: cero filas es un resultado esperado
+     de esta consulta, no un error de la petición. */
+  const testigo = typeof updatedAt === 'string' && updatedAt ? updatedAt : null;
+
+  const actualizar = (cuerpo, { conTestigo = !!testigo } = {}) => {
+    let q = supabase.from('proyectos').update(cuerpo).eq('id', proyectoId);
+    if (conTestigo && testigo) q = q.eq('updated_at', testigo);
+    return q.select().maybeSingle();
+  };
 
   let { data, error } = await actualizar(valores);
+
+  // La migración 016 aún no se ha corrido: no hay columna `updated_at` que
+  // comparar, así que se guarda sin bloqueo optimista en vez de fallar.
+  if (error && faltaUpdatedAt(error)) {
+    ({ data, error } = await actualizar(valores, { conTestigo: false }));
+  }
 
   // La migración 010 todavía no se ha corrido: se guarda todo lo demás y se
   // avisa qué falta, en vez de perder también el presupuesto y el anticipo.
   if (faltaAjusteManual(error)) {
     const { ajuste_costo_manual: _sinColumna, ...resto } = valores;
     const reintento = await actualizar(resto);
-    if (!reintento.error) {
+    if (!reintento.error && reintento.data) {
       return { success: false, valores: reintento.data, error: AVISO_MIGRACION_010, requiereMigracion: true };
     }
     ({ data, error } = reintento);
@@ -158,7 +225,39 @@ export async function guardarFinanzas(
     return { success: false, error: error.message };
   }
 
-  return { success: true, valores: data };
+  // Cero filas con testigo: o alguien guardó antes, o RLS bloqueó la escritura.
+  // Se distinguen releyendo la fila; sin esa consulta el aviso mentiría en uno
+  // de los dos casos.
+  if (!data) {
+    if (!testigo) {
+      return {
+        success: false,
+        error: 'No se pudo guardar: el proyecto ya no existe o no tienes permiso de escritura.'
+      };
+    }
+
+    const { data: actual } = await supabase
+      .from('proyectos')
+      .select('updated_at')
+      .eq('id', proyectoId)
+      .maybeSingle();
+
+    if (actual && actual.updated_at !== testigo) {
+      return {
+        success: false,
+        conflicto: true,
+        error: AVISO_CONFLICTO_CONCURRENCIA,
+        updatedAtRemoto: actual.updated_at
+      };
+    }
+
+    return {
+      success: false,
+      error: 'No se pudo guardar: el proyecto ya no existe o no tienes permiso de escritura.'
+    };
+  }
+
+  return { success: true, valores: data, updatedAt: data.updated_at ?? null };
 }
 
 /* ─────────────── Facturas de proveedores REALES (tabla `gastos`) ───────────
@@ -234,14 +333,19 @@ export async function crearFactura(proyectoId, { proveedor, concepto, monto, com
 
   // `descripcion` es la columna original de la tabla y en varios reportes es
   // lo único que se lee: se rellena con el concepto para no dejarla vacía.
-  const fila = {
+  const parseo = conMontosValidados(() => ({
     proyecto_id: proyectoId,
     proveedor: String(proveedor || '').trim(),
     concepto: String(concepto || '').trim(),
     descripcion: String(concepto || proveedor || '').trim(),
     comprobante: String(comprobante || '').trim(),
-    monto: aNumero(monto)
-  };
+    // P2-18: "12.OO" o "1.2.3" ya no se guardan como $0.00 en la contabilidad.
+    monto: aMontoContable(monto, 'El monto de la factura')
+  }));
+
+  if (!parseo.ok) return { success: false, error: parseo.error, montoInvalido: true };
+
+  const fila = parseo.valores;
 
   if (!fila.proveedor) return { success: false, error: 'Indica el proveedor.' };
   if (fila.monto <= 0) return { success: false, error: 'Indica un monto mayor que cero.' };
@@ -262,11 +366,15 @@ export async function actualizarFactura(facturaId, { proveedor, concepto, monto 
     return { success: false, error: 'Esta factura no existe en Supabase, así que no se puede editar.' };
   }
 
-  const valores = {
+  const parseo = conMontosValidados(() => ({
     proveedor: String(proveedor || '').trim(),
     concepto: String(concepto || '').trim(),
-    monto: aNumero(monto)
-  };
+    monto: aMontoContable(monto, 'El monto de la factura')
+  }));
+
+  if (!parseo.ok) return { success: false, error: parseo.error, montoInvalido: true };
+
+  const valores = parseo.valores;
   // `descripcion` acompaña siempre al concepto (ver crearFactura).
   valores.descripcion = valores.concepto || valores.proveedor;
 

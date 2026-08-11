@@ -18,6 +18,72 @@ export function aNumeroSeguro(valor, porDefecto = 0) {
   return Number.isFinite(n) ? n : porDefecto;
 }
 
+/**
+ * Error de una entrada contable que NO se puede interpretar como dinero.
+ * Se distingue por clase para que la capa de servicios lo convierta en un
+ * mensaje para el usuario y no en un fallo genérico.
+ */
+export class MontoInvalidoError extends Error {
+  constructor(mensaje, { campo, valor } = {}) {
+    super(mensaje);
+    this.name = 'MontoInvalidoError';
+    this.campo = campo;
+    this.valorRecibido = valor;
+  }
+}
+
+/**
+ * Parseo ESTRICTO de una cifra contable (P2-18).
+ *
+ * `aNumeroSeguro` está pensado para pintar: ante basura devuelve 0 y la vista
+ * sigue funcionando. Eso es exactamente lo que NO debe pasar al ESCRIBIR en la
+ * contabilidad: una factura de "12.OO" (con letras O) o "1.2.3" se guardaba
+ * como $0.00 y el descuadre aparecía semanas después, sin rastro de la causa.
+ * Aquí un formato corrupto lanza `MontoInvalidoError` y el guardado se aborta.
+ *
+ * Acepta lo que el usuario realmente teclea: separadores de millar, símbolo de
+ * moneda, espacios y hasta dos decimales. Rechaza todo lo demás.
+ *
+ * @param {*} valor
+ * @param {{campo?: string, permitirNegativo?: boolean, permitirVacio?: boolean}} [opciones]
+ * @returns {number} importe redondeado a centavos
+ * @throws {MontoInvalidoError}
+ */
+export function parsearMontoEstricto(valor, opciones = {}) {
+  const { campo = 'El monto', permitirNegativo = false, permitirVacio = false } = opciones;
+  const fallar = (motivo) => {
+    throw new MontoInvalidoError(`${campo}: ${motivo}`, { campo, valor });
+  };
+
+  if (valor === null || valor === undefined || (typeof valor === 'string' && valor.trim() === '')) {
+    if (permitirVacio) return 0;
+    fallar('está vacío. Escribe una cifra.');
+  }
+
+  if (typeof valor === 'number') {
+    if (!Number.isFinite(valor)) fallar('no es un número válido.');
+    if (!permitirNegativo && valor < 0) fallar('no puede ser negativo.');
+    return redondearDinero(valor);
+  }
+
+  if (typeof valor !== 'string') fallar('no es una cifra.');
+
+  const bruto = valor.trim();
+  // Se tolera lo cosmético: "$", espacios (incluido el fino de los miles) y
+  // el separador de millar. Nada más — ni letras, ni dos puntos decimales.
+  const limpio = bruto.replace(/[$\s  ]/g, '').replace(/,/g, '');
+
+  if (!/^-?\d+(\.\d{1,2})?$/.test(limpio)) {
+    fallar(`"${bruto}" no tiene un formato de cifra válido. Usa por ejemplo 1,480.50`);
+  }
+
+  const n = Number(limpio);
+  if (!Number.isFinite(n)) fallar(`"${bruto}" no es un número válido.`);
+  if (!permitirNegativo && n < 0) fallar('no puede ser negativo.');
+
+  return redondearDinero(n);
+}
+
 /** Redondeo a centavos: el dinero no arrastra decimales binarios. */
 export function redondearDinero(valor) {
   const n = aNumeroSeguro(valor);

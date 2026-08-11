@@ -586,14 +586,24 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
         const costoFinal = componerCostoEjecutado({ facturas: totalFacturas });
 
         const fin = await guardarFinanzas(project.id, {
-          ...finanzas, ...identidad, costoEjecutado: costoFinal
+          ...finanzas, ...identidad, costoEjecutado: costoFinal,
+          updatedAt: versionProyecto.current
         });
         if (!fin.success) {
-          setSaveErrorMsg(t('msg.errorGuardarCambios', { error: fin.error || t('msg.errorDesconocido') }));
+          // Un choque de guardados o una cifra ilegible se cuentan tal cual:
+          // ambos mensajes ya explican qué hacer, envolverlos los diluye.
+          setSaveErrorMsg(
+            fin.conflicto || fin.montoInvalido
+              ? fin.error
+              : t('msg.errorGuardarCambios', { error: fin.error || t('msg.errorDesconocido') })
+          );
+          if (fin.conflicto && fin.updatedAtRemoto) versionProyecto.current = fin.updatedAtRemoto;
           return;
         }
+        versionProyecto.current = fin.updatedAt ?? versionProyecto.current;
         aplicarIdentidadGuardada(fin.valores);
         if (project) {
+          project.updated_at = fin.updatedAt ?? project.updated_at;
           project.presupuesto_total = fin.valores.presupuesto_total;
           project.anticipo = fin.valores.anticipo;
           project.cuota_asignada = fin.valores.cuota_asignada;
@@ -1406,6 +1416,17 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   const [guardandoFinanzas, setGuardandoFinanzas] = useState(false);
   const [finanzasMsg, setFinanzasMsg] = useState(null);
 
+  /* P2-17 · Testigo de versión para el bloqueo optimista.
+     Guarda el `updated_at` que tenía el proyecto cuando esta pantalla lo leyó.
+     Viaja en cada guardado: si otro administrador escribió entretanto, el
+     UPDATE no encuentra fila y `guardarFinanzas` devuelve `conflicto: true`.
+     Es un ref, no estado: cambiarlo no debe repintar nada. */
+  const versionProyecto = useRef(project?.updated_at ?? null);
+
+  useEffect(() => {
+    versionProyecto.current = project?.updated_at ?? null;
+  }, [project?.id, project?.updated_at]);
+
   /* En "Modo Edición" TODOS los campos financieros son inputs, sin tener que
      pulsar además "Editar cifras": basta con que el Administrador active el
      modo desde el header. El botón local sigue existiendo para editar sin
@@ -1464,15 +1485,20 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
     setGuardandoFinanzas(true);
     setFinanzasMsg(null);
 
-    const { success, valores, error } = await guardarFinanzas(project?.id, {
-      ...finanzas, ...identidad, costoEjecutado: totalSpent
+    const {
+      success, valores, error, updatedAt, conflicto, updatedAtRemoto
+    } = await guardarFinanzas(project?.id, {
+      ...finanzas, ...identidad, costoEjecutado: totalSpent,
+      updatedAt: versionProyecto.current
     });
 
     setGuardandoFinanzas(false);
 
     if (success) {
+      versionProyecto.current = updatedAt ?? versionProyecto.current;
       aplicarIdentidadGuardada(valores);
       if (project) {
+        project.updated_at = updatedAt ?? project.updated_at;
         project.presupuesto_total = valores.presupuesto_total;
         project.anticipo = valores.anticipo;
         project.cuota_asignada = valores.cuota_asignada;
@@ -1489,6 +1515,13 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       if (typeof onUpdateProject === 'function') await onUpdateProject();
       setTimeout(() => setFinanzasMsg(null), 5000);
     } else {
+      // Conflicto de concurrencia: se adopta el testigo remoto y se recargan
+      // las cifras reales, para que el reintento parta de lo que hay guardado
+      // y no del formulario que ya quedó obsoleto.
+      if (conflicto) {
+        if (updatedAtRemoto) versionProyecto.current = updatedAtRemoto;
+        if (typeof onUpdateProject === 'function') await onUpdateProject();
+      }
       setFinanzasMsg({ tipo: 'error', texto: error });
     }
   };
