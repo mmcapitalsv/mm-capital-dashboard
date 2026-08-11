@@ -48,17 +48,31 @@ export function useProyectos(user) {
      de desmontar. */
   const lecturaActual = useRef(0);
   const montado = useRef(true);
+  /* ¿Hay algo pintado que valga la pena conservar? Un refresco silencioso sobre
+     una pantalla vacía no tiene nada que proteger, así que ahí sí se enciende
+     el esqueleto en vez de dejar el panel en blanco sin explicación. */
+  const hayDatos = useRef(false);
   useEffect(() => {
     montado.current = true;
     return () => { montado.current = false; };
   }, []);
 
-  const fetchData = useCallback(async () => {
+  /**
+   * @param {{silencioso?: boolean}} [opciones]
+   *   `silencioso` relee SIN encender `loading`. Es para los refrescos que el
+   *   usuario no pidió —volver a la pestaña, recuperar la red—: encender el
+   *   esqueleto ahí borra de la pantalla cifras que siguen siendo válidas y
+   *   deja los KPI en "–" durante un segundo, un parpadeo por nada. La primera
+   *   carga, el cambio de usuario y el `refetchData` explícito sí lo encienden:
+   *   ahí no hay nada bueno que conservar en pantalla.
+   */
+  const fetchData = useCallback(async (opciones) => {
+    const silencioso = opciones?.silencioso === true;
     const sello = ++lecturaActual.current;
     const vigente = () => montado.current && sello === lecturaActual.current;
 
     try {
-      setLoading(true);
+      if (!silencioso || !hayDatos.current) setLoading(true);
 
       /* 1. Ficha del usuario autenticado: nombre, cargo y rol reales.
             De aquí salen el saludo, la tarjeta del sidebar y los permisos.
@@ -134,6 +148,7 @@ export function useProyectos(user) {
       setArchivos(archivosData);
       setAportaciones(aportacionesData);
       setCapitalConfigurado(Number.isFinite(capital?.monto) ? capital.monto : null);
+      hayDatos.current = true;
 
     } catch (error) {
       console.error("Error fetching data from Supabase:", error);
@@ -154,6 +169,9 @@ export function useProyectos(user) {
       setAportaciones([]);
       setCapitalConfigurado(null);
       setDatosParciales([]);
+      // La pantalla quedó vacía: el próximo refresco silencioso no tiene nada
+      // que proteger y debe volver a encender el esqueleto.
+      hayDatos.current = false;
     } finally {
       if (vigente()) setLoading(false);
     }
@@ -213,7 +231,9 @@ export function useProyectos(user) {
     let temporizador = null;
     enTabla('configuracion', () => {
       clearTimeout(temporizador);
-      temporizador = setTimeout(() => { if (montado.current) fetchData(); }, 400);
+      temporizador = setTimeout(() => {
+        if (montado.current) fetchData({ silencioso: true });
+      }, 400);
     });
 
     /* ── Resincronización al (re)conectar ─────────────────────────────────
@@ -226,12 +246,14 @@ export function useProyectos(user) {
        hasta recargar la página a mano.
 
        Cada vez que el canal vuelve a quedar SUBSCRIBED se releen las tablas
-       enteras. La primera alta no cuenta: ahí `fetchData()` acaba de correr. */
+       enteras, EN SILENCIO: el usuario no pidió nada y lo que hay en pantalla
+       sigue siendo válido mientras llega lo nuevo. La primera alta no cuenta:
+       ahí `fetchData()` acaba de correr. */
     let primeraAlta = true;
     canal.subscribe((estado) => {
       if (estado !== 'SUBSCRIBED') return;
       if (primeraAlta) { primeraAlta = false; return; }
-      if (montado.current) fetchData();
+      if (montado.current) fetchData({ silencioso: true });
     });
 
     return () => {
@@ -246,14 +268,20 @@ export function useProyectos(user) {
      usuario mira cifras de dinero de hace una hora sin ninguna señal de que lo
      son. Al recuperar visibilidad o red se releen los datos.
 
-     Es una lectura completa, no un parche: barata comparada con una suma de
-     capital equivocada. */
+     Es una lectura completa y SILENCIOSA: sin esqueleto y sin KPI en "–". El
+     usuario solo volvió a la pestaña; las cifras que está mirando siguen siendo
+     válidas hasta que lleguen las nuevas, y borrarlas para volver a pintarlas
+     iguales es un parpadeo a cambio de nada.
+
+     Un `online` y una reconexión del canal pueden caer casi juntos: el sello de
+     carrera de `fetchData` ya descarta la respuesta más vieja, así que la
+     segunda lectura no puede pintar datos atrasados. */
   useEffect(() => {
     if (!user?.id) return;
 
     const resincronizar = () => {
       if (document.visibilityState !== 'visible') return;
-      if (montado.current) fetchData();
+      if (montado.current) fetchData({ silencioso: true });
     };
 
     document.addEventListener('visibilitychange', resincronizar);
@@ -364,9 +392,6 @@ export function useProyectos(user) {
       // Cifras financieras reales de Supabase (editables por el Administrador)
       costo_ejecutado: costoEjecutado,
       gastosSumados,
-      // Obra cerrada, medida en dinero. NO es gasto: es avance valorizado, y
-      // por eso viaja aparte del costo ejecutado.
-      valorHitosCompletados: valorHitosHechos,
       ejecucion_mensual: Array.isArray(proyecto.ejecucion_mensual) ? proyecto.ejecucion_mensual : [],
       totalGastado,
       ejecutado: montoCorto(totalGastado),
@@ -459,8 +484,8 @@ export function useProyectos(user) {
      de su presupuesto. Mezclarlos aquí daba $37.8K de obra valorizada donde el
      fondo llevaba $39.0K inyectados — dos preguntas distintas, una sola cifra.
 
-     De ahí sale el disponible:
-       · `capitalDisponible` = capital total − capital inyectado. */
+     De ahí sale el disponible del fondo: capital total − capital inyectado, que
+     es lo que la tarjeta enseña como porcentaje. */
   const finanzasPortafolio = useMemo(() => {
     /* Suma dinámica y sin filtros: cada fila nueva en `aportaciones` entra sola
        en la cifra del panel, sin tocar nada más. */
@@ -487,15 +512,11 @@ export function useProyectos(user) {
           ? 'ajustado'
           : 'holgado';
 
-    return {
-      aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
-      capitalDisponible, pctEjecutado, pctDisponible, saludCapital
-    };
+    return { egresosEjecutados, capitalComprometido, capitalTotal, pctDisponible, saludCapital };
   }, [safeAportaciones, proyectosConFinanzas, capitalConfigurado]);
 
   const {
-    aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
-    capitalDisponible, pctEjecutado, pctDisponible, saludCapital
+    egresosEjecutados, capitalComprometido, capitalTotal, pctDisponible, saludCapital
   } = finanzasPortafolio;
 
   /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
@@ -524,16 +545,12 @@ export function useProyectos(user) {
     notificaciones,
     vencimientos,
     refetchData: fetchData,
-    // Finanzas reactivas del portafolio
+    /* Finanzas reactivas del portafolio. Solo lo que alguien pinta: `refetchData`
+       lo devuelve todo otra vez si mañana hace falta, y un export que nadie
+       consume es una cifra que hay que mantener sin que nadie la mire. */
     capitalTotal,
     capitalComprometido,
-    // Nombre anterior de `capitalComprometido`, conservado por compatibilidad
-    capitalPresupuestado: capitalComprometido,
-    capitalConfigurado,
-    aportacionesRecibidas,
     egresosEjecutados,
-    capitalDisponible,
-    pctEjecutado,
     pctDisponible,
     saludCapital,
     actualizarCapitalTotal,
