@@ -156,8 +156,8 @@ export default function DashboardView({
   proyectos, loading, errorCarga, refetchData,
   isAdmin, isEditMode,
   saludo, nombreUsuario, timeCST, timePDT,
-  cifrasNoFiables, capitalTotal, capitalComprometido, aportacionesRecibidas,
-  egresosEjecutados, liquidezDisponible, pctDisponible, saludCapital, datosParciales,
+  cifrasNoFiables, capitalTotal, capitalComprometido,
+  egresosEjecutados, pctDisponible, saludCapital, datosParciales,
   actualizarCapitalTotal,
   entradasActividad, entradasHitos, entradasTareas,
   changeView, handleCardClick, abrirProyectoDeItem, setModalLista,
@@ -174,13 +174,13 @@ export default function DashboardView({
   const PROJECTS = proyectos;
 
   /* ── KPIs calculados desde Supabase ────────────────────────────────────────
-     Tres cifras distintas, y se nombran distinto:
-       · `capitalTotal`          — capital comprometido: lo editado por el
-                                   Administrador, o la suma de presupuestos.
-       · `aportacionesRecibidas` — suma real de `aportaciones` (dinero que ENTRA).
-       · `egresosEjecutados`     — suma real de `gastos` (dinero que SALE).
-     Antes el KPI "Egresos totales" mostraba las aportaciones: enseñaba el
-     ingreso rotulado como gasto. */
+     Dos cifras de dinero, y se nombran distinto:
+       · `capitalTotal`      — el fondo: lo editado por el Administrador, o la
+                               suma de presupuestos si nunca se tocó.
+       · `egresosEjecutados` — el capital inyectado por los socios (suma de
+                               `aportaciones`), que es lo que consume el fondo.
+     El costo de obra de cada proyecto NO entra aquí: se descuenta del
+     presupuesto de su ficha, que es donde esa pregunta tiene sentido. */
   const totalCapital = capitalTotal;
 
   const [featuredIndex, setFeaturedIndex] = useState(0);
@@ -1098,10 +1098,11 @@ export default function DashboardView({
                       </div>
                     </div>
 
-                    {/* Egresos ejecutados — suma REAL de `gastos`.
-                        Debajo, las aportaciones recibidas: son el otro lado del
-                        movimiento y juntas explican la liquidez. Nunca se
-                        presentan como la misma cifra. */}
+                    {/* Egresos ejecutados — el capital inyectado por los socios.
+                        UNA sola cifra: antes debajo se repetían las aportaciones
+                        con su propio monto, y siendo ya la misma suma solo
+                        llenaba la tarjeta de letra. El desglose por socio está a
+                        un clic, en Inversionistas. */}
                     <div className="bg-white dark:bg-zinc-800 rounded-[20px] p-3 xl:p-7 border border-gray-100/80 dark:border-zinc-700/80 shadow-[var(--mm-sombra)] flex flex-col items-start gap-2 xl:flex-row xl:items-center xl:gap-4 min-w-0 hover:shadow-[var(--mm-sombra-alta)] transition-shadow">
                       <div className="w-9 h-9 xl:w-[44px] xl:h-[44px] rounded-full bg-mm-navy flex items-center justify-center flex-shrink-0">
                         <Wallet size={18} className="text-mm-oro" />
@@ -1111,23 +1112,15 @@ export default function DashboardView({
                         <p title={montoExacto(egresosEjecutados, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
                           {cifrasNoFiables ? '–' : montoCorto(egresosEjecutados, locale)}
                         </p>
-                        {/* Aportaciones: etiqueta y monto en FILAS separadas.
-                            En una sola línea "Aportaciones recibidas: $X" no
-                            cabía en la tarjeta y el `truncate` se comía la
-                            cifra, que es justo el dato que se venía a ver. */}
+                        {/* Una línea corta, sin cifra: las otras tres tarjetas
+                            llevan su pie ("En portafolio", "85% Disponible") y
+                            esta se quedaría coja. Sigue abriendo Inversionistas. */}
                         <button
                           onClick={() => changeView('investors')}
-                          title={`${t('dash.aportacionesRecibidas')}: ${montoExacto(aportacionesRecibidas, locale)} · ${t('dash.liquidez')}: ${montoExacto(liquidezDisponible, locale)}`}
-                          className="w-full text-left text-slate-400 dark:text-zinc-300 text-xs font-medium flex flex-col justify-between gap-0.5 mt-2 min-w-0 hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors"
+                          title={t('dash.egresosAutoTooltip')}
+                          className="w-full text-left text-slate-400 dark:text-zinc-300 text-[11px] font-medium flex items-center gap-1 mt-1.5 min-w-0 truncate hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors"
                         >
-                          {cifrasNoFiables ? (
-                            <span className="truncate">{t('dash.egresosAuto')}</span>
-                          ) : (
-                            <>
-                              <span className="truncate">{t('dash.aportacionesRecibidas')}</span>
-                              <span className="truncate tabular-nums font-semibold">{montoCorto(aportacionesRecibidas, locale)}</span>
-                            </>
-                          )}
+                          {t('dash.egresosAuto')}
                         </button>
                       </div>
                     </div>

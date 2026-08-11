@@ -444,29 +444,28 @@ export function useProyectos(user) {
   const notificaciones = vencimientos;
 
   /* ── Finanzas globales del portafolio ────────────────────────────────────
-     TRES cifras distintas que antes se mezclaban en una sola llamada "Egresos
-     totales", que además sumaba aportaciones — es decir, dinero que ENTRA
-     presentado como dinero que SALE. Separadas:
+     El PANEL mide el fondo, no la obra. Por eso lo que consume el capital aquí
+     es el CAPITAL INYECTADO por los socios —la suma de `aportaciones`—, no el
+     costo ejecutado de las fichas:
 
-       · Capital comprometido   — suma de los presupuestos de los proyectos.
-                                  Es una promesa de gasto, no un movimiento.
-       · Aportaciones recibidas — suma REAL de `aportaciones`. Dinero que entró.
-       · Egresos ejecutados     — facturas (`gastos`) + obra cerrada (valor de
-                                  los hitos completados). Dinero que salió.
+       · Capital comprometido — suma de los presupuestos de los proyectos.
+                                Es una promesa de gasto, no un movimiento.
+       · Egresos ejecutados   — capital inyectado: dinero que los socios ya
+                                pusieron y que salió del fondo hacia los
+                                proyectos. ÚNICA fuente: `aportaciones`.
 
-     De ahí salen dos disponibles, y tampoco son lo mismo:
-       · `capitalDisponible`   = capital total − egresos ejecutados (del fondo)
-       · `liquidezDisponible`  = aportaciones recibidas − egresos ejecutados
-                                 (caja real; en negativo se está gastando más
-                                 de lo que los socios han puesto). */
+     El valor de la obra cerrada (hitos completados) y las facturas siguen
+     existiendo, pero donde sirven: DENTRO de la ficha del proyecto, restándose
+     de su presupuesto. Mezclarlos aquí daba $37.8K de obra valorizada donde el
+     fondo llevaba $39.0K inyectados — dos preguntas distintas, una sola cifra.
+
+     De ahí sale el disponible:
+       · `capitalDisponible` = capital total − capital inyectado. */
   const finanzasPortafolio = useMemo(() => {
+    /* Suma dinámica y sin filtros: cada fila nueva en `aportaciones` entra sola
+       en la cifra del panel, sin tocar nada más. */
     const aportacionesRecibidas = sumarDinero(safeAportaciones, a => a?.monto);
-    /* Egresos = facturas + obra cerrada, exactamente el mismo criterio que el
-       Costo Ejecutado de cada ficha. Si el portafolio sumara solo `gastos`, la
-       cifra del panel y la de la ficha del proyecto no cuadrarían. */
-    const totalFacturasPortafolio = sumarDinero(safeGastos, g => g?.monto);
-    const totalObraCerrada = sumarDinero(proyectosConFinanzas, p => p?.valorHitosCompletados);
-    const egresosEjecutados = redondearDinero(totalFacturasPortafolio + totalObraCerrada);
+    const egresosEjecutados = aportacionesRecibidas;
 
     // Capital total: el valor editado por el Administrador manda; si nunca se
     // configuró, se cae a la suma de los presupuestos de los proyectos.
@@ -476,16 +475,13 @@ export function useProyectos(user) {
       : capitalComprometido;
 
     const capitalDisponible = redondearDinero(capitalTotal - egresosEjecutados);
-    const liquidezDisponible = redondearDinero(aportacionesRecibidas - egresosEjecutados);
     const pctEjecutado = porcentajeSeguro(egresosEjecutados, capitalTotal, { limitar: true });
     const pctDisponible = capitalTotal > 0 ? Math.max(0, 100 - pctEjecutado) : 0;
     /* Salud del capital: la interfaz elige color y flecha a partir de esto, en
-       vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara.
-       Un sobregiro de caja (se gastó más de lo aportado) también es sobregiro,
-       aunque el fondo configurado dé de sobra. */
+       vez de pintar siempre una flecha verde hacia arriba pasara lo que pasara. */
     const saludCapital = capitalTotal <= 0
       ? 'sin_dato'
-      : (capitalDisponible < 0 || liquidezDisponible < 0)
+      : capitalDisponible < 0
         ? 'sobregiro'
         : pctDisponible < 20
           ? 'ajustado'
@@ -493,13 +489,13 @@ export function useProyectos(user) {
 
     return {
       aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
-      capitalDisponible, liquidezDisponible, pctEjecutado, pctDisponible, saludCapital
+      capitalDisponible, pctEjecutado, pctDisponible, saludCapital
     };
-  }, [safeAportaciones, safeGastos, proyectosConFinanzas, capitalConfigurado]);
+  }, [safeAportaciones, proyectosConFinanzas, capitalConfigurado]);
 
   const {
     aportacionesRecibidas, egresosEjecutados, capitalComprometido, capitalTotal,
-    capitalDisponible, liquidezDisponible, pctEjecutado, pctDisponible, saludCapital
+    capitalDisponible, pctEjecutado, pctDisponible, saludCapital
   } = finanzasPortafolio;
 
   /** Guarda el capital total y lo refleja al momento (sin esperar a Realtime). */
@@ -537,7 +533,6 @@ export function useProyectos(user) {
     aportacionesRecibidas,
     egresosEjecutados,
     capitalDisponible,
-    liquidezDisponible,
     pctEjecutado,
     pctDisponible,
     saludCapital,

@@ -357,15 +357,12 @@ export default function Dashboard({ user, onLogout }) {
     rol,
     perfil,
     refetchData,
-    /* Finanzas del portafolio, con las tres cifras SEPARADAS: el capital lo
-       edita el Administrador (compromiso), las aportaciones son el dinero que
-       entró y los egresos el que salió. Antes iban mezcladas en un solo
-       "Egresos totales" que en realidad sumaba aportaciones. */
+    /* Finanzas del portafolio: el capital lo edita el Administrador (el fondo)
+       y los egresos son el capital inyectado por los socios, que es lo que ese
+       fondo lleva consumido. El costo de obra vive en la ficha del proyecto. */
     capitalTotal,
     capitalComprometido,
-    aportacionesRecibidas,
     egresosEjecutados,
-    liquidezDisponible,
     pctDisponible,
     saludCapital,
     errorCarga,
@@ -1448,9 +1445,7 @@ export default function Dashboard({ user, onLogout }) {
               cifrasNoFiables={cifrasNoFiables}
               capitalTotal={capitalTotal}
               capitalComprometido={capitalComprometido}
-              aportacionesRecibidas={aportacionesRecibidas}
               egresosEjecutados={egresosEjecutados}
-              liquidezDisponible={liquidezDisponible}
               datosParciales={datosParciales}
               pctDisponible={pctDisponible}
               saludCapital={saludCapital}
