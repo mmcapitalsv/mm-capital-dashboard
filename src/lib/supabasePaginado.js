@@ -15,11 +15,11 @@ import { supabase } from '../supabaseClient';
  * una parte y callar.
  */
 
-/** Techo por respuesta de PostgREST en Supabase. */
-export const LIMITE_POSTGREST = 1000;
+/** Techo por respuesta de PostgREST en Supabase. Solo lo usa este módulo. */
+const LIMITE_POSTGREST = 1000;
 
 /** Tope de seguridad: 50 páginas = 50,000 filas. Más que eso no se pinta. */
-export const MAX_PAGINAS = 50;
+const MAX_PAGINAS = 50;
 
 /**
  * @param {string} tabla

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useTemporizadores } from '../hooks/useTemporizadores';
@@ -40,7 +40,9 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
   const [mensaje, setMensaje] = useState(null);
   const [guardandoId, setGuardandoId] = useState(null);
 
-  const cargarUsuarios = async () => {
+  /* `useCallback` para que el efecto de abajo pueda declararlo como
+     dependencia real en vez de esconderlo con una lista vacía. */
+  const cargarUsuarios = useCallback(async () => {
     setCargando(true);
     try {
       const { data, error } = await supabase
@@ -60,7 +62,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
     } finally {
       setCargando(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     cargarUsuarios();
@@ -70,7 +72,7 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, cargarUsuarios)
       .subscribe();
     return () => { supabase.removeChannel(canal); };
-  }, []);
+  }, [cargarUsuarios]);
 
   const handleCrear = async (e) => {
     e.preventDefault();

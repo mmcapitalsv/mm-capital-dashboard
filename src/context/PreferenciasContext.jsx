@@ -13,17 +13,23 @@ import { crearTraductor, localeDeIdioma } from '../i18n/diccionario';
 const PreferenciasContext = createContext(null);
 
 export function PreferenciasProvider({ children, forzarClaro = false }) {
-  const prefs = usePreferencias({ forzarClaro });
+  /* Se desestructura en vez de esparcir el objeto entero: `usePreferencias`
+     devuelve uno nuevo en cada render, así que `{...prefs}` obligaba a listar
+     sus campos a mano en las dependencias —lo que el linter marca como lista
+     incompleta— y bastaba olvidar uno para servir un valor rancio. */
+  const {
+    modoOscuro, alternarTema, language, setLanguage, alternarIdioma
+  } = usePreferencias({ forzarClaro });
 
   // El traductor solo se recrea cuando cambia el idioma
-  const t = useMemo(() => crearTraductor(prefs.language), [prefs.language]);
+  const t = useMemo(() => crearTraductor(language), [language]);
 
   // Locale de fechas/números acorde al idioma activo
-  const locale = localeDeIdioma(prefs.language);
+  const locale = localeDeIdioma(language);
 
   const valor = useMemo(
-    () => ({ ...prefs, t, locale }),
-    [prefs.modoOscuro, prefs.language, prefs.alternarTema, prefs.alternarIdioma, prefs.setLanguage, t, locale]
+    () => ({ modoOscuro, alternarTema, language, setLanguage, alternarIdioma, t, locale }),
+    [modoOscuro, alternarTema, language, setLanguage, alternarIdioma, t, locale]
   );
 
   return (

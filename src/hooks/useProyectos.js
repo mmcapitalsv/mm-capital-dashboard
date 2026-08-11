@@ -268,19 +268,14 @@ export function useProyectos(user) {
 
     const gastosProyecto = safeGastos.filter(g => g && String(g.proyecto_id || '') === pIdStr);
     const gastosSumados = sumarDinero(gastosProyecto, g => g?.monto);
-    /* ── Fuente ÚNICA del costo ejecutado: `gastos` ────────────────────────
-       Antes se sumaban tres orígenes —facturas + valor de los hitos marcados +
-       ajuste manual— y eso contaba el mismo dinero dos veces: la factura del
-       proveedor que ejecutó el hito ya estaba registrada, y al marcar el hito
-       su `valor` volvía a sumar. El sobrecosto era artificial y crecía con cada
-       hito cerrado. El costo ejecutado es lo que se ha pagado, y lo que se ha
-       pagado son las facturas registradas: nada más.
-
-       El valor de los hitos sigue existiendo, pero como lo que es —presupuesto
-       comprometido de obra, no dinero salido— y la columna `costo_ejecutado`
-       queda solo como espejo histórico. */
+    /* ── Costo ejecutado: facturas + obra cerrada ──────────────────────────
+       Dos orígenes, ambos dinero ya ejecutado: la suma real de `gastos` (el
+       pago documentado al proveedor) y el valor de los hitos completados (la
+       obra que ya se dio por cerrada). El ajuste manual NO entra: el total se
+       mueve registrando una factura o cerrando un hito, nunca escribiéndolo.
+       La ficha del proyecto muestra las dos cifras por separado. */
     const valorHitosHechos = sumarValoresCompletados(checklistFinal);
-    const costoEjecutado = Math.max(0, redondearDinero(gastosSumados));
+    const costoEjecutado = Math.max(0, redondearDinero(gastosSumados + valorHitosHechos));
     const totalGastado = costoEjecutado;
     /* `??` y no `||`: un presupuesto guardado como 0 es una decisión del
        Administrador ("aún no se asigna"), no un hueco que haya que rellenar
@@ -415,7 +410,8 @@ export function useProyectos(user) {
        · Capital comprometido   — suma de los presupuestos de los proyectos.
                                   Es una promesa de gasto, no un movimiento.
        · Aportaciones recibidas — suma REAL de `aportaciones`. Dinero que entró.
-       · Egresos ejecutados     — suma REAL de `gastos`. Dinero que salió.
+       · Egresos ejecutados     — facturas (`gastos`) + obra cerrada (valor de
+                                  los hitos completados). Dinero que salió.
 
      De ahí salen dos disponibles, y tampoco son lo mismo:
        · `capitalDisponible`   = capital total − egresos ejecutados (del fondo)
@@ -424,7 +420,12 @@ export function useProyectos(user) {
                                  de lo que los socios han puesto). */
   const finanzasPortafolio = useMemo(() => {
     const aportacionesRecibidas = sumarDinero(safeAportaciones, a => a?.monto);
-    const egresosEjecutados = sumarDinero(safeGastos, g => g?.monto);
+    /* Egresos = facturas + obra cerrada, exactamente el mismo criterio que el
+       Costo Ejecutado de cada ficha. Si el portafolio sumara solo `gastos`, la
+       cifra del panel y la de la ficha del proyecto no cuadrarían. */
+    const totalFacturasPortafolio = sumarDinero(safeGastos, g => g?.monto);
+    const totalObraCerrada = sumarDinero(proyectosConFinanzas, p => p?.valorHitosCompletados);
+    const egresosEjecutados = redondearDinero(totalFacturasPortafolio + totalObraCerrada);
 
     // Capital total: el valor editado por el Administrador manda; si nunca se
     // configuró, se cae a la suma de los presupuestos de los proyectos.

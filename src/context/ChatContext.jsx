@@ -201,8 +201,15 @@ export function ChatProvider({ children, user }) {
   /** Apaga el punto rojo: el usuario ya vio el canal. */
   const marcarLeido = useCallback(async () => {
     if (!uid || !tieneAcceso) return;
-    const ahora = await marcarCanalLeido(uid);
-    if (ahora) setLeidoHasta(ahora);
+    /* `marcarCanalLeido` arroja si la base rechaza el upsert. Se atrapa aquí:
+       la marca local NO se mueve —el punto rojo sigue encendido, que es la
+       verdad— y el fallo no revienta como promesa sin capturar. */
+    try {
+      const ahora = await marcarCanalLeido(uid);
+      if (ahora) setLeidoHasta(ahora);
+    } catch (err) {
+      console.error('No se pudo marcar el canal como leído:', err);
+    }
   }, [uid, tieneAcceso]);
 
   // Hay novedades si el último mensaje ajeno es posterior a la última lectura

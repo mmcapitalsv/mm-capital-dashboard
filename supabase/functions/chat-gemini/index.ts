@@ -209,7 +209,8 @@ const DECLARACIONES_HERRAMIENTAS = [
 // ── Utilidades ─────────────────────────────────────────────────────────────
 
 function aNumero(valor: unknown): number {
-  const n = typeof valor === 'number' ? valor : parseFloat(String(valor ?? '').replace(/[^0-9.\-]/g, ''));
+  // El guion va al final de la clase: ahí es un literal y no necesita escape.
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor ?? '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? n : 0;
 }
 

@@ -2,7 +2,7 @@ import imageCompression from 'browser-image-compression';
 import { supabase } from '../supabaseClient';
 import { comprimirImagen } from '../lib/comprimirImagen';
 import {
-  BUCKET_ARCHIVOS, BUCKET_FACTURAS as BUCKET_FACTURAS_ID, TTL_FIRMA_SEGUNDOS,
+  BUCKET_ARCHIVOS, BUCKET_FACTURAS as BUCKET_FACTURAS_ID,
   firmarRuta, firmarUrl, firmarUrls, rutaDeUrl
 } from '../lib/urlFirmada';
 
@@ -25,14 +25,14 @@ function esErrorDeTamano(error) {
 /** Bucket general de la aplicación (documentos, portadas, avatares, galería). */
 export const BUCKET = BUCKET_ARCHIVOS;
 
-/** Bucket dedicado a los comprobantes de las facturas de proveedores. */
-export const BUCKET_FACTURAS = BUCKET_FACTURAS_ID;
+/** Bucket dedicado a los comprobantes de las facturas de proveedores.
+    De uso interno: quien lo necesite fuera lo toma de `lib/urlFirmada`. */
+const BUCKET_FACTURAS = BUCKET_FACTURAS_ID;
 
 /* Los dos buckets son PRIVADOS desde la migración 018 (hallazgo P0.1): nada de
    `getPublicUrl`. Cada enlace se firma con `createSignedUrl` y caduca en una
    hora — ver src/lib/urlFirmada.js, que además re-firma al vuelo las URLs
    públicas antiguas que siguen guardadas en la base. */
-export { TTL_FIRMA_SEGUNDOS };
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

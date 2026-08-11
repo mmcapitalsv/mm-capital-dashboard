@@ -17,7 +17,7 @@ const AVISO_MIGRACION =
   'ejecucion_mensual). Ejecuta supabase/migrations/002_fase2_finanzas_galeria.sql y ' +
   'supabase/migrations/007_finanzas_reales_y_hilo_reportes.sql en el SQL Editor de Supabase.';
 
-export const AVISO_MIGRACION_010 =
+const AVISO_MIGRACION_010 =
   'Falta la columna `ajuste_costo_manual`, así que la corrección a mano del ' +
   'Costo Ejecutado no se pudo guardar. Ejecuta ' +
   'supabase/migrations/010_valor_hitos_y_chat_editable.sql en el SQL Editor de Supabase.';
@@ -90,19 +90,19 @@ const AVISO_CONFLICTO_CONCURRENCIA =
   'proyecto, revisa los valores actuales y vuelve a aplicarlos.';
 
 /**
- * Costo Ejecutado del proyecto: FUENTE ÚNICA, la suma real de `gastos`.
+ * Costo Ejecutado del proyecto: Facturas (`gastos`) + Obra cerrada (valor de
+ * los hitos marcados como completados).
  *
- * Antes sumaba tres orígenes —facturas + valor de los hitos marcados + ajuste
- * manual— y contaba el mismo dinero dos veces: la factura del proveedor que
- * ejecutó el hito ya estaba registrada, y marcar el hito volvía a sumar su
- * `valor`. El resultado era un sobrecosto inventado que crecía con cada hito
- * cerrado, y encima requería que alguien lo corrigiera a mano una y otra vez.
+ * Son dos conceptos distintos y AMBOS son dinero ya ejecutado: la factura es
+ * el pago documentado al proveedor y la obra cerrada es el valor del hito que
+ * ya se dio por terminado. La ficha muestra el desglose de las dos cifras para
+ * que el total nunca sea una caja negra.
  *
- * Los parámetros `hitos` y `ajuste` se aceptan y se IGNORAN a propósito: las
- * llamadas antiguas siguen compilando, pero ya no inflan la cifra.
+ * El parámetro `ajuste` se acepta y se IGNORA a propósito: las llamadas
+ * antiguas siguen compilando, pero el total no se escribe a mano.
  */
-export function componerCostoEjecutado({ facturas = 0 } = {}) {
-  return Math.max(0, redondearDinero(aNumero(facturas)));
+export function componerCostoEjecutado({ facturas = 0, hitos = 0 } = {}) {
+  return Math.max(0, redondearDinero(aNumero(facturas) + aNumero(hitos)));
 }
 
 /**

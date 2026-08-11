@@ -57,9 +57,12 @@ async function detalleDelError(error) {
   return detalle;
 }
 
-async function generarConFallback(peticion) {
+async function generarConFallback(peticion, { signal } = {}) {
   const { data, error } = await supabase.functions.invoke(FUNCION, {
-    body: { ...peticion, modelos: MODELOS }
+    body: { ...peticion, modelos: MODELOS },
+    // `signal` opcional: la vista del chat cancela la petición en vuelo al
+    // desmontarse, para no pintar una respuesta sobre un componente muerto.
+    ...(signal ? { signal } : {})
   });
 
   if (error) throw new Error(await detalleDelError(error));
@@ -222,10 +225,10 @@ registrar o eliminar un gasto):
 
 /**
  * Conversación multimodal con el modelo.
- * @param {{texto: string, archivos?: File[], historial?: Array<{sender: string, text: string}>}} params
- * @returns {Promise<{texto: string|null, error: string|null}>}
+ * @param {{texto: string, archivos?: File[], historial?: Array<{sender: string, text: string}>, signal?: AbortSignal}} params
+ * @returns {Promise<{texto: string|null, error: string|null, cancelada?: boolean}>}
  */
-export async function conversarConIA({ texto, archivos = [], historial = [] }) {
+export async function conversarConIA({ texto, archivos = [], historial = [], signal }) {
   const mensaje = String(texto || '').trim();
   if (!mensaje && archivos.length === 0) return { texto: null, error: null };
 
@@ -249,10 +252,15 @@ export async function conversarConIA({ texto, archivos = [], historial = [] }) {
     const { texto: salida, modeloUsado, propuestas } = await generarConFallback({
       contents,
       systemInstruction: { role: 'system', parts: [{ text: SISTEMA_CHAT }] }
-    });
+    }, { signal });
 
     return { texto: salida.trim(), modeloUsado, propuestas, error: null };
   } catch (err) {
+    /* Cancelación deliberada (la vista se desmontó): no es un fallo que haya
+       que enseñar, así que viaja marcada y sin mensaje de error. */
+    if (signal?.aborted || err?.name === 'AbortError') {
+      return { texto: null, propuestas: [], error: null, cancelada: true };
+    }
     return { texto: null, propuestas: [], error: err?.message || 'No se pudo contactar con la IA.' };
   }
 }

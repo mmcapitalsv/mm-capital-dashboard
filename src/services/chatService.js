@@ -25,7 +25,7 @@ const AVISO_MIGRACION_009 =
   'Falta la columna `receptor_id`. Ejecuta ' +
   'supabase/migrations/009_mensajes_directos.sql en el SQL Editor de Supabase.';
 
-export const AVISO_MIGRACION_010 =
+const AVISO_MIGRACION_010 =
   'No se pudo editar el mensaje: falta el permiso de edición en la base. ' +
   'Ejecuta supabase/migrations/010_valor_hitos_y_chat_editable.sql en el ' +
   'SQL Editor de Supabase.';
@@ -34,6 +34,20 @@ const AVISO_MIGRACION_012 =
   'No se pudo enviar el archivo: faltan las columnas de adjuntos. ' +
   'Ejecuta supabase/migrations/012_adjuntos_chat.sql en el ' +
   'SQL Editor de Supabase.';
+
+/**
+ * Identificador con forma de UUID.
+ *
+ * `listarMensajesDirectos` arma un filtro `.or(...)` interpolando los dos ids
+ * DENTRO de la expresión, así que un valor con comas o paréntesis no sería un
+ * id inválido que no encuentra nada: reescribiría el filtro entero. Se valida
+ * la forma antes de construir la consulta y se corta si no cuadra.
+ */
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function esUuid(valor) {
+  return RE_UUID.test(String(valor || '').trim());
+}
 
 /** Solo el Administrador puede vaciar el historial del canal General. */
 export function puedeLimpiarChat(rol) {
@@ -393,6 +407,9 @@ const CANAL_DIRECTO = 'directo';
 /** Conversación privada completa entre `uid` y `otroId`. */
 export async function listarMensajesDirectos(uid, otroId) {
   if (!uid || !otroId) return { mensajes: [], error: null };
+  if (!esUuid(uid) || !esUuid(otroId)) {
+    return { mensajes: [], error: 'Identificador de conversación no válido.' };
+  }
 
   const { data, error } = await consultarTolerante((columnas) => supabase
     .from(TABLA)
@@ -518,15 +535,22 @@ export async function leerMarcaLectura(uid) {
   return data?.leido_hasta || null;
 }
 
-/** Marca el canal como leído hasta ahora (apaga el punto rojo de la campana). */
+/**
+ * Marca el canal como leído hasta ahora (apaga el punto rojo de la campana).
+ *
+ * Si el `upsert` falla, el error SUBE: devolver la marca igualmente apagaba el
+ * aviso en pantalla mientras la base seguía sin registrar la lectura, así que
+ * al recargar el punto rojo volvía sin explicación.
+ */
 export async function marcarCanalLeido(uid) {
   if (!uid) return null;
   const ahora = new Date().toISOString();
-  await supabase
+  const { error } = await supabase
     .from('chat_lecturas')
     .upsert(
       { usuario_id: uid, canal: CANAL_SOCIOS, leido_hasta: ahora },
       { onConflict: 'usuario_id,canal' }
     );
+  if (error) throw error;
   return ahora;
 }

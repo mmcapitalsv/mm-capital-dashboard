@@ -64,6 +64,23 @@ export default function ChatModule({ onBack, isEditMode }) {
 
   const enDirectos = pestana === 'directos';
 
+  /* Vista previa del canal: el último mensaje, resumido en una línea.
+     Un mensaje puede ser SOLO un archivo (el texto viaja vacío a propósito),
+     y en ese caso la lista se veía muerta aunque acabara de llegar algo. Con
+     '📷 [Imagen]' / '📎 [Archivo]' la actividad se nota igual. */
+  const vistaPreviaCanal = React.useMemo(() => {
+    const ultimo = Array.isArray(mensajes) && mensajes.length > 0
+      ? mensajes[mensajes.length - 1]
+      : null;
+    if (!ultimo) return null;
+    const texto = String(ultimo.texto || '').trim();
+    if (texto) return texto;
+    if (!ultimo.adjunto) return null;
+    return esImagen(ultimo.adjunto.nombre, ultimo.adjunto.url)
+      ? t('chat.previaImagen')
+      : t('chat.previaArchivo');
+  }, [mensajes, t]);
+
   /* Vaciar el canal entero pide DOS llaves: ser Administrador y tener el Modo
      Edición encendido. Borrar el historial de todos los socios no puede estar
      a un clic de distancia mientras se lee el chat con normalidad. */
@@ -369,9 +386,16 @@ export default function ChatModule({ onBack, isEditMode }) {
                 </p>
 
                 <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-mm-oro/15 text-mm-oro-tinta dark:text-mm-oro-claro font-bold border border-mm-oro/30">
-                  <Users size={15} className="text-mm-oro" />
-                  <span className="text-[13px] flex-1 truncate">{t('chat.canalSocios')}</span>
-                  <span className="text-[11px] text-slate-400 dark:text-zinc-300 font-semibold">{miembros}</span>
+                  <Users size={15} className="text-mm-oro flex-shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] truncate">{t('chat.canalSocios')}</span>
+                    {vistaPreviaCanal && (
+                      <span className="block text-[11px] font-medium text-slate-500 dark:text-zinc-300 truncate">
+                        {vistaPreviaCanal}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-slate-400 dark:text-zinc-300 font-semibold flex-shrink-0">{miembros}</span>
                 </div>
 
                 <p className="text-[11px] text-slate-400 dark:text-zinc-300 px-3 pt-3 leading-relaxed">

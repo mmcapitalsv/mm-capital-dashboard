@@ -590,9 +590,12 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
          guardada, no con la que había al abrir la pantalla: así el dinero de
          un hito marcado hace un segundo ya entra en el total que se persiste. */
       if (modoEdicionFinanzas) {
-        // El costo ejecutado que se persiste es la suma real de `gastos`: ni el
-        // checklist recién guardado ni un ajuste a mano lo alteran (P1-9).
-        const costoFinal = componerCostoEjecutado({ facturas: totalFacturas });
+        // El costo ejecutado que se persiste suma facturas + obra cerrada, y
+        // usa el checklist RECIÉN guardado, no el que había al abrir.
+        const costoFinal = componerCostoEjecutado({
+          facturas: totalFacturas,
+          hitos: sumarValoresCompletados(listaFinal)
+        });
 
         const fin = await guardarFinanzas(project.id, {
           ...finanzas, ...identidad, costoEjecutado: costoFinal,
@@ -1582,18 +1585,15 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   // Cálculos derivados: reaccionan a cada tecla mientras se edita
   const totalBudget = aNumeroSeguro(finanzas.presupuesto);
 
-  /* ── Costo ejecutado: FUENTE ÚNICA, `gastos` ───────────────────────────────
-     `totalFacturas` es la suma real de `gastos.monto`; `facturas` se recarga
-     tras cada alta/edición/borrado y por Realtime, así que se mueve sola.
-
-     Ya NO se le suman los hitos marcados ni un ajuste manual. Sumarlos contaba
-     el mismo dinero dos veces —la factura del proveedor que ejecutó el hito ya
-     estaba registrada— y producía un sobrecosto inventado que alguien tenía que
-     corregir a mano cada semana. `totalHitos` sigue calculándose, pero como lo
-     que es: obra cerrada valorizada, que se muestra aparte y no como gasto. */
+  /* ── Costo ejecutado: Facturas + Obra cerrada ─────────────────────────────
+     `totalFacturas` es la suma real de `gastos.monto` y `totalHitos` el valor
+     de los hitos completados. Ambas se recargan solas (alta/edición/borrado y
+     Realtime), y ambas son dinero ejecutado: el pago documentado al proveedor
+     y la obra que ya se dio por cerrada. El total nunca se escribe a mano y la
+     tarjeta muestra el desglose para que se vea de dónde sale cada dólar. */
   const totalFacturas = React.useMemo(() => sumarGastos(facturas), [facturas]);
   const totalHitos = React.useMemo(() => sumarValoresCompletados(safeChecklist), [safeChecklist]);
-  const totalSpent = componerCostoEjecutado({ facturas: totalFacturas });
+  const totalSpent = componerCostoEjecutado({ facturas: totalFacturas, hitos: totalHitos });
 
   /* Las dos series de la gráfica recorren TODAS las facturas y agrupan por mes:
      es el cálculo más caro de la ficha y no tenía por qué rehacerse al escribir
@@ -2294,11 +2294,11 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
                 colorValor="text-mm-1"
               />
 
-              {/* Costo ejecutado: SOLO las facturas registradas. No se edita a
-                  mano ni siquiera en Modo Edición — escribir el total encima lo
-                  desconectaría de los gastos que lo producen, que es justo lo
-                  que obligaba a re-corregirlo cada semana. Para moverlo se
-                  registra o se corrige una factura. */}
+              {/* Costo ejecutado: facturas + obra cerrada. No se edita a mano
+                  ni siquiera en Modo Edición — escribir el total encima lo
+                  desconectaría de los movimientos que lo producen, que es justo
+                  lo que obligaba a re-corregirlo cada semana. Para moverlo se
+                  registra una factura o se cierra un hito. */}
               <TarjetaMonto
                 etiqueta={t('fin.costoEjecutado')}
                 pie={`${porcentajeEntero(totalSpent, totalBudget)}% ${t('fin.presupuestoEjecutado')}`}
@@ -2307,12 +2307,22 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
                 colorValor={isOverBudget ? 'text-red-700 dark:text-red-400' : 'text-mm-1'}
                 resaltado={isOverBudget}
               >
-                <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1.5 leading-relaxed font-medium">
-                  {t('fin.desgloseFacturas')} {formatearMoneda(totalFacturas)}
+                {/* Desglose en FILAS independientes: concepto a la izquierda,
+                    monto a la derecha. En una sola línea con separador `·` el
+                    texto se desbordaba y partía las palabras a la mitad en las
+                    tarjetas angostas. */}
+                <div className="mt-2 space-y-1 text-xs font-medium text-slate-400 dark:text-zinc-300">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate">{t('fin.desgloseFacturas')}</span>
+                    <span className="flex-shrink-0 tabular-nums">{formatearMoneda(totalFacturas)}</span>
+                  </div>
                   {totalHitos > 0 && (
-                    <> {' · '}{t('fin.desgloseObraCerrada')} {formatearMoneda(totalHitos)}</>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate">{t('fin.desgloseObraCerrada')}</span>
+                      <span className="flex-shrink-0 tabular-nums">{formatearMoneda(totalHitos)}</span>
+                    </div>
                   )}
-                </p>
+                </div>
               </TarjetaMonto>
             </div>
 

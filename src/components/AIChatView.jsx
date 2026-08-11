@@ -127,8 +127,18 @@ function AIChatView({ onBack }) {
   const composerIARef = useRef(null);
   const finIARef = useRef(null);
   const copiaTimerRef = useRef(null);
+  /* Petición al modelo en vuelo. Una respuesta de Gemini tarda segundos, y si
+     el usuario sale del chat antes de que llegue, la petición seguía viva y
+     terminaba escribiendo estado sobre un componente desmontado. */
+  const peticionRef = useRef(null);
 
   useEffect(() => () => clearTimeout(copiaTimerRef.current), []);
+
+  // Al desmontar se cancela la conversación en curso
+  useEffect(() => () => {
+    peticionRef.current?.abort();
+    peticionRef.current = null;
+  }, []);
 
   // Persiste el historial en cada cambio
   useEffect(() => {
@@ -211,7 +221,19 @@ function AIChatView({ onBack }) {
     setPensando(true);
     setErrorIA(null);
 
-    const { texto: respuesta, propuestas, error } = await conversarConIA({ texto, archivos, historial });
+    // Una sola conversación en vuelo: si quedara otra, se abandona aquí
+    peticionRef.current?.abort();
+    const control = new AbortController();
+    peticionRef.current = control;
+
+    const { texto: respuesta, propuestas, error, cancelada } = await conversarConIA({
+      texto, archivos, historial, signal: control.signal
+    });
+
+    if (peticionRef.current === control) peticionRef.current = null;
+    // Se salió del chat mientras el modelo pensaba: no hay nada que pintar
+    if (cancelada || control.signal.aborted) return;
+
     setPensando(false);
 
     if (error || !respuesta) {

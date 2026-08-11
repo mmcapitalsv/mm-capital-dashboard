@@ -35,6 +35,12 @@ const COLOR_VERDE = '#10b981';
  * `useMemo` corre durante el render mientras la clase `.dark` la aplica un
  * efecto POSTERIOR, así que siempre leía el tema anterior.
  */
+/* Ritmo de los carruseles. Viven en el módulo, no dentro del componente: como
+   constantes locales el linter las exigía en las dependencias de cada efecto
+   —y ahí sobran, porque nunca cambian entre renders. */
+const DURACION_SLIDE = 6000;
+const PAUSA_TRAS_GESTO = 1500;
+
 const PALETA_GRAFICA = {
   claro:  { pendiente: '#E2E8F0', fondo: '#ffffff', borde: '#e5e7eb', texto: '#0f172a' },
   oscuro: { pendiente: '#3f3f46', fondo: '#18222D', borde: '#3f3f46', texto: '#f4f4f5' }
@@ -183,7 +189,6 @@ export default function DashboardView({
      `reinicioCarrusel` se incrementa en cada navegación manual: al cambiar la
      dependencia, React limpia el intervalo anterior y arranca uno nuevo, así
      el slide recién elegido dura los 6 s completos en vez de saltar enseguida. */
-  const DURACION_SLIDE = 6000;
   const [reinicioCarrusel, setReinicioCarrusel] = useState(0);
   /* Con el cursor encima manda quien está leyendo, no el temporizador. Antes
      la tarjeta se cambiaba sola a mitad de la descripción del proyecto: el
@@ -233,7 +238,6 @@ export default function DashboardView({
      `touchstart` que se queda sin su `touchend` dejaría el carrusel congelado
      para siempre. Con la marca, la pausa caduca sola. */
   const ultimoGestoRef = useRef(0);
-  const PAUSA_TRAS_GESTO = 1500;
 
   useEffect(() => {
     if (!carruselMovil || proyectos.length < 2) return;
@@ -1102,14 +1106,23 @@ export default function DashboardView({
                         <p title={montoExacto(egresosEjecutados, locale)} className="text-[clamp(19px,1.9vw,28px)] font-bold text-slate-900 dark:text-white mb-0.5 leading-none truncate tabular-nums">
                           {cifrasNoFiables ? '–' : montoCorto(egresosEjecutados, locale)}
                         </p>
+                        {/* Aportaciones: etiqueta y monto en FILAS separadas.
+                            En una sola línea "Aportaciones recibidas: $X" no
+                            cabía en la tarjeta y el `truncate` se comía la
+                            cifra, que es justo el dato que se venía a ver. */}
                         <button
                           onClick={() => changeView('investors')}
                           title={`${t('dash.aportacionesRecibidas')}: ${montoExacto(aportacionesRecibidas, locale)} · ${t('dash.liquidez')}: ${montoExacto(liquidezDisponible, locale)}`}
-                          className="text-slate-400 dark:text-zinc-300 text-[11px] font-medium flex items-center gap-1 mt-1.5 truncate hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors"
+                          className="w-full text-left text-slate-400 dark:text-zinc-300 text-xs font-medium flex flex-col justify-between gap-0.5 mt-2 min-w-0 hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors"
                         >
-                          {cifrasNoFiables
-                            ? t('dash.egresosAuto')
-                            : `${t('dash.aportacionesRecibidas')}: ${montoCorto(aportacionesRecibidas, locale)}`}
+                          {cifrasNoFiables ? (
+                            <span className="truncate">{t('dash.egresosAuto')}</span>
+                          ) : (
+                            <>
+                              <span className="truncate">{t('dash.aportacionesRecibidas')}</span>
+                              <span className="truncate tabular-nums font-semibold">{montoCorto(aportacionesRecibidas, locale)}</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Download, WifiOff, X } from 'lucide-react';
 import { usePrefs } from '../../context/PreferenciasContext';
@@ -25,6 +25,11 @@ const INTERVALO_REVISION = 60 * 60 * 1000;
  */
 export default function AvisoActualizacion() {
   const { t } = usePrefs();
+  /* El temporizador de revisión se guarda para poder apagarlo al desmontar: si
+     no, cada montaje deja uno vivo llamando a `registro.update()` para siempre
+     sobre un componente que ya no existe. */
+  const revisionRef = useRef(null);
+
   const {
     offlineReady: [listaSinConexion, setListaSinConexion],
     needRefresh: [hayVersionNueva, setHayVersionNueva],
@@ -34,12 +39,23 @@ export default function AvisoActualizacion() {
       if (!registro) return;
       /* Una PWA instalada puede pasar días sin recargarse: sin esta revisión
          periódica el navegador solo busca versiones nuevas al navegar. */
-      setInterval(() => { registro.update().catch(() => {}); }, INTERVALO_REVISION);
+      if (revisionRef.current) clearInterval(revisionRef.current);
+      revisionRef.current = setInterval(
+        () => { registro.update().catch(() => {}); },
+        INTERVALO_REVISION
+      );
     },
     onRegisterError(error) {
       console.warn('No se pudo registrar el Service Worker:', error);
     }
   });
+
+  useEffect(() => () => {
+    if (revisionRef.current) {
+      clearInterval(revisionRef.current);
+      revisionRef.current = null;
+    }
+  }, []);
 
   if (!hayVersionNueva && !listaSinConexion) return null;
 
