@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { conversarConIA, hayClaveGemini } from '../services/geminiService';
 import {
-  AlertTriangle, ChevronLeft, Loader2, Paperclip, Send, Sparkles, X
+  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, Sparkles, X
 } from 'lucide-react';
 
 /**
@@ -19,8 +19,24 @@ function AIChatView({ onBack }) {
   const [adjuntos, setAdjuntos] = useState([]);
   const [pensando, setPensando] = useState(false);
   const [errorIA, setErrorIA] = useState(hayClaveGemini() ? null : t('ia.sinClave'));
+  const [copiadoIdx, setCopiadoIdx] = useState(null);
   const clipRef = useRef(null);
   const finIARef = useRef(null);
+  const copiaTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(copiaTimerRef.current), []);
+
+  /** Copia el texto de una respuesta de la IA y marca el feedback 2s */
+  const copiarMensaje = async (texto, idx) => {
+    try {
+      await navigator.clipboard.writeText(texto || '');
+      setCopiadoIdx(idx);
+      clearTimeout(copiaTimerRef.current);
+      copiaTimerRef.current = setTimeout(() => setCopiadoIdx(null), 2000);
+    } catch {
+      setErrorIA(t('msg.errorSupabase'));
+    }
+  };
 
   useEffect(() => {
     finIARef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -89,19 +105,33 @@ function AIChatView({ onBack }) {
 
       {/* Area del chat */}
       <div className="flex-1 overflow-y-auto p-8 space-y-4 max-w-4xl mx-auto w-full">
-        {messages.map((m, idx) => (
+        {messages.map((m, idx) => {
+          const textoMsg = m.clave ? t(m.clave) : m.text;
+          return (
           <div key={idx} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] rounded-2xl p-4 shadow-sm text-sm leading-relaxed ${
+            <div className={`group relative max-w-[80%] rounded-2xl p-4 shadow-sm text-sm leading-relaxed ${
               m.sender === 'user' ? 'bg-mm-navy text-white' : 'bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-slate-800 dark:text-zinc-100'
             }`}>
               {m.sender === 'ai' && (
-                <div className="flex items-center gap-1.5 text-xs font-bold text-mm-oro-tinta dark:text-mm-oro-claro mb-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-mm-oro-tinta dark:text-mm-oro-claro mb-1.5 pr-16">
                   <Sparkles size={12} /> IA MM Capital
                 </div>
               )}
+              {m.sender === 'ai' && (
+                <button
+                  type="button"
+                  onClick={() => copiarMensaje(textoMsg, idx)}
+                  title={t('comun.copiar')}
+                  className="absolute top-2.5 right-2.5 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all active:scale-95"
+                >
+                  {copiadoIdx === idx
+                    ? <><Check size={12} className="text-emerald-500" /> {t('comun.copiado')}</>
+                    : <Copy size={12} />}
+                </button>
+              )}
               {/* `clave` = texto de la app (se traduce); `text` = lo que
                   escribió el usuario (se muestra tal cual) */}
-              <p className="whitespace-pre-wrap break-words">{m.clave ? t(m.clave) : m.text}</p>
+              <p className="whitespace-pre-wrap break-words">{textoMsg}</p>
               {/* Nombres de los archivos que acompañaron al mensaje */}
               {Array.isArray(m.adjuntos) && m.adjuntos.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -114,7 +144,8 @@ function AIChatView({ onBack }) {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {pensando && (
           <div className="flex justify-start">
@@ -180,7 +211,7 @@ function AIChatView({ onBack }) {
               value={inputMsg}
               onChange={(e) => setInputMsg(e.target.value)}
               placeholder={t('ia.placeholder')}
-              className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-slate-400 focus:bg-white transition-colors text-slate-800 dark:text-zinc-100"
+              className="flex-1 min-w-0 bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:border-slate-400 dark:focus:border-mm-oro/50 focus:bg-white dark:focus:bg-zinc-900 transition-colors"
             />
             <button
               type="submit"

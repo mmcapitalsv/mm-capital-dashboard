@@ -261,6 +261,8 @@ export const DICCIONARIO = {
     'comun.cerrar': 'Cerrar',
     'comun.descargar': 'Descargar',
     'comun.enviar': 'Enviar',
+    'comun.copiar': 'Copiar',
+    'comun.copiado': '¡Copiado!',
     'comun.categoria': 'Categoría',
     'comun.moduloDesarrollo': 'Módulo en desarrollo',
 
@@ -959,6 +961,8 @@ export const DICCIONARIO = {
     'comun.verTodas': 'View all',
     'comun.descargar': 'Download',
     'comun.enviar': 'Send',
+    'comun.copiar': 'Copy',
+    'comun.copiado': 'Copied!',
     'comun.categoria': 'Category',
     'comun.moduloDesarrollo': 'Module under development',
 
