@@ -3,8 +3,8 @@ import {
   AlertTriangle, Check, ChevronLeft, Download, FileText, Loader2, Lock,
   MessageSquare, Paperclip, Pencil, Send, Trash2, User, Users, X
 } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
-import { useChat } from '../context/ChatContext';
+import { usePrefs } from '../context/usePrefs';
+import { useChat } from '../context/useChat';
 import { getUsuarios } from '../services/inversionesService';
 import AvatarUsuario from './ui/AvatarUsuario';
 import {
@@ -26,6 +26,20 @@ import { esImagen } from '../lib/archivos';
  * Todo llega por Realtime, así que esta vista y el recuadro del Sidebar
  * muestran exactamente lo mismo, al instante.
  */
+
+/**
+ * ¿Este adjunto se puede pintar dentro de un `<img>`?
+ *
+ * Se mira PRIMERO el tipo MIME que guardó la subida (`image/jpeg`...) y solo
+ * después la extensión: un archivo llegado desde la cámara del móvil puede
+ * traer un nombre sin extensión, y con él la extensión sola daba 'documento' y
+ * la miniatura no se llegaba a renderizar nunca.
+ */
+function esFotoAdjunta(adjunto) {
+  if (!adjunto?.url) return false;
+  if (/^image\//i.test(String(adjunto.tipo || ''))) return true;
+  return esImagen(adjunto.nombre, adjunto.url);
+}
 
 export default function ChatModule({ onBack, isEditMode }) {
   const { t } = usePrefs();
@@ -65,25 +79,32 @@ export default function ChatModule({ onBack, isEditMode }) {
   const enDirectos = pestana === 'directos';
 
   /* Vista previa del canal: el último mensaje, resumido en una línea.
-     Si lo último que llegó es una foto, se enseña la FOTO en miniatura y no un
+     Si el canal tiene fotos, se enseña la FOTO en miniatura y no un
      '[Imagen]' escrito: la lista se lee de un vistazo y se reconoce cuál es
      sin abrir el canal. El texto, cuando lo hay, viaja junto a la miniatura.
      Los archivos que no son imágenes sí se anuncian con etiqueta. */
   const vistaPreviaCanal = React.useMemo(() => {
-    const ultimo = Array.isArray(mensajes) && mensajes.length > 0
-      ? mensajes[mensajes.length - 1]
-      : null;
+    const lista = Array.isArray(mensajes) ? mensajes : [];
+    const ultimo = lista.length > 0 ? lista[lista.length - 1] : null;
     if (!ultimo) return null;
 
     const texto = String(ultimo.texto || '').trim();
     const adjunto = ultimo.adjunto || null;
-    const esFoto = !!adjunto && esImagen(adjunto.nombre, adjunto.url);
+    const esFoto = esFotoAdjunta(adjunto);
 
-    if (!texto && !adjunto) return null;
+    /* La miniatura NO depende de que la foto sea el último mensaje: mientras el
+       canal tenga una imagen, se enseña la más reciente. Antes bastaba con que
+       alguien escribiera una línea después de mandarla para que la vista previa
+       se quedara sin foto, que es justo lo que se reportó como "no se ve". */
+    const conFoto = esFoto
+      ? ultimo
+      : [...lista].reverse().find(m => esFotoAdjunta(m?.adjunto)) || null;
+
+    if (!texto && !adjunto && !conFoto) return null;
     return {
       texto: texto || (adjunto && !esFoto ? t('chat.previaArchivo') : ''),
-      miniatura: esFoto ? adjunto.url : null,
-      nombre: adjunto?.nombre || ''
+      miniatura: conFoto?.adjunto?.url || null,
+      nombre: conFoto?.adjunto?.nombre || adjunto?.nombre || ''
     };
   }, [mensajes, t]);
 
@@ -393,26 +414,28 @@ export default function ChatModule({ onBack, isEditMode }) {
 
                 <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-mm-oro/15 text-mm-oro-tinta dark:text-mm-oro-claro font-bold border border-mm-oro/30">
                   <Users size={15} className="text-mm-oro flex-shrink-0" />
+                  {/* La miniatura va JUNTO al nombre y a 48 px: a 24 px, metida
+                      en el renglón de 11 px de la vista previa, la foto no se
+                      distinguía de un icono. Aquí se reconoce la imagen sin
+                      abrir el canal, que es para lo que está. */}
+                  {vistaPreviaCanal?.miniatura && (
+                    <img
+                      src={vistaPreviaCanal.miniatura}
+                      alt={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
+                      title={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
+                      loading="lazy"
+                      /* La firma de la URL caduca (1 h): si la miniatura no
+                         carga se retira en silencio, en vez de dejar el icono
+                         de imagen rota en la lista. */
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      className="w-12 h-12 rounded object-cover flex-shrink-0 border border-black/10 dark:border-white/15 bg-slate-100 dark:bg-zinc-700"
+                    />
+                  )}
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] truncate">{t('chat.canalSocios')}</span>
-                    {vistaPreviaCanal && (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-zinc-300 min-w-0">
-                        {vistaPreviaCanal.texto && (
-                          <span className="truncate">{vistaPreviaCanal.texto}</span>
-                        )}
-                        {vistaPreviaCanal.miniatura && (
-                          <img
-                            src={vistaPreviaCanal.miniatura}
-                            alt={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
-                            title={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
-                            loading="lazy"
-                            /* La firma de la URL caduca (1 h): si la miniatura
-                               no carga se retira en silencio, en vez de dejar
-                               el icono de imagen rota en la lista. */
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            className="w-6 h-6 rounded object-cover inline-block ml-1 flex-shrink-0 border border-black/5 dark:border-white/10"
-                          />
-                        )}
+                    {vistaPreviaCanal?.texto && (
+                      <span className="block text-[11px] font-medium text-slate-500 dark:text-zinc-300 truncate">
+                        {vistaPreviaCanal.texto}
                       </span>
                     )}
                   </span>

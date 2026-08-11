@@ -1,5 +1,5 @@
 import React, { useState, Suspense, lazy } from 'react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { supabase } from '../supabaseClient';
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 /* El fondo WebGL arrastra tres cuartos de megabyte de Three.js — más que TODO

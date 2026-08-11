@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Activity, AlertTriangle, ArrowUpRight, Building2, DollarSign, FileText, MapPin, X
 } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 
 /**
  * "Ver todos" de las tarjetas inferiores del Dashboard.

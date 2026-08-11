@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { X, AlertTriangle, Loader2 } from 'lucide-react';
-import { usePrefs } from '../../context/PreferenciasContext';
+import { usePrefs } from '../../context/usePrefs';
 
 /**
  * Modal accesible, único para toda la aplicación.

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Loader2, Upload, X, ZoomIn } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 
 /**
  * Recorte de avatar con canvas nativo (sin dependencias externas).

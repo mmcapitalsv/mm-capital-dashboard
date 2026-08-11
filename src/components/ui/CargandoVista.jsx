@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
-import { usePrefs } from '../../context/PreferenciasContext';
+import { usePrefs } from '../../context/usePrefs';
 
 /**
  * Reserva visual mientras se descarga el paquete de una vista diferida.

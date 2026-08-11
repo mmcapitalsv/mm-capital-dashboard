@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useProyectos } from '../hooks/useProyectos';
 import { useTemporizadores } from '../hooks/useTemporizadores';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 
 /* ── Las nueve vistas entran por carga diferida ────────────────────────────────
    Todas estaban importadas de golpe, así que el paquete inicial incluía el
@@ -31,7 +31,7 @@ import CargandoVista from './ui/CargandoVista';
 import NombreAjustado from './ui/NombreAjustado';
 import { VideoBackground } from './ui/VideoBackground';
 import AvatarUsuario from './ui/AvatarUsuario';
-import { useChat } from '../context/ChatContext';
+import { useChat } from '../context/useChat';
 import { motion } from 'framer-motion';
 
 /** Dorado de marca para el resaltado del menú lateral. */

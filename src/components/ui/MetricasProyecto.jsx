@@ -1,5 +1,5 @@
 import React from 'react';
-import { usePrefs } from '../../context/PreferenciasContext';
+import { usePrefs } from '../../context/usePrefs';
 import { montoCorto, montoExacto } from '../../lib/formato';
 import { aNumeroSeguro } from '../../lib/numeros';
 
@@ -25,7 +25,9 @@ import { aNumeroSeguro } from '../../lib/numeros';
  */
 
 /** Grado de salud del gasto: por debajo del 75% va holgado; el 100% es sobregiro. */
-export function gradoFinanciero(porcentaje) {
+/* Sin `export`: nadie más la usa y exportarla desde un archivo de componentes
+   deja el módulo entero fuera del Fast Refresh. */
+function gradoFinanciero(porcentaje) {
   const p = aNumeroSeguro(porcentaje);
   if (p > 100) return 'sobregiro';
   if (p >= 75) return 'ajustado';

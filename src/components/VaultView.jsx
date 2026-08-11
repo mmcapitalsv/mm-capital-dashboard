@@ -3,7 +3,7 @@ import {
   AlertTriangle, CheckCircle2, ChevronLeft, Download, Edit3, FileText, FolderLock,
   Image as ImageIcon, Loader2, Lock, Save, Trash2, Upload, X
 } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useDirectorioUsuarios } from '../hooks/useDirectorioUsuarios';
 import { useTemporizadores } from '../hooks/useTemporizadores';

@@ -22,7 +22,7 @@ import {
 import {
   getAlbumes, crearAlbum, actualizarAlbum, eliminarAlbum, subirFotoAlbum, eliminarFoto
 } from '../services/galeriaService';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { VideoBackground } from './ui/VideoBackground';
 import InputMonto from './ui/InputMonto';
 import {
@@ -55,7 +55,9 @@ const TABS = [
    deje un "3." arriba del todo ni un "1. 1." duplicado. */
 const RE_NUMERACION = /^\s*\d+\s*[.)\-–—]\s*/;
 
-export function sinNumeracion(texto) {
+/* Sin `export`: solo lo usa esta vista, y exportar una función suelta desde un
+   archivo de componentes rompe el Fast Refresh de todo el módulo. */
+function sinNumeracion(texto) {
   return String(texto || '').replace(RE_NUMERACION, '').trim();
 }
 

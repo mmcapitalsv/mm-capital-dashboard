@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useTemporizadores } from '../hooks/useTemporizadores';
 import { supabase } from '../supabaseClient';

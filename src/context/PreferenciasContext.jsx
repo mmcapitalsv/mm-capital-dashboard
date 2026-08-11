@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { usePreferencias } from '../hooks/usePreferencias';
 import { crearTraductor, localeDeIdioma } from '../i18n/diccionario';
+import { PreferenciasContext } from './usePrefs';
 
 /**
  * Contexto de preferencias de interfaz (tema + idioma).
@@ -9,8 +10,6 @@ import { crearTraductor, localeDeIdioma } from '../i18n/diccionario';
  * y cualquier otro componente lean el MISMO estado. Sin esto, cada componente
  * tendría su propia copia del idioma y el toggle solo afectaría al Header.
  */
-
-const PreferenciasContext = createContext(null);
 
 export function PreferenciasProvider({ children, forzarClaro = false }) {
   /* Se desestructura en vez de esparcir el objeto entero: `usePreferencias`
@@ -39,22 +38,4 @@ export function PreferenciasProvider({ children, forzarClaro = false }) {
   );
 }
 
-/**
- * Devuelve { modoOscuro, alternarTema, language, alternarIdioma, t }.
- * Fuera del provider entrega valores neutros en español para que un
- * componente aislado (o un test) no reviente.
- */
-export function usePrefs() {
-  const ctx = useContext(PreferenciasContext);
-  if (ctx) return ctx;
-
-  return {
-    modoOscuro: false,
-    alternarTema: () => {},
-    language: 'es',
-    setLanguage: () => {},
-    alternarIdioma: () => {},
-    t: crearTraductor('es'),
-    locale: localeDeIdioma('es')
-  };
-}
+/* `usePrefs` vive en `./usePrefs`: este archivo solo exporta el provider. */

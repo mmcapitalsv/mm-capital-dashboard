@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import PortadaProyecto from './ui/PortadaProyecto';
 import MetricasProyecto from './ui/MetricasProyecto';
 import { etiquetaEstado } from '../i18n/diccionario';

@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { useTemporizadores } from '../hooks/useTemporizadores';
 import NombreAjustado from './ui/NombreAjustado';
 import { HyperText } from './ui/hyper-text';
@@ -196,17 +196,22 @@ export default function DashboardView({
      equivalente. */
   const [carruselPausado, setCarruselPausado] = useState(false);
 
+  /* El carrusel solo depende de CUÁNTOS proyectos hay, no de la identidad del
+     array: se deriva el número aparte para que el efecto declare la dependencia
+     real y no se reinicie el temporizador en cada render de la lista. */
+  const totalProyectos = Array.isArray(proyectos) ? proyectos.length : 0;
+
   useEffect(() => {
-    if (!proyectos || proyectos.length < 2) return;
+    if (totalProyectos < 2) return;
     if (carruselPausado) return;
     // Respeta a quien pidió menos movimiento en su sistema
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
     const timer = setInterval(() => {
-      setFeaturedIndex((prevIndex) => (prevIndex + 1) % proyectos.length);
+      setFeaturedIndex((prevIndex) => (prevIndex + 1) % totalProyectos);
     }, DURACION_SLIDE);
     return () => clearInterval(timer);
-  }, [proyectos.length, reinicioCarrusel, carruselPausado]);
+  }, [totalProyectos, reinicioCarrusel, carruselPausado]);
 
   /** Navegación manual: fija el slide y reinicia el temporizador desde cero. */
   const irASlide = (indice) => {

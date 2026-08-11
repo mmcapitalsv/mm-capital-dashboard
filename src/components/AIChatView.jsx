@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { conversarConIA, confirmarPropuesta, hayClaveGemini } from '../services/geminiService';
 import {
   AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, ShieldAlert,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Download, WifiOff, X } from 'lucide-react';
-import { usePrefs } from '../../context/PreferenciasContext';
+import { usePrefs } from '../../context/usePrefs';
 
 /** Cada hora: una versión nueva no debería tardar un día en anunciarse. */
 const INTERVALO_REVISION = 60 * 60 * 1000;

@@ -1,6 +1,7 @@
 import React, {
-  createContext, useContext, useState, useMemo, useCallback, useEffect, useRef
+  useState, useMemo, useCallback, useEffect, useRef
 } from 'react';
+import { ChatContext } from './useChat';
 import { supabase } from '../supabaseClient';
 import { nombreSimple } from '../lib/perfilUsuario';
 import {
@@ -22,8 +23,6 @@ import {
  * `hayNoLeidos` alimenta el punto rojo de la campana del header: se enciende
  * cuando llega un mensaje ajeno posterior a la última lectura del usuario.
  */
-
-const ChatContext = createContext(null);
 
 export function ChatProvider({ children, user }) {
   const uid = user?.id || null;
@@ -256,8 +255,4 @@ export function ChatProvider({ children, user }) {
   return <ChatContext.Provider value={valor}>{children}</ChatContext.Provider>;
 }
 
-export function useChat() {
-  const ctx = useContext(ChatContext);
-  if (!ctx) throw new Error('useChat debe usarse dentro de <ChatProvider>');
-  return ctx;
-}
+/* `useChat` vive en `./useChat`: este archivo solo exporta el provider. */

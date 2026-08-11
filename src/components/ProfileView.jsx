@@ -4,7 +4,7 @@ import {
   Loader2, LogOut, MessageSquare, Send, Settings, Sparkles, Trash2,
   Upload, UserCheck, X
 } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useTemporizadores } from '../hooks/useTemporizadores';
 import {

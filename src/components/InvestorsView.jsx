@@ -3,7 +3,7 @@ import {
   Briefcase, ChevronLeft, ChevronDown, Building2, TrendingUp, ArrowUpRight,
   Wallet, Users, Plus, Trash2, Edit2, Loader2, AlertTriangle, CheckCircle2, X, Check
 } from 'lucide-react';
-import { usePrefs } from '../context/PreferenciasContext';
+import { usePrefs } from '../context/usePrefs';
 import AvatarUsuario from './ui/AvatarUsuario';
 import { formatearMoneda } from '../services/finanzasService';
 import {
