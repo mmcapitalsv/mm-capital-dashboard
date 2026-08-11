@@ -201,10 +201,11 @@ export default function ChatModule({ onBack, isEditMode }) {
     }
   };
 
-  /* ── Edición y borrado del mensaje PROPIO ─────────────────────────────────
-     Cada quien manda sobre lo suyo y solo sobre lo suyo: la burbuja ajena no
-     ofrece los controles y, aunque alguien forzara la llamada, la RLS de
-     Supabase (migración 010) rechaza tocar un mensaje de otro. */
+  /* ── Edición y borrado ────────────────────────────────────────────────────
+     Editar es solo del autor: la burbuja ajena no ofrece el lápiz y, aunque
+     alguien forzara la llamada, la RLS de Supabase (migración 010) rechaza
+     reescribir un mensaje de otro. Borrar lo puede el autor o el Administrador
+     (política `mensajes_borrado`, migraciones 006 y 017). */
 
   const iniciarEdicion = (m) => {
     if (!m?.propio) return;
@@ -238,11 +239,12 @@ export default function ChatModule({ onBack, isEditMode }) {
   };
 
   const borrarMensaje = async (m) => {
-    if (!m?.propio) return;
+    // El Administrador modera: borra cualquier mensaje, no solo el suyo.
+    if (!m?.propio && !esAdmin) return;
     if (!await confirmar({ mensaje: t('chat.confirmarEliminarMensaje') })) return;
 
     if (enDirectos) {
-      const { success, error: err } = await eliminarMensaje({ id: m.id, uid });
+      const { success, error: err } = await eliminarMensaje({ id: m.id, uid, esAdmin });
       if (!success) { setErrorDirectos(err); return; }
       setErrorDirectos(null);
       setDirectos(prev => prev.filter(x => String(x.id) !== String(m.id)));
@@ -466,20 +468,26 @@ export default function ChatModule({ onBack, isEditMode }) {
                         />
                       )}
 
-                      {/* Lápiz y basurero: SOLO en las burbujas propias. Discretos
-                          (aparecen al pasar el cursor) pero siempre visibles en
-                          táctil, donde no existe el hover. */}
-                      {m.propio && !enEdicion && (
-                        <div className="flex items-center gap-1 mb-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => iniciarEdicion(m)}
-                            title={t('chat.editarMensaje')}
-                            aria-label={t('chat.editarMensaje')}
-                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-mm-oro hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
-                          >
-                            <Pencil size={14} />
-                          </button>
+                      {/* Lápiz: SOLO en las burbujas propias (nadie reescribe lo
+                          que dijo otro). Basurero: el dueño O el Administrador,
+                          que modera el canal. Discretos (aparecen al pasar el
+                          cursor) pero siempre visibles en táctil, donde no
+                          existe el hover. */}
+                      {(m.propio || esAdmin) && !enEdicion && (
+                        <div className={`flex items-center gap-1 mb-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ${
+                          m.propio ? '' : 'order-last'
+                        }`}>
+                          {m.propio && (
+                            <button
+                              type="button"
+                              onClick={() => iniciarEdicion(m)}
+                              title={t('chat.editarMensaje')}
+                              aria-label={t('chat.editarMensaje')}
+                              className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-mm-oro hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => borrarMensaje(m)}

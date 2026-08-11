@@ -295,22 +295,29 @@ export async function editarMensaje({ id, texto, uid }) {
 }
 
 /**
- * Borra un mensaje propio. La política "mensajes_borrado" (migración 006) deja
+ * Borra un mensaje. La política "mensajes_borrado" (migraciones 006 y 017) deja
  * hacerlo al autor o al Administrador; sin permiso se borran cero filas.
+ *
+ * `esAdmin` levanta el filtro por autor: un moderador borra el mensaje de
+ * cualquiera. Para el resto se mantiene, así el borrado ajeno ni sale a la red.
  */
-export async function eliminarMensaje({ id, uid }) {
+export async function eliminarMensaje({ id, uid, esAdmin = false }) {
   if (!id) return { success: false, error: 'Falta el mensaje a eliminar.' };
 
-  const { data, error } = await supabase
-    .from(TABLA)
-    .delete()
-    .eq('id', id)
-    .eq('usuario_id', uid)
-    .select('id');
+  let consulta = supabase.from(TABLA).delete().eq('id', id);
+  if (!esAdmin) consulta = consulta.eq('usuario_id', uid);
+
+  const { data, error } = await consulta.select('id');
 
   if (error) return { success: false, error: error.message };
   if (!data || data.length === 0) {
-    return { success: false, error: 'Solo puedes eliminar tus propios mensajes.' };
+    return {
+      success: false,
+      error: esAdmin
+        ? 'No se pudo eliminar el mensaje. Ejecuta supabase/migrations/' +
+          '017_bucket_chat_y_moderacion_admin.sql en el SQL Editor de Supabase.'
+        : 'Solo puedes eliminar tus propios mensajes.'
+    };
   }
   return { success: true, error: null };
 }

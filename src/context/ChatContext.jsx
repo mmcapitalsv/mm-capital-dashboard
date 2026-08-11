@@ -148,17 +148,17 @@ export function ChatProvider({ children, user }) {
     return true;
   }, [uid]);
 
-  /** Elimina un mensaje propio del canal. */
+  /** Elimina un mensaje del canal: el propio, o cualquiera si modera un admin. */
   const eliminarMensajePropio = useCallback(async (id) => {
     if (!id || !uid) return false;
 
-    const { success, error: errBorrado } = await eliminarMensaje({ id, uid });
+    const { success, error: errBorrado } = await eliminarMensaje({ id, uid, esAdmin });
     if (!success) { setError(errBorrado); return false; }
 
     setError(null);
     setMensajes(prev => prev.filter(m => String(m.id) !== String(id)));
     return true;
-  }, [uid]);
+  }, [uid, esAdmin]);
 
   /**
    * Vacía el historial del canal General. Exclusivo del Administrador: aquí se
