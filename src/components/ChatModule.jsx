@@ -64,11 +64,9 @@ export default function ChatModule({ onBack, isEditMode }) {
 
   const enDirectos = pestana === 'directos';
 
-  /* Vista previa del canal: el último mensaje, resumido en una línea.
-     Si el canal tiene fotos, se enseña la FOTO en miniatura y no un
-     '[Imagen]' escrito: la lista se lee de un vistazo y se reconoce cuál es
-     sin abrir el canal. El texto, cuando lo hay, viaja junto a la miniatura.
-     Los archivos que no son imágenes sí se anuncian con etiqueta. */
+  /* Vista previa del canal: el último mensaje, resumido en UNA LÍNEA DE TEXTO.
+     Un mensaje que es solo un archivo se anuncia con su etiqueta ("Imagen
+     adjunta" / "Archivo adjunto") en vez de dejar el renglón en blanco. */
   const vistaPreviaCanal = React.useMemo(() => {
     const lista = Array.isArray(mensajes) ? mensajes : [];
     const ultimo = lista.length > 0 ? lista[lista.length - 1] : null;
@@ -76,22 +74,13 @@ export default function ChatModule({ onBack, isEditMode }) {
 
     const texto = String(ultimo.texto || '').trim();
     const adjunto = ultimo.adjunto || null;
-    const esFoto = esImagenAdjunta(adjunto);
+    if (!texto && !adjunto) return null;
 
-    /* La miniatura NO depende de que la foto sea el último mensaje: mientras el
-       canal tenga una imagen, se enseña la más reciente. Antes bastaba con que
-       alguien escribiera una línea después de mandarla para que la vista previa
-       se quedara sin foto, que es justo lo que se reportó como "no se ve". */
-    const conFoto = esFoto
-      ? ultimo
-      : [...lista].reverse().find(m => esImagenAdjunta(m?.adjunto)) || null;
+    const etiquetaAdjunto = esImagenAdjunta(adjunto)
+      ? t('chat.previaImagenAlt')
+      : t('chat.previaArchivo');
 
-    if (!texto && !adjunto && !conFoto) return null;
-    return {
-      texto: texto || (adjunto && !esFoto ? t('chat.previaArchivo') : ''),
-      miniatura: conFoto?.adjunto?.url || null,
-      nombre: conFoto?.adjunto?.nombre || adjunto?.nombre || ''
-    };
+    return { texto: texto || etiquetaAdjunto };
   }, [mensajes, t]);
 
   /* Vaciar el canal entero pide DOS llaves: ser Administrador y tener el Modo
@@ -400,23 +389,11 @@ export default function ChatModule({ onBack, isEditMode }) {
 
                 <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-mm-oro/15 text-mm-oro-tinta dark:text-mm-oro-claro font-bold border border-mm-oro/30">
                   <Users size={15} className="text-mm-oro flex-shrink-0" />
-                  {/* La miniatura va JUNTO al nombre y a 48 px: a 24 px, metida
-                      en el renglón de 11 px de la vista previa, la foto no se
-                      distinguía de un icono. Aquí se reconoce la imagen sin
-                      abrir el canal, que es para lo que está. */}
-                  {vistaPreviaCanal?.miniatura && (
-                    <img
-                      src={vistaPreviaCanal.miniatura}
-                      alt={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
-                      title={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
-                      loading="lazy"
-                      /* La firma de la URL caduca (1 h): si la miniatura no
-                         carga se retira en silencio, en vez de dejar el icono
-                         de imagen rota en la lista. */
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      className="w-12 h-12 rounded object-cover flex-shrink-0 border border-black/10 dark:border-white/15 bg-slate-100 dark:bg-zinc-700"
-                    />
-                  )}
+                  {/* Aquí NO va miniatura. La lista de canales identifica el
+                      canal, no su último contenido: una foto de 48 px junto al
+                      nombre pesa más que el propio nombre y se lee como si
+                      fuera el avatar del canal. Las imágenes se ven donde son
+                      el mensaje —la conversación y el recuadro del menú. */}
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] truncate">{t('chat.canalSocios')}</span>
                     {vistaPreviaCanal?.texto && (
