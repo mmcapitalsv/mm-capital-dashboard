@@ -2,8 +2,23 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { conversarConIA, hayClaveGemini } from '../services/geminiService';
 import {
-  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, Sparkles, X
+  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, Sparkles, Trash2, X
 } from 'lucide-react';
+
+const CLAVE_HISTORIAL = 'mmcapital_ai_chat';
+const SALUDO_INICIAL = [{ sender: 'ai', clave: 'ia.saludo' }];
+
+/** Lee el historial persistido; si no existe o esta corrupto, devuelve el saludo */
+function leerHistorial() {
+  try {
+    const crudo = localStorage.getItem(CLAVE_HISTORIAL);
+    if (!crudo) return SALUDO_INICIAL;
+    const datos = JSON.parse(crudo);
+    return Array.isArray(datos) && datos.length > 0 ? datos : SALUDO_INICIAL;
+  } catch {
+    return SALUDO_INICIAL;
+  }
+}
 
 /**
  * Chat IA del Administrador conectado a Gemini (`gemini-1.5-flash`).
@@ -12,9 +27,7 @@ import {
  */
 function AIChatView({ onBack }) {
   const { t } = usePrefs();
-  const [messages, setMessages] = useState([
-    { sender: 'ai', clave: 'ia.saludo' }
-  ]);
+  const [messages, setMessages] = useState(leerHistorial);
   const [inputMsg, setInputMsg] = useState('');
   const [adjuntos, setAdjuntos] = useState([]);
   const [pensando, setPensando] = useState(false);
@@ -25,6 +38,22 @@ function AIChatView({ onBack }) {
   const copiaTimerRef = useRef(null);
 
   useEffect(() => () => clearTimeout(copiaTimerRef.current), []);
+
+  // Persiste el historial en cada cambio
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(messages));
+    } catch { /* cuota llena o modo privado: el chat sigue funcionando en memoria */ }
+  }, [messages]);
+
+  /** Borra el historial en pantalla y en localStorage */
+  const limpiarChat = () => {
+    setMessages(SALUDO_INICIAL);
+    try {
+      localStorage.removeItem(CLAVE_HISTORIAL);
+    } catch { /* ignorado */ }
+    setErrorIA(null);
+  };
 
   /** Copia el texto de una respuesta de la IA y marca el feedback 2s */
   const copiarMensaje = async (texto, idx) => {
@@ -101,6 +130,14 @@ function AIChatView({ onBack }) {
             </div>
           </div>
         </div>
+        <button
+          onClick={limpiarChat}
+          title={t('ia.limpiar')}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-slate-500 dark:text-zinc-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+        >
+          <Trash2 size={17} />
+          <span className="hidden sm:inline">{t('ia.limpiar')}</span>
+        </button>
       </div>
 
       {/* Area del chat */}

@@ -395,6 +395,7 @@ export const DICCIONARIO = {
     'chat.interno': 'Chat Interno',
     'ia.titulo': 'Chat de la IA — Asistente Ejecutivo',
     'ia.subtitulo': 'Comandos rápidos y automatización',
+    'ia.limpiar': 'Limpiar chat',
     'ia.placeholder': 'Escribe un comando rápido (ej: Crear borrador de proyecto, resumir egresos)...',
     'proyNuevo.titulo': 'Nuevo Proyecto',
 
@@ -1088,6 +1089,7 @@ export const DICCIONARIO = {
     'chat.interno': 'Internal Chat',
     'ia.titulo': 'AI Chat — Executive Assistant',
     'ia.subtitulo': 'Quick commands and automation',
+    'ia.limpiar': 'Clear chat',
     'ia.placeholder': 'Type a quick command (e.g. Draft a new project, summarize spending)...',
     'proyNuevo.titulo': 'New Project',
 
