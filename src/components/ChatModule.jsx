@@ -65,20 +65,26 @@ export default function ChatModule({ onBack, isEditMode }) {
   const enDirectos = pestana === 'directos';
 
   /* Vista previa del canal: el último mensaje, resumido en una línea.
-     Un mensaje puede ser SOLO un archivo (el texto viaja vacío a propósito),
-     y en ese caso la lista se veía muerta aunque acabara de llegar algo. Con
-     '📷 [Imagen]' / '📎 [Archivo]' la actividad se nota igual. */
+     Si lo último que llegó es una foto, se enseña la FOTO en miniatura y no un
+     '[Imagen]' escrito: la lista se lee de un vistazo y se reconoce cuál es
+     sin abrir el canal. El texto, cuando lo hay, viaja junto a la miniatura.
+     Los archivos que no son imágenes sí se anuncian con etiqueta. */
   const vistaPreviaCanal = React.useMemo(() => {
     const ultimo = Array.isArray(mensajes) && mensajes.length > 0
       ? mensajes[mensajes.length - 1]
       : null;
     if (!ultimo) return null;
+
     const texto = String(ultimo.texto || '').trim();
-    if (texto) return texto;
-    if (!ultimo.adjunto) return null;
-    return esImagen(ultimo.adjunto.nombre, ultimo.adjunto.url)
-      ? t('chat.previaImagen')
-      : t('chat.previaArchivo');
+    const adjunto = ultimo.adjunto || null;
+    const esFoto = !!adjunto && esImagen(adjunto.nombre, adjunto.url);
+
+    if (!texto && !adjunto) return null;
+    return {
+      texto: texto || (adjunto && !esFoto ? t('chat.previaArchivo') : ''),
+      miniatura: esFoto ? adjunto.url : null,
+      nombre: adjunto?.nombre || ''
+    };
   }, [mensajes, t]);
 
   /* Vaciar el canal entero pide DOS llaves: ser Administrador y tener el Modo
@@ -390,8 +396,23 @@ export default function ChatModule({ onBack, isEditMode }) {
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] truncate">{t('chat.canalSocios')}</span>
                     {vistaPreviaCanal && (
-                      <span className="block text-[11px] font-medium text-slate-500 dark:text-zinc-300 truncate">
-                        {vistaPreviaCanal}
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-zinc-300 min-w-0">
+                        {vistaPreviaCanal.texto && (
+                          <span className="truncate">{vistaPreviaCanal.texto}</span>
+                        )}
+                        {vistaPreviaCanal.miniatura && (
+                          <img
+                            src={vistaPreviaCanal.miniatura}
+                            alt={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
+                            title={vistaPreviaCanal.nombre || t('chat.previaImagenAlt')}
+                            loading="lazy"
+                            /* La firma de la URL caduca (1 h): si la miniatura
+                               no carga se retira en silencio, en vez de dejar
+                               el icono de imagen rota en la lista. */
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            className="w-6 h-6 rounded object-cover inline-block ml-1 flex-shrink-0 border border-black/5 dark:border-white/10"
+                          />
+                        )}
                       </span>
                     )}
                   </span>

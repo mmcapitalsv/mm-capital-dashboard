@@ -143,7 +143,7 @@ export const DICCIONARIO = {
     'chat.canales': 'Canales',
     // Canal único: 'general', 'obra' y 'finanzas' fueron eliminados
     'chat.canalSocios': 'Socios',
-    'chat.previaImagen': '📷 [Imagen]',
+    'chat.previaImagenAlt': 'Imagen adjunta',
     'chat.previaArchivo': '📎 [Archivo]',
     'chat.miembros': 'miembros',
     'chat.editarMensaje': 'Editar mi mensaje',
@@ -871,7 +871,7 @@ export const DICCIONARIO = {
     'chat.canales': 'Channels',
     // Single channel: 'general', 'construction' and 'finance' were removed
     'chat.canalSocios': 'Partners',
-    'chat.previaImagen': '📷 [Image]',
+    'chat.previaImagenAlt': 'Attached image',
     'chat.previaArchivo': '📎 [File]',
     'chat.miembros': 'members',
     'chat.editarMensaje': 'Edit my message',
