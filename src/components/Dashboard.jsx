@@ -91,6 +91,46 @@ function NewProjectView({ onBack }) {
 
 
 
+/**
+ * Pantalla de "Acceso Denegado" (P0.2).
+ *
+ * El Chat IA no es una vista más: sus herramientas escriben en `proyectos` y
+ * `gastos`, y hasta ahora bastaba con teclear `?view=ai-chat` para abrirlo sin
+ * ser Administrador. El menú del avatar ya escondía el botón, pero esconder no
+ * es prohibir. Aquí se prohíbe, y en la Edge Function se vuelve a prohibir con
+ * el rol leído del JWT: la interfaz puede equivocarse, el servidor no.
+ */
+function AccesoDenegado({ onBack }) {
+  const { t } = usePrefs();
+  return (
+    <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
+      <div className="flex items-center gap-3 px-8 py-5 border-b border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
+        <button onClick={onBack} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-zinc-100 transition-colors">
+          <ChevronLeft size={20} />
+        </button>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">{t('acceso.denegadoTitulo')}</h2>
+      </div>
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="max-w-md text-center space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-center justify-center">
+            <Lock size={24} className="text-red-500" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 dark:text-white">{t('acceso.denegadoTitulo')}</h3>
+          <p className="text-sm text-slate-500 dark:text-zinc-300 leading-relaxed">
+            {t('acceso.denegadoDetalle')}
+          </p>
+          <button
+            onClick={onBack}
+            className="px-5 py-2.5 rounded-xl bg-mm-navy text-white font-bold text-sm hover:bg-slate-800 transition-colors"
+          >
+            {t('acceso.volver')}
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /* `formatMoney` se eliminó: había DOS versiones distintas (esta con un decimal
@@ -335,6 +375,13 @@ export default function Dashboard({ user, onLogout }) {
 
   // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
   const { programar } = useTemporizadores();
+
+  /* Quién puede abrir el Chat IA (P0.2).
+     NO es `isAdmin`, que también incluye a `socio_administrador`: la Edge
+     Function autoriza con `public.es_admin()`, o sea `rol = 'admin'` y nada
+     más. Si la interfaz fuera más generosa que el servidor, el socio
+     administrador entraría a una pantalla que solo sabe devolver 403. */
+  const puedeUsarIA = rol === 'admin';
 
   // Identidad real del usuario autenticado (nada codificado a mano)
   const nombreUsuario = nombreMostrado(user, perfil);
@@ -1151,7 +1198,10 @@ export default function Dashboard({ user, onLogout }) {
                   language={language}
                   alternarIdioma={alternarIdioma}
                   onPerfil={() => { setShowMenuAvatar(false); changeView('profile'); }}
-                  onAsistenteIA={() => { setShowMenuAvatar(false); changeView('ai-chat'); }}
+                  /* Solo se ofrece a quien la Edge Function va a aceptar (P0.2).
+                      Sin el permiso no se pasa la función y el menú no pinta
+                      la entrada; entrar por la URL topa con "Acceso Denegado". */
+                  onAsistenteIA={puedeUsarIA ? () => { setShowMenuAvatar(false); changeView('ai-chat'); } : null}
                   onLogout={() => { setShowMenuAvatar(false); onLogout(); }}
                   isAdmin={isAdmin}
                   className="absolute top-14 right-0 w-64"
@@ -1266,7 +1316,10 @@ export default function Dashboard({ user, onLogout }) {
                   language={language}
                   alternarIdioma={alternarIdioma}
                   onPerfil={() => { setShowMenuAvatar(false); changeView('profile'); }}
-                  onAsistenteIA={() => { setShowMenuAvatar(false); changeView('ai-chat'); }}
+                  /* Solo se ofrece a quien la Edge Function va a aceptar (P0.2).
+                      Sin el permiso no se pasa la función y el menú no pinta
+                      la entrada; entrar por la URL topa con "Acceso Denegado". */
+                  onAsistenteIA={puedeUsarIA ? () => { setShowMenuAvatar(false); changeView('ai-chat'); } : null}
                   onInversores={() => { setShowMenuAvatar(false); changeView('investors'); }}
                   onLogout={() => { setShowMenuAvatar(false); onLogout(); }}
                   isAdmin={isAdmin}
@@ -1315,7 +1368,13 @@ export default function Dashboard({ user, onLogout }) {
           ) : currentView === 'admin-users' ? (
             <AdminUsersView onBack={handleBack} currentUserId={user?.id} isEditMode={isEditMode} isAdmin={isAdmin} />
           ) : currentView === 'ai-chat' ? (
-            <AIChatView onBack={handleBack} />
+            /* Gate estricto (P0.2): sin rol de Administrador la vista no se
+               monta siquiera — nada de esconder el botón y dejar la URL
+               abierta. `isAdmin` sale de la ficha de `usuarios`, y la Edge
+               Function lo comprueba otra vez con el JWT. */
+            puedeUsarIA ? <AIChatView onBack={handleBack} />
+              : rol === null ? <CargandoVista />
+              : <AccesoDenegado onBack={handleBack} />
           ) : currentView === 'new-project' ? (
             <NewProjectView onBack={handleBack} />
           ) : currentView === 'all-projects' ? (
@@ -1336,6 +1395,7 @@ export default function Dashboard({ user, onLogout }) {
               onLogout={onLogout}
               onBack={handleBack}
               isAdmin={isAdmin}
+              puedeUsarIA={puedeUsarIA}
               onNavigate={changeView}
               avatarUrl={userAvatarUrl}
               setAvatarUrl={setUserAvatarUrl}

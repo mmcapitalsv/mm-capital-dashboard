@@ -173,6 +173,15 @@ export const DICCIONARIO = {
     'ia.pensando': 'Analizando...',
     'ia.adjuntos': 'Adjuntos',
     'ia.sinClave': 'Falta VITE_GEMINI_API_KEY en el archivo .env.',
+
+    /* Confirmación de las escrituras que propone la IA (P0.3): el modelo
+       propone, la persona confirma. */
+    'ia.confirmarTitulo': 'Confirmación requerida',
+    'ia.confirmar': 'Confirmar y ejecutar',
+    'ia.descartar': 'Descartar',
+    'ia.confirmarEjecutando': 'Ejecutando...',
+    'ia.confirmarHecha': 'Acción ejecutada',
+    'ia.confirmarDescartada': 'Propuesta descartada. No se guardó nada.',
     'modal.iaSinArchivo': 'Adjunta primero la imagen o el PDF del comprobante.',
     'gal.portadaAlbum': 'Portada del álbum (opcional)',
     'gal.editarAlbum': 'Editar álbum',
@@ -266,6 +275,14 @@ export const DICCIONARIO = {
     'comun.copiado': '¡Copiado!',
     'comun.categoria': 'Categoría',
     'comun.moduloDesarrollo': 'Módulo en desarrollo',
+
+    // ── Acceso denegado (gate del Chat IA) ──
+    'acceso.denegadoTitulo': 'Acceso denegado',
+    'acceso.denegadoDetalle':
+      'El Asistente de IA está reservado al Administrador: sus herramientas ' +
+      'pueden crear proyectos y registrar gastos. Si necesitas usarlo, pídele ' +
+      'al Administrador que te dé ese rol.',
+    'acceso.volver': 'Volver al panel',
 
     // ── Navegación lateral ──
     'nav.dashboard': 'Dashboard',
@@ -876,6 +893,14 @@ export const DICCIONARIO = {
     'ia.pensando': 'Analyzing...',
     'ia.adjuntos': 'Attachments',
     'ia.sinClave': 'VITE_GEMINI_API_KEY is missing from the .env file.',
+
+    // Confirmation for AI-proposed writes (P0.3)
+    'ia.confirmarTitulo': 'Confirmation required',
+    'ia.confirmar': 'Confirm and run',
+    'ia.descartar': 'Discard',
+    'ia.confirmarEjecutando': 'Running...',
+    'ia.confirmarHecha': 'Action completed',
+    'ia.confirmarDescartada': 'Proposal discarded. Nothing was saved.',
     'modal.iaSinArchivo': 'Attach the receipt image or PDF first.',
     'gal.portadaAlbum': 'Album cover (optional)',
     'gal.editarAlbum': 'Edit album',
@@ -968,6 +993,14 @@ export const DICCIONARIO = {
     'comun.copiado': 'Copied!',
     'comun.categoria': 'Category',
     'comun.moduloDesarrollo': 'Module under development',
+
+    // ── Access denied (AI chat gate) ──
+    'acceso.denegadoTitulo': 'Access denied',
+    'acceso.denegadoDetalle':
+      'The AI Assistant is restricted to the Administrator: its tools can ' +
+      'create projects and record expenses. If you need it, ask the ' +
+      'Administrator to grant you that role.',
+    'acceso.volver': 'Back to dashboard',
 
     // ── Sidebar navigation ──
     'nav.dashboard': 'Dashboard',

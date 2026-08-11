@@ -12,6 +12,7 @@ import { supabase } from './supabaseClient';
 import { PreferenciasProvider } from './context/PreferenciasContext';
 import { ChatProvider } from './context/ChatContext';
 import { crearTraductor } from './i18n/diccionario';
+import { olvidarFirmas } from './lib/urlFirmada';
 
 /** Idioma guardado, leído sin el contexto (aún no está montado). */
 function idiomaGuardado() {
@@ -36,7 +37,11 @@ function App() {
     // Escuchar cambios de sesión (login, logout, etc.)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((evento, session) => {
+      /* Las firmas de Storage se emiten para la sesión que las pidió: al
+         cerrar o cambiar de cuenta se tiran, así la cuenta siguiente no
+         reutiliza enlaces de la anterior. */
+      if (evento === 'SIGNED_OUT' || evento === 'SIGNED_IN') olvidarFirmas();
       setCurrentUser(session?.user ?? null);
     });
 

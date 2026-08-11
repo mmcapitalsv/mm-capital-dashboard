@@ -1,6 +1,10 @@
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../supabaseClient';
 import { comprimirImagen } from '../lib/comprimirImagen';
+import {
+  BUCKET_ARCHIVOS, BUCKET_FACTURAS as BUCKET_FACTURAS_ID, TTL_FIRMA_SEGUNDOS,
+  firmarRuta, firmarUrl, firmarUrls, rutaDeUrl
+} from '../lib/urlFirmada';
 
 /** Formatos que sí conviene comprimir antes de subir a la bóveda. */
 const TIPOS_COMPRIMIBLES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -19,10 +23,16 @@ export function esErrorDeTamano(error) {
 }
 
 /** Bucket general de la aplicación (documentos, portadas, avatares, galería). */
-export const BUCKET = 'archivos_mmcapital';
+export const BUCKET = BUCKET_ARCHIVOS;
 
 /** Bucket dedicado a los comprobantes de las facturas de proveedores. */
-export const BUCKET_FACTURAS = 'facturas';
+export const BUCKET_FACTURAS = BUCKET_FACTURAS_ID;
+
+/* Los dos buckets son PRIVADOS desde la migración 018 (hallazgo P0.1): nada de
+   `getPublicUrl`. Cada enlace se firma con `createSignedUrl` y caduca en una
+   hora — ver src/lib/urlFirmada.js, que además re-firma al vuelo las URLs
+   públicas antiguas que siguen guardadas en la base. */
+export { TTL_FIRMA_SEGUNDOS };
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -83,17 +93,16 @@ export function esFalloDePermiso(error) {
     || msg.includes('violates row-level security policy');
 }
 
-/** Deriva la ruta dentro del bucket a partir de la URL pública guardada. */
-export function rutaDesdeUrl(url) {
-  if (!url || typeof url !== 'string') return null;
-  const marca = `/object/public/${BUCKET}/`;
-  const i = url.indexOf(marca);
-  if (i === -1) return null;
-  try {
-    return decodeURIComponent(url.slice(i + marca.length).split('?')[0]);
-  } catch {
-    return url.slice(i + marca.length).split('?')[0];
-  }
+/**
+ * Deriva la ruta dentro del bucket a partir de la URL guardada.
+ * Acepta las tres formas de Storage (pública antigua, firmada y autenticada):
+ * en la base conviven URLs de antes y de después de la migración 018.
+ */
+export function rutaDesdeUrl(url, bucket = BUCKET) {
+  // Solo URLs: quien tenga la ruta suelta ya la tiene en `storage_path`, y
+  // tratar cualquier cadena como ruta haría borrar objetos a ciegas.
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) return null;
+  return rutaDeUrl(url, bucket)?.ruta ?? null;
 }
 
 /**
@@ -159,9 +168,10 @@ export async function uploadArchivoProyecto(file, proyectoId, tipo = 'documento_
     }
     avisar(85, 'registrando');
 
-    // 4. URL pública
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
-    const publicUrl = urlData?.publicUrl || null;
+    // 4. Enlace firmado (el bucket es privado): lo que se guarda en la tabla
+    //    caduca en una hora, pero `storage_path` no, y de ahí sale la firma
+    //    nueva en cada lectura (ver `getArchivosProyecto`).
+    const publicUrl = await firmarRuta(filePath, { bucket: BUCKET });
 
     // 5. Registro en la tabla `archivos`
     const targetProyectoId = esIdValidoDeSupabase(proyectoId) ? proyectoId : null;
@@ -286,6 +296,28 @@ export async function eliminarArchivo(archivo) {
 }
 
 /**
+ * Devuelve las filas de `archivos` con `url_archivo` firmada y vigente.
+ *
+ * La URL guardada puede ser pública (registros anteriores a la migración 018)
+ * o una firma ya caducada: en ambos casos no abre nada. Se prefiere
+ * `storage_path`, que no caduca nunca, y se firma toda la lista en una sola
+ * petición por bucket.
+ */
+export async function firmarArchivos(filas) {
+  const lista = Array.isArray(filas) ? filas : [];
+  if (lista.length === 0) return lista;
+
+  const origen = (f) => f?.storage_path || f?.url_archivo || null;
+  const firmadas = await firmarUrls(lista.map(origen), { bucket: BUCKET });
+
+  return lista.map((fila) => {
+    const clave = origen(fila);
+    if (!clave) return fila;
+    return { ...fila, url_archivo: firmadas.get(clave) ?? fila.url_archivo ?? null };
+  });
+}
+
+/**
  * Fetches files for a specific project or global vault from the 'archivos' table
  */
 export async function getArchivosProyecto(proyectoId) {
@@ -309,7 +341,8 @@ export async function getArchivosProyecto(proyectoId) {
       console.warn('Error leyendo archivos de Supabase DB:', error.message);
       return [];
     }
-    return data || [];
+
+    return firmarArchivos(data || []);
   } catch (err) {
     console.warn('Excepción leyendo archivos:', err);
     return [];
@@ -412,8 +445,7 @@ export async function subirAvatar(file, usuarioId, nombreSugerido = 'avatar.jpg'
 
     if (upErr) return { success: false, error: `No se pudo subir la imagen: ${upErr.message}` };
 
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
-    const url = data?.publicUrl || null;
+    const url = await firmarRuta(filePath, { bucket: BUCKET });
 
     const { error: dbErr } = await supabase
       .from('usuarios')
@@ -443,7 +475,8 @@ export async function getAvatarUsuario(usuarioId) {
       .eq('id', usuarioId)
       .maybeSingle();
     if (error) return null;
-    const url = data?.avatar_url || null;
+    // El avatar guardado apunta a un bucket privado: sin firmar no carga.
+    const url = data?.avatar_url ? await firmarUrl(data.avatar_url, { bucket: BUCKET }) : null;
     guardarAvatarCache(usuarioId, url);
     return url;
   } catch {
@@ -547,8 +580,8 @@ export async function subirComprobanteFactura(file, proyectoId, { esAdmin = fals
       return { success: false, error: `No se pudo subir el comprobante: ${upErr.message}` };
     }
 
-    const url = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(filePath).data?.publicUrl || null;
-    if (!url) return { success: false, error: 'El comprobante subió pero no se pudo obtener su enlace público.' };
+    const url = await firmarRuta(filePath, { bucket: BUCKET_FACTURAS });
+    if (!url) return { success: false, error: 'El comprobante subió pero no se pudo obtener su enlace firmado.' };
 
     return { success: true, url, path: filePath };
   } catch (err) {
@@ -567,7 +600,11 @@ export async function descargarArchivo(url, nombreSugerido = 'archivo') {
   if (!url) return { success: false, error: 'No hay archivo que descargar.' };
 
   try {
-    const respuesta = await fetch(url);
+    // La URL que trae la vista puede llevar horas en pantalla y su firma haber
+    // caducado: se renueva antes de descargar (a lo ajeno al bucket no le pasa
+    // nada, `firmarUrl` lo devuelve intacto).
+    const urlVigente = (await firmarUrl(url)) || url;
+    const respuesta = await fetch(urlVigente);
     if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
 
     const blob = await respuesta.blob();
@@ -654,7 +691,7 @@ export async function subirAdjuntoChat(file, usuarioId) {
       return { success: false, error: `No se pudo subir el archivo: ${upErr.message}` };
     }
 
-    const url = supabase.storage.from(BUCKET).getPublicUrl(filePath).data?.publicUrl || null;
+    const url = await firmarRuta(filePath, { bucket: BUCKET });
     if (!url) {
       await supabase.storage.from(BUCKET).remove([filePath]);
       return { success: false, error: 'El archivo subió pero no se pudo obtener su enlace.' };
@@ -716,7 +753,7 @@ export async function subirPortadaProyecto(file, proyectoId) {
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
 
-    const url = supabase.storage.from(BUCKET).getPublicUrl(filePath).data?.publicUrl || null;
+    const url = await firmarRuta(filePath, { bucket: BUCKET });
 
     const { error: dbErr } = await supabase
       .from('proyectos')

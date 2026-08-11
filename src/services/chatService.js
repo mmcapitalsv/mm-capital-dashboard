@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { BUCKET_ARCHIVOS, firmarUrl, firmarUrls } from '../lib/urlFirmada';
 
 /**
  * Chat corporativo "Socios" (tabla `mensajes`, migración 006).
@@ -171,6 +172,35 @@ export function normalizarMensaje(fila, uid) {
   };
 }
 
+/* ── Adjuntos: el bucket es privado (migración 018) ───────────────────────
+   `mensajes.adjunto_url` guarda el enlace que se firmó al subir el archivo, y
+   una firma dura una hora: un mensaje de ayer trae una URL muerta. Antes de
+   pintar nada se re-firma a partir de la ruta que va dentro de esa misma URL.
+   Los mensajes sin adjunto —la inmensa mayoría— no cuestan ni una petición. */
+
+/** Re-firma el adjunto de UN mensaje ya normalizado. */
+export async function firmarAdjunto(mensaje) {
+  if (!mensaje?.adjunto?.url) return mensaje;
+  const url = await firmarUrl(mensaje.adjunto.url, { bucket: BUCKET_ARCHIVOS });
+  return { ...mensaje, adjunto: { ...mensaje.adjunto, url: url || mensaje.adjunto.url } };
+}
+
+/** Re-firma los adjuntos de una lista, en una sola petición al bucket. */
+async function firmarAdjuntos(mensajes) {
+  const conAdjunto = mensajes.filter(m => m?.adjunto?.url);
+  if (conAdjunto.length === 0) return mensajes;
+
+  const firmadas = await firmarUrls(
+    conAdjunto.map(m => m.adjunto.url), { bucket: BUCKET_ARCHIVOS }
+  );
+
+  return mensajes.map(m => (
+    m?.adjunto?.url
+      ? { ...m, adjunto: { ...m.adjunto, url: firmadas.get(m.adjunto.url) || m.adjunto.url } }
+      : m
+  ));
+}
+
 /** Historial completo del canal General, del más antiguo al más reciente. */
 export async function listarMensajes(uid) {
   const { data, error } = await consultarTolerante((columnas) => supabase
@@ -186,7 +216,8 @@ export async function listarMensajes(uid) {
     if (faltaColumna(error)) return { mensajes: [], error: AVISO_MIGRACION_009 };
     return { mensajes: [], error: error.message };
   }
-  return { mensajes: (data || []).map(f => normalizarMensaje(f, uid)), error: null };
+  const mensajes = await firmarAdjuntos((data || []).map(f => normalizarMensaje(f, uid)));
+  return { mensajes, error: null };
 }
 
 /**
@@ -245,12 +276,15 @@ export function suscribirMensajes(uid, alMensaje, { alEditar, alBorrar } = {}) {
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_SOCIOS}` },
-      (payload) => alMensaje(normalizarMensaje(payload.new, uid))
+      // Realtime entrega la fila cruda: el adjunto se firma aquí, no en la vista.
+      (payload) => { firmarAdjunto(normalizarMensaje(payload.new, uid)).then(alMensaje); }
     )
     .on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_SOCIOS}` },
-      (payload) => { if (alEditar) alEditar(normalizarMensaje(payload.new, uid)); }
+      (payload) => {
+        if (alEditar) firmarAdjunto(normalizarMensaje(payload.new, uid)).then(alEditar);
+      }
     )
     .on(
       // El borrado no admite filtro por canal (la fila ya no existe): se
@@ -376,7 +410,8 @@ export async function listarMensajesDirectos(uid, otroId) {
     if (faltaColumna(error)) return { mensajes: [], error: AVISO_MIGRACION_009 };
     return { mensajes: [], error: error.message };
   }
-  return { mensajes: (data || []).map(f => normalizarMensaje(f, uid)), error: null };
+  const mensajes = await firmarAdjuntos((data || []).map(f => normalizarMensaje(f, uid)));
+  return { mensajes, error: null };
 }
 
 /** Inserta un mensaje privado dirigido a `receptorId`. */
@@ -423,13 +458,17 @@ export function suscribirDirectos(uid, otroId, alMensaje, { alEditar, alBorrar }
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_DIRECTO}` },
-      (payload) => { if (dePareja(payload.new)) alMensaje(normalizarMensaje(payload.new, uid)); }
+      (payload) => {
+        if (dePareja(payload.new)) firmarAdjunto(normalizarMensaje(payload.new, uid)).then(alMensaje);
+      }
     )
     .on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: TABLA, filter: `canal=eq.${CANAL_DIRECTO}` },
       (payload) => {
-        if (alEditar && dePareja(payload.new)) alEditar(normalizarMensaje(payload.new, uid));
+        if (alEditar && dePareja(payload.new)) {
+          firmarAdjunto(normalizarMensaje(payload.new, uid)).then(alEditar);
+        }
       }
     )
     .on(
@@ -453,8 +492,14 @@ export async function listarAvataresUsuarios() {
     .select('id, avatar_url');
 
   if (error) return {};
+
+  // Los avatares viven en el bucket privado: se firman todos de una vez.
+  const firmadas = await firmarUrls(
+    (data || []).map(u => u?.avatar_url), { bucket: BUCKET_ARCHIVOS }
+  );
+
   return (data || []).reduce((mapa, u) => {
-    if (u?.id && u.avatar_url) mapa[String(u.id)] = u.avatar_url;
+    if (u?.id && u.avatar_url) mapa[String(u.id)] = firmadas.get(u.avatar_url) || u.avatar_url;
     return mapa;
   }, {});
 }

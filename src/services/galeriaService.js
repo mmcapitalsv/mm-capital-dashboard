@@ -1,7 +1,9 @@
 import { supabase } from '../supabaseClient';
 import {
-  BUCKET, esIdValidoDeSupabase, validarImagen, rutaDesdeUrl, AVISO_SIN_PERMISO
+  BUCKET, esIdValidoDeSupabase, validarImagen, rutaDesdeUrl, AVISO_SIN_PERMISO,
+  firmarArchivos
 } from './storageService';
+import { firmarRuta, firmarUrls } from '../lib/urlFirmada';
 import { comprimirImagen } from '../lib/comprimirImagen';
 
 /**
@@ -66,15 +68,26 @@ export async function getAlbumes(proyectoId) {
       return { albumes: [], error: AVISO_MIGRACION, requiereMigracion: true };
     }
 
-    const listaFotos = Array.isArray(fotos) ? fotos : [];
+    /* Bucket privado: ni las fotos ni las portadas abren con la URL guardada
+       (pública antigua o firma caducada). Se re-firma todo en dos peticiones
+       —una para las fotos, otra para las portadas— antes de entregarlo. */
+    const listaFotos = await firmarArchivos(Array.isArray(fotos) ? fotos : []);
+    const portadas = await firmarUrls(
+      (albumes || []).map(a => a?.portada_url), { bucket: BUCKET }
+    );
 
     const conFotos = (albumes || []).map((a) => {
       const propias = listaFotos.filter(f => f && String(f.album_id || '') === String(a.id));
+      const portada = a.portada_url ? portadas.get(a.portada_url) : null;
       return {
         id: a.id,
         title: a.titulo || 'Álbum sin título',
         date: a.fecha_texto || '',
-        cover: a.portada_url || propias[0]?.url_archivo || null,
+        cover: portada || propias[0]?.url_archivo || null,
+        /* La URL guardada tal cual: `eliminarAlbum` necesita la ruta original
+           del bucket, y la firmada de `cover` también sirve, pero esta no
+           depende de que la firma se haya podido emitir. */
+        portadaGuardada: a.portada_url || null,
         // Autoría (migración 014): decide quién puede editarlo o borrarlo, y
         // alimenta la firma "Subido por" de la tarjeta.
         subido_por: a.subido_por || null,
@@ -115,7 +128,8 @@ export async function crearAlbum(proyectoId, { titulo, fecha, portadaFile }) {
       });
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
-    portadaUrl = supabase.storage.from(BUCKET).getPublicUrl(portadaPath).data?.publicUrl || null;
+    // Bucket privado (migración 018): enlace firmado, no público.
+    portadaUrl = await firmarRuta(portadaPath, { bucket: BUCKET });
   }
 
   const { data, error } = await supabase
@@ -163,7 +177,7 @@ export async function actualizarAlbum(albumId, { titulo, fecha, portadaFile, pro
 
     if (upErr) return { success: false, error: `No se pudo subir la portada: ${upErr.message}` };
 
-    cambios.portada_url = supabase.storage.from(BUCKET).getPublicUrl(ruta).data?.publicUrl || null;
+    cambios.portada_url = await firmarRuta(ruta, { bucket: BUCKET });
   }
 
   const { data, error } = await supabase
@@ -214,7 +228,7 @@ export async function eliminarAlbum(album, { userId, esAdmin } = {}) {
     .map(f => f.storage_path || rutaDesdeUrl(f.url_archivo))
     .filter(Boolean);
 
-  const rutaPortada = rutaDesdeUrl(album.cover);
+  const rutaPortada = rutaDesdeUrl(album.portadaGuardada || album.cover);
   if (rutaPortada && !rutas.includes(rutaPortada)) rutas.push(rutaPortada);
 
   if (rutas.length > 0) {
@@ -258,7 +272,7 @@ export async function subirFotoAlbum(file, proyectoId, albumId) {
 
   if (upErr) return { success: false, error: `No se pudo subir la foto: ${upErr.message}` };
 
-  const url = supabase.storage.from(BUCKET).getPublicUrl(filePath).data?.publicUrl || null;
+  const url = await firmarRuta(filePath, { bucket: BUCKET });
 
   const { data, error } = await supabase
     .from('archivos')

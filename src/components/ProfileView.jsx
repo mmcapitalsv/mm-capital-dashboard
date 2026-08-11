@@ -25,7 +25,10 @@ import RecorteAvatar from './RecorteAvatar';
  * reportes— porque no comparte nada con el panel: este solo lo monta y le pasa
  * la identidad ya resuelta.
  */
-function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, setAvatarUrl, nombre, iniciales, cargo }) {
+/* `puedeUsarIA` es más estrecho que `isAdmin`: el Chat IA lo autoriza la Edge
+   Function con `es_admin()` (rol `admin` exacto), así que el acceso directo
+   solo se pinta para quien el servidor va a dejar entrar (P0.2). */
+function ProfileView({ user, onLogout, onBack, isAdmin, puedeUsarIA = false, onNavigate, avatarUrl, setAvatarUrl, nombre, iniciales, cargo }) {
   const { t, locale } = usePrefs();
   // Los avisos se borran solos; el temporizador se cancela al desmontar la vista
   const { programar } = useTemporizadores();
@@ -407,6 +410,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
               </button>
 
               {/* Botón 2: Chat de la IA para Administrador */}
+              {puedeUsarIA && (
               <button
                 onClick={() => onNavigate && onNavigate('ai-chat')}
                 className="w-full flex items-center justify-between px-6 md:px-8 py-5 hover:bg-amber-50/40 dark:hover:bg-amber-500/10 transition-colors border-b border-gray-100 dark:border-zinc-700 group"
@@ -424,6 +428,7 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                 </div>
                 <ChevronRight size={18} className="text-slate-300 dark:text-zinc-200 group-hover:text-mm-oro-tinta dark:group-hover:text-mm-oro-claro transition-colors" />
               </button>
+              )}
             </div>
           )}
 

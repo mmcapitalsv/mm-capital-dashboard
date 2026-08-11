@@ -5,6 +5,7 @@ import {
   parsearMontoEstricto, MontoInvalidoError
 } from '../lib/numeros';
 import { leerTablaCompleta } from '../lib/supabasePaginado';
+import { BUCKET_FACTURAS, firmarCampo } from '../lib/urlFirmada';
 
 /**
  * Edición de las cifras financieras del proyecto.
@@ -303,7 +304,14 @@ export async function getFacturas(proyectoId) {
       ascendente: false,
       filtrar: (q) => q.eq('proyecto_id', proyectoId)
     });
-    return { facturas: filas.map(normalizarFactura), error: null, truncado };
+    /* El bucket `facturas` es privado (migración 018): la URL guardada en
+       `gastos.comprobante` es pública antigua o una firma caducada, y en
+       ninguno de los dos casos abre. Se re-firma toda la lista de una vez. */
+    const facturas = await firmarCampo(
+      filas.map(normalizarFactura), 'comprobante',
+      { bucket: BUCKET_FACTURAS, soloUrls: true }
+    );
+    return { facturas, error: null, truncado };
   } catch (err) {
     return { facturas: [], error: err.message || 'No se pudieron leer las facturas.', truncado: false };
   }

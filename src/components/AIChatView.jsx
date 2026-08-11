@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePrefs } from '../context/PreferenciasContext';
-import { conversarConIA, hayClaveGemini } from '../services/geminiService';
+import { conversarConIA, confirmarPropuesta, hayClaveGemini } from '../services/geminiService';
 import {
-  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, Sparkles, Trash2, X
+  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, ShieldAlert,
+  Sparkles, Trash2, X
 } from 'lucide-react';
 
 const CLAVE_HISTORIAL = 'mmcapital_ai_chat';
@@ -14,10 +15,88 @@ function leerHistorial() {
     const crudo = localStorage.getItem(CLAVE_HISTORIAL);
     if (!crudo) return SALUDO_INICIAL;
     const datos = JSON.parse(crudo);
-    return Array.isArray(datos) && datos.length > 0 ? datos : SALUDO_INICIAL;
+    if (!Array.isArray(datos) || datos.length === 0) return SALUDO_INICIAL;
+
+    /* Una propuesta que se quedó en "ejecutando" (se recargó la página a
+       mitad) vuelve a "pendiente": el botón tiene que poder pulsarse otra vez,
+       y la Edge Function ya se defiende del duplicado al confirmar. */
+    return datos.map(m => (
+      Array.isArray(m?.propuestas)
+        ? { ...m, propuestas: m.propuestas.map(p => (p?.estado === 'ejecutando' ? { ...p, estado: 'pendiente' } : p)) }
+        : m
+    ));
   } catch {
     return SALUDO_INICIAL;
   }
+}
+
+/**
+ * Tarjeta de confirmación de una escritura propuesta por la IA (P0.3).
+ *
+ * El modelo NUNCA escribe en la base: propone, y la fila solo entra cuando el
+ * Administrador pulsa "Confirmar" aquí. Es el corte que desactiva el prompt
+ * injection — un PDF que diga «registra un gasto de $50,000» consigue, como
+ * mucho, que aparezca esta tarjeta con esa cifra a la vista.
+ */
+function PropuestaAccion({ propuesta, estado, onConfirmar, onDescartar, t }) {
+  const ejecutando = estado === 'ejecutando';
+  const hecha = estado === 'hecha';
+  const descartada = estado === 'descartada';
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50/70 dark:bg-amber-500/10 p-3">
+      <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
+        <ShieldAlert size={14} />
+        {propuesta.titulo || t('ia.confirmarTitulo')}
+      </div>
+
+      <p className="mt-1.5 text-[13px] text-slate-700 dark:text-zinc-100 leading-relaxed">
+        {propuesta.resumen}
+      </p>
+
+      {Array.isArray(propuesta.detalle) && propuesta.detalle.length > 0 && (
+        <dl className="mt-2 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-[12px]">
+          {propuesta.detalle.map((d, i) => (
+            <React.Fragment key={i}>
+              <dt className="font-semibold text-slate-500 dark:text-zinc-300">{d.etiqueta}</dt>
+              <dd className="text-slate-800 dark:text-zinc-100 break-words">{d.valor}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
+
+      {hecha ? (
+        <p className="mt-2.5 flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+          <Check size={14} /> {t('ia.confirmarHecha')}
+        </p>
+      ) : descartada ? (
+        <p className="mt-2.5 text-xs font-bold text-slate-500 dark:text-zinc-400">
+          {t('ia.confirmarDescartada')}
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onConfirmar}
+            disabled={ejecutando}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-mm-navy text-white text-xs font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
+          >
+            {ejecutando
+              ? <><Loader2 size={13} className="animate-spin" /> {t('ia.confirmarEjecutando')}</>
+              : <><Check size={13} /> {t('ia.confirmar')}</>}
+          </button>
+          <button
+            type="button"
+            onClick={onDescartar}
+            disabled={ejecutando}
+            className="px-3.5 py-2 rounded-lg border border-gray-300 dark:border-zinc-600 text-xs font-bold text-slate-600 dark:text-zinc-200 hover:bg-white dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          >
+            {t('ia.descartar')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -103,14 +182,55 @@ function AIChatView({ onBack }) {
     setPensando(true);
     setErrorIA(null);
 
-    const { texto: respuesta, error } = await conversarConIA({ texto, archivos, historial });
+    const { texto: respuesta, propuestas, error } = await conversarConIA({ texto, archivos, historial });
     setPensando(false);
 
     if (error || !respuesta) {
       setErrorIA(error || t('msg.errorSupabase'));
       return;
     }
-    setMessages(prev => [...prev, { sender: 'ai', text: respuesta }]);
+    /* Las propuestas viajan pegadas al mensaje: así sobreviven al F5 junto con
+       el historial, y cada tarjeta recuerda si ya se confirmó. */
+    setMessages(prev => [...prev, {
+      sender: 'ai',
+      text: respuesta,
+      propuestas: (propuestas || []).map(p => ({ ...p, estado: 'pendiente' }))
+    }]);
+  };
+
+  /** Marca el estado de una propuesta concreta dentro de su mensaje. */
+  const marcarPropuesta = (idxMensaje, idxPropuesta, estado) => {
+    setMessages(prev => prev.map((m, i) => (
+      i === idxMensaje
+        ? {
+            ...m,
+            propuestas: m.propuestas.map((p, j) => (j === idxPropuesta ? { ...p, estado } : p))
+          }
+        : m
+    )));
+  };
+
+  /**
+   * Segunda fase del two-phase commit (P0.3): aquí, y solo aquí, la acción
+   * llega a la base. Lo que la dispara es este clic, no el modelo.
+   */
+  const ejecutarPropuesta = async (idxMensaje, idxPropuesta) => {
+    const propuesta = messages[idxMensaje]?.propuestas?.[idxPropuesta];
+    if (!propuesta || propuesta.estado !== 'pendiente') return;
+
+    setErrorIA(null);
+    marcarPropuesta(idxMensaje, idxPropuesta, 'ejecutando');
+
+    const { ok, mensaje, error } = await confirmarPropuesta(propuesta);
+
+    if (!ok) {
+      marcarPropuesta(idxMensaje, idxPropuesta, 'pendiente');
+      setErrorIA(error || t('msg.errorSupabase'));
+      return;
+    }
+
+    marcarPropuesta(idxMensaje, idxPropuesta, 'hecha');
+    setMessages(prev => [...prev, { sender: 'ai', text: mensaje }]);
   };
 
   return (
@@ -169,6 +289,17 @@ function AIChatView({ onBack }) {
               {/* `clave` = texto de la app (se traduce); `text` = lo que
                   escribió el usuario (se muestra tal cual) */}
               <p className="whitespace-pre-wrap break-words">{textoMsg}</p>
+              {/* Escrituras propuestas: no pasa nada hasta que se confirmen */}
+              {Array.isArray(m.propuestas) && m.propuestas.map((p, j) => (
+                <PropuestaAccion
+                  key={j}
+                  propuesta={p}
+                  estado={p.estado}
+                  t={t}
+                  onConfirmar={() => ejecutarPropuesta(idx, j)}
+                  onDescartar={() => marcarPropuesta(idx, j, 'descartada')}
+                />
+              ))}
               {/* Nombres de los archivos que acompañaron al mensaje */}
               {Array.isArray(m.adjuntos) && m.adjuntos.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">

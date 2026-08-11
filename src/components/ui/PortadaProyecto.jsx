@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Building2 } from 'lucide-react';
+import { useUrlFirmada } from '../../hooks/useUrlFirmada';
 
 /**
  * Portada de un proyecto, con respaldo cuando la foto no carga.
@@ -29,7 +30,10 @@ export default function PortadaProyecto({
 }) {
   const [falloUrl, setFalloUrl] = useState(null);
 
-  const limpia = typeof url === 'string' ? url.trim() : '';
+  /* `proyectos.imagen_url` apunta a un bucket privado (migración 018) y las
+     tarjetas la pasan cruda: se firma aquí. Las portadas de demo, que son
+     rutas de `/public`, salen intactas y sin tocar la red. */
+  const limpia = useUrlFirmada(url) || '';
   const usable = limpia !== '' && limpia !== falloUrl;
 
   if (!usable) {

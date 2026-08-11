@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { User } from 'lucide-react';
+import { useUrlFirmada } from '../../hooks/useUrlFirmada';
 
 /**
  * Avatar circular con respaldo. Nunca deja el icono de "imagen rota".
@@ -38,7 +39,11 @@ export default function AvatarUsuario({
 }) {
   const [falloUrl, setFalloUrl] = useState(null);
 
-  const limpia = typeof url === 'string' ? url.trim() : '';
+  /* El bucket es privado (migración 018): la mitad de las llamadas pasan la
+     `avatar_url` cruda de una fila de `usuarios`, que sin firmar da 400. Se
+     firma aquí, así queda cubierta toda la app de una vez. Mientras la firma
+     viaja se pintan las iniciales, no un hueco. */
+  const limpia = useUrlFirmada(url) || '';
   const usable = limpia !== '' && limpia !== falloUrl;
 
   /* Las iniciales pueden llegar ya calculadas o deducirse del nombre. Si no
