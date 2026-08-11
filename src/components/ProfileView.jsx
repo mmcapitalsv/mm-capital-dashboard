@@ -440,6 +440,19 @@ function ProfileView({ user, onLogout, onBack, isAdmin, puedeUsarIA = false, onN
             <LogOut size={18} />
             {t('perfil.cerrarSesion')}
           </button>
+
+          {/* Pie de la vista, con el mismo par de líneas que el Login. Va DENTRO
+              del área que hace scroll: colgado del <main> quedaba clavado al
+              fondo y le robaba alto a la lista, que era lo que sacaba la barra
+              de scroll extra. Aquí baja con el contenido, como en las demás. */}
+          <div className="pt-6 pb-2 text-center">
+            <p className="text-xs text-slate-400 dark:text-zinc-500 tracking-wide">
+              MM Capital &copy; {new Date().getFullYear()}
+            </p>
+            <p className="text-[10px] text-slate-400/60 dark:text-zinc-500/60 mt-1 tracking-wide">
+              Diseñado y desarrollado por Luis Panameño
+            </p>
+          </div>
         </div>
       </div>
 
@@ -871,11 +884,6 @@ function ProfileView({ user, onLogout, onBack, isAdmin, puedeUsarIA = false, onN
           </div>
         </div>
       )}
-
-      {/* Firma de autoría al pie de la pantalla: discreta, sin competir con nada */}
-      <p className="text-center text-xs text-gray-500 dark:text-zinc-500 opacity-50 mt-10 mb-2">
-        Diseñado y desarrollado por Luis Panameño
-      </p>
 
       {dialogoConfirmacion}
 
