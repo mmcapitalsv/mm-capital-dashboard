@@ -61,7 +61,7 @@ import ListaCompletaModal from './ListaCompletaModal';
 import {
   AlertTriangle, Bell, Building2, Briefcase, ChevronDown, ChevronLeft,
   Edit2, FolderLock, Globe, LayoutDashboard, Loader2, Lock, LogOut,
-  MessageSquare, Moon, Send, Sun, UserCheck, Users
+  MessageSquare, Moon, Send, Sparkles, Sun, UserCheck, Users
 } from 'lucide-react';
 import {
   getAvatarUsuario, leerAvatarCache, guardarAvatarCache, subirPortadaProyecto
@@ -200,7 +200,7 @@ function Interruptor({ activo }) {
 function MenuAvatar({
   t, nombreUsuario, cargo, iniciales, userAvatarUrl,
   modoOscuro, alternarTema, language, alternarIdioma,
-  onPerfil, onInversores, onLogout, isAdmin, isEditMode, onToggleEditMode, className = ''
+  onPerfil, onAsistenteIA, onInversores, onLogout, isAdmin, isEditMode, onToggleEditMode, className = ''
 }) {
   const filaBase = 'w-full px-4 py-3 text-left text-xs font-semibold text-slate-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700/50 hover:text-mm-oro-tinta dark:hover:text-mm-oro-claro transition-colors flex items-center gap-2.5';
 
@@ -230,6 +230,14 @@ function MenuAvatar({
         <UserCheck size={15} className="text-mm-3 flex-shrink-0" />
         {t('menu.miPerfilConfig')}
       </button>
+
+      {/* 1a) Asistente IA: atajo al chat, exclusivo de Administrador */}
+      {isAdmin && onAsistenteIA && (
+        <button role="menuitem" onClick={onAsistenteIA} className={filaBase}>
+          <Sparkles size={15} className="text-mm-oro flex-shrink-0" />
+          {t('menu.asistenteIA')}
+        </button>
+      )}
 
       {/* 1b) Inversores: bajó aquí desde la barra inferior, que con seis
               destinos quedaba por debajo del objetivo táctil mínimo. */}
@@ -1143,6 +1151,7 @@ export default function Dashboard({ user, onLogout }) {
                   language={language}
                   alternarIdioma={alternarIdioma}
                   onPerfil={() => { setShowMenuAvatar(false); changeView('profile'); }}
+                  onAsistenteIA={() => { setShowMenuAvatar(false); changeView('ai-chat'); }}
                   onLogout={() => { setShowMenuAvatar(false); onLogout(); }}
                   isAdmin={isAdmin}
                   className="absolute top-14 right-0 w-64"
@@ -1257,6 +1266,7 @@ export default function Dashboard({ user, onLogout }) {
                   language={language}
                   alternarIdioma={alternarIdioma}
                   onPerfil={() => { setShowMenuAvatar(false); changeView('profile'); }}
+                  onAsistenteIA={() => { setShowMenuAvatar(false); changeView('ai-chat'); }}
                   onInversores={() => { setShowMenuAvatar(false); changeView('investors'); }}
                   onLogout={() => { setShowMenuAvatar(false); onLogout(); }}
                   isAdmin={isAdmin}
