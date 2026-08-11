@@ -60,9 +60,10 @@ import { useEntradasPanel } from '../hooks/useEntradasPanel';
 import ListaCompletaModal from './ListaCompletaModal';
 import {
   AlertTriangle, Bell, Building2, Briefcase, ChevronDown, ChevronLeft,
-  Edit2, FolderLock, Globe, LayoutDashboard, Loader2, Lock, LogOut,
+  Edit2, FileText, FolderLock, Globe, LayoutDashboard, Loader2, Lock, LogOut,
   MessageSquare, Moon, Send, Sparkles, Sun, UserCheck, Users
 } from 'lucide-react';
+import { esImagenAdjunta } from '../lib/archivos';
 import {
   getAvatarUsuario, leerAvatarCache, guardarAvatarCache, subirPortadaProyecto
 } from '../services/storageService';
@@ -967,7 +968,35 @@ export default function Dashboard({ user, onLogout }) {
                         : 'bg-white/10 text-white/80'
                     }`}>
                       {!m.propio && <p className="text-[11px] font-bold text-mm-oro mb-0.5">{m.autor}</p>}
-                      <p className="break-words">{m.texto}</p>
+
+                      {/* El adjunto va ARRIBA del texto, igual que en la pestaña
+                          de Chat. Sin esto, un mensaje que era SOLO una foto
+                          —lo normal cuando alguien manda una imagen de obra—
+                          pintaba una burbuja vacía en el recuadro del menú: el
+                          mensaje llegaba, se contaba como no leído y no se veía
+                          nada. */}
+                      {m.adjunto && (
+                        esImagenAdjunta(m.adjunto) ? (
+                          <img
+                            src={m.adjunto.url}
+                            alt={m.adjunto.nombre || t('chat.previaImagenAlt')}
+                            title={m.adjunto.nombre || t('chat.previaImagenAlt')}
+                            loading="lazy"
+                            /* La firma de la URL caduca (1 h): si la foto no
+                               carga se retira en silencio, en vez de dejar el
+                               icono de imagen rota dentro de la burbuja. */
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            className={`w-full max-w-[180px] max-h-[150px] object-cover rounded-lg border border-white/10 ${m.texto ? 'mb-1.5' : ''}`}
+                          />
+                        ) : (
+                          <span className={`flex items-center gap-1.5 text-[11px] text-white/70 ${m.texto ? 'mb-1.5' : ''}`}>
+                            <FileText size={11} className="flex-shrink-0" />
+                            <span className="truncate">{m.adjunto.nombre}</span>
+                          </span>
+                        )
+                      )}
+
+                      {m.texto && <p className="break-words">{m.texto}</p>}
                     </div>
                   </div>
                 ))}

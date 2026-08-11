@@ -15,7 +15,7 @@ import { useConfirmacion } from '../hooks/useConfirmacion';
 import {
   ACEPTA_ADJUNTO_CHAT, subirAdjuntoChat, eliminarAdjuntoChat, descargarArchivo
 } from '../services/storageService';
-import { esImagen } from '../lib/archivos';
+import { esImagenAdjunta } from '../lib/archivos';
 
 /**
  * Chat interno corporativo.
@@ -26,20 +26,6 @@ import { esImagen } from '../lib/archivos';
  * Todo llega por Realtime, así que esta vista y el recuadro del Sidebar
  * muestran exactamente lo mismo, al instante.
  */
-
-/**
- * ¿Este adjunto se puede pintar dentro de un `<img>`?
- *
- * Se mira PRIMERO el tipo MIME que guardó la subida (`image/jpeg`...) y solo
- * después la extensión: un archivo llegado desde la cámara del móvil puede
- * traer un nombre sin extensión, y con él la extensión sola daba 'documento' y
- * la miniatura no se llegaba a renderizar nunca.
- */
-function esFotoAdjunta(adjunto) {
-  if (!adjunto?.url) return false;
-  if (/^image\//i.test(String(adjunto.tipo || ''))) return true;
-  return esImagen(adjunto.nombre, adjunto.url);
-}
 
 export default function ChatModule({ onBack, isEditMode }) {
   const { t } = usePrefs();
@@ -90,7 +76,7 @@ export default function ChatModule({ onBack, isEditMode }) {
 
     const texto = String(ultimo.texto || '').trim();
     const adjunto = ultimo.adjunto || null;
-    const esFoto = esFotoAdjunta(adjunto);
+    const esFoto = esImagenAdjunta(adjunto);
 
     /* La miniatura NO depende de que la foto sea el último mensaje: mientras el
        canal tenga una imagen, se enseña la más reciente. Antes bastaba con que
@@ -98,7 +84,7 @@ export default function ChatModule({ onBack, isEditMode }) {
        se quedara sin foto, que es justo lo que se reportó como "no se ve". */
     const conFoto = esFoto
       ? ultimo
-      : [...lista].reverse().find(m => esFotoAdjunta(m?.adjunto)) || null;
+      : [...lista].reverse().find(m => esImagenAdjunta(m?.adjunto)) || null;
 
     if (!texto && !adjunto && !conFoto) return null;
     return {
@@ -613,7 +599,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                             {/* El adjunto va ARRIBA del texto: en un chat el
                                 archivo es el mensaje y el texto lo comenta. */}
                             {m.adjunto && (
-                              esImagen(m.adjunto.nombre, m.adjunto.url) ? (
+                              esImagenAdjunta(m.adjunto) ? (
                                 <a
                                   href={m.adjunto.url}
                                   target="_blank"
@@ -718,7 +704,7 @@ export default function ChatModule({ onBack, isEditMode }) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 pl-2 pr-1.5 py-1.5">
-                      {esImagen(adjunto.nombre, adjunto.url) ? (
+                      {esImagenAdjunta(adjunto) ? (
                         <img
                           src={adjunto.url}
                           alt=""

@@ -39,6 +39,23 @@ export function esImagen(nombre, url = '') {
   return formatoArchivo(nombre, url) === 'imagen';
 }
 
+/**
+ * ¿Este adjunto de chat se puede pintar dentro de un `<img>`?
+ *
+ * Se mira PRIMERO el tipo MIME que guardó la subida (`image/jpeg`...) y solo
+ * después la extensión: un archivo llegado desde la cámara del móvil puede
+ * traer un nombre sin extensión, y con él la extensión sola daba 'documento' y
+ * la miniatura no se llegaba a renderizar nunca.
+ *
+ * Vive aquí, y no en una vista, porque la usan los DOS sitios que pintan el
+ * canal: el recuadro del Sidebar y la pestaña de Chat.
+ */
+export function esImagenAdjunta(adjunto) {
+  if (!adjunto?.url) return false;
+  if (/^image\//i.test(String(adjunto.tipo || ''))) return true;
+  return esImagen(adjunto.nombre, adjunto.url);
+}
+
 /** Clave de traducción de la etiqueta del formato. */
 export function claveFormato(formato) {
   if (formato === 'imagen') return 'vault.formatoImagen';
