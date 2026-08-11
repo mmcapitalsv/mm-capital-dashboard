@@ -160,6 +160,10 @@ export default function Login() {
         <p className="text-center text-xs text-white/30 mt-10 tracking-wide">
           MM Capital &copy; {new Date().getFullYear()}
         </p>
+        {/* Firma de autoría: deliberadamente por debajo del umbral de atención */}
+        <p className="text-center text-[10px] text-white/25 mt-1 tracking-wide">
+          Designed by Luis Panameño
+        </p>
       </div>
     </div>
   );

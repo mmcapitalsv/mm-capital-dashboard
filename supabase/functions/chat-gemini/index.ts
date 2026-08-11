@@ -203,6 +203,57 @@ const DECLARACIONES_HERRAMIENTAS = [
       },
       required: ['proyecto', 'concepto']
     }
+  },
+  {
+    name: 'consultar_checklist',
+    description:
+      'Devuelve los hitos del checklist de obra de un proyecto con su fecha límite y si están ' +
+      'completados o pendientes. Úsala cuando pregunten por el cronograma, los hitos, las ' +
+      'tareas pendientes o las fechas de entrega. Es de solo lectura.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto.' },
+        solo_pendientes: {
+          type: 'BOOLEAN',
+          description: 'Si es verdadero (por defecto) devuelve solo los hitos sin completar.'
+        }
+      },
+      required: ['proyecto']
+    }
+  },
+  {
+    name: 'modificar_fechas_checklist',
+    description:
+      'PREPARA el cambio de la fecha límite de uno o varios hitos del checklist de obra ' +
+      '(por ejemplo: "atrasa dos semanas los hitos pendientes de Torre Azul"). Puede sumar ' +
+      'días o semanas a la fecha actual de cada hito, o fijar una fecha concreta. No modifica ' +
+      'nada por sí sola: devuelve una propuesta que el usuario tiene que confirmar con un ' +
+      'botón en la app. Nunca afirmes que las fechas quedaron cambiadas después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto.' },
+        hito: {
+          type: 'STRING',
+          description:
+            'Texto del título del hito a mover. Si se omite, se mueven todos los hitos que ' +
+            'cumplan el filtro de pendientes.'
+        },
+        solo_pendientes: {
+          type: 'BOOLEAN',
+          description: 'Si es verdadero (por defecto) solo se tocan los hitos sin completar.'
+        },
+        dias: { type: 'NUMBER', description: 'Días a sumar a la fecha actual de cada hito. Negativo para adelantar.' },
+        semanas: { type: 'NUMBER', description: 'Semanas a sumar a la fecha actual de cada hito. Negativo para adelantar.' },
+        nueva_fecha: {
+          type: 'STRING',
+          description:
+            'Fecha límite exacta en formato AAAA-MM-DD. Si se indica, sustituye a "dias"/"semanas".'
+        }
+      },
+      required: ['proyecto']
+    }
   }
 ];
 
@@ -844,6 +895,237 @@ async function ejecutarEliminarGasto(supabase: SupabaseClient, args: Record<stri
   return { ok: true, mensaje: 'Gasto eliminado correctamente.', gasto: data };
 }
 
+/* ── Checklist de obra: consultar y mover fechas ──────────────────────────── */
+
+/** Tope de hitos que una sola propuesta puede mover: la tarjeta tiene que
+    seguir siendo legible antes de que el usuario apruebe el cambio. */
+const MAX_HITOS_POR_PROPUESTA = 40;
+
+const MESES_NOMBRE = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+];
+
+/** "2025-06-15" -> "15 de junio 2025", el mismo formato que escribe la app en
+    `fecha_texto` (ver `src/services/checklistService.js`). */
+function fechaLegible(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const mes = MESES_NOMBRE[Number(m[2]) - 1];
+  return mes ? `${Number(m[3])} de ${mes} ${m[1]}` : iso;
+}
+
+/** Normaliza a AAAA-MM-DD lo que venga (ISO, timestamp o "15 de junio 2025"). */
+function aFechaISO(valor: unknown): string | null {
+  const bruto = texto(valor);
+  if (!bruto) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) return bruto.slice(0, 10);
+
+  const m = /(\d{1,2})\s*de\s*([a-zá-ú]+)\s*(?:de\s*)?(\d{4})/i.exec(
+    bruto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  );
+  if (m) {
+    const mes = MESES_NOMBRE.indexOf(m[2]) + 1;
+    if (mes > 0) return `${m[3]}-${String(mes).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  }
+
+  const d = new Date(bruto);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/** Suma días a una fecha ISO en UTC: nada de husos horarios moviendo el día. */
+function sumarDias(iso: string, dias: number): string {
+  const base = new Date(`${iso}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + dias);
+  return base.toISOString().slice(0, 10);
+}
+
+function hoyISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+type FilaHito = {
+  id: string;
+  titulo?: unknown;
+  completado?: unknown;
+  fecha_vencimiento?: unknown;
+  fecha_texto?: unknown;
+  orden?: unknown;
+};
+
+/**
+ * Lee los hitos de un proyecto aplicando los filtros que pide la IA.
+ * El filtro por título se hace aquí y no en SQL para que valga tanto sobre
+ * `titulo` como sobre el `fecha_texto` que escribió el usuario a mano.
+ */
+async function leerHitos(
+  supabase: SupabaseClient,
+  proyectoId: string,
+  opciones: { hito?: string; soloPendientes?: boolean }
+): Promise<{ error?: string; hitos?: FilaHito[] }> {
+  const { data, error } = await supabase
+    .from('checklist_hitos')
+    .select('id, titulo, completado, fecha_vencimiento, fecha_texto, orden')
+    .eq('proyecto_id', proyectoId)
+    .order('orden', { ascending: true });
+
+  if (error) return { error: `No se pudo leer el checklist: ${error.message}` };
+
+  let hitos = (data ?? []) as FilaHito[];
+  if (opciones.soloPendientes !== false) hitos = hitos.filter(h => h.completado !== true);
+
+  const filtro = texto(opciones.hito).toLowerCase();
+  if (filtro) hitos = hitos.filter(h => texto(h.titulo).toLowerCase().includes(filtro));
+
+  return { hitos };
+}
+
+async function consultarChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const soloPendientes = args.solo_pendientes !== false;
+  const lectura = await leerHitos(supabase, proyecto.id, { soloPendientes });
+  if (lectura.error) return { error: lectura.error };
+
+  return {
+    proyecto: proyecto.nombre,
+    filtro: soloPendientes ? 'solo pendientes' : 'todos',
+    hitos_encontrados: lectura.hitos!.length,
+    hitos: lectura.hitos!.map(h => ({
+      titulo: texto(h.titulo),
+      completado: h.completado === true,
+      fecha_limite: aFechaISO(h.fecha_vencimiento) ?? texto(h.fecha_texto) ?? null
+    }))
+  };
+}
+
+async function proponerModificarFechasChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const nuevaFecha = aFechaISO(args.nueva_fecha);
+  const dias = aNumero(args.dias) + aNumero(args.semanas) * 7;
+
+  if (!nuevaFecha && dias === 0) {
+    return {
+      error:
+        'Indica cuánto mover las fechas ("dias" o "semanas", pueden ser negativos) o una ' +
+        '"nueva_fecha" concreta en formato AAAA-MM-DD.'
+    };
+  }
+
+  const soloPendientes = args.solo_pendientes !== false;
+  const lectura = await leerHitos(supabase, proyecto.id, { hito: texto(args.hito), soloPendientes });
+  if (lectura.error) return { error: lectura.error };
+
+  const hitos = lectura.hitos!;
+  if (hitos.length === 0) {
+    return {
+      error:
+        `No hay hitos ${soloPendientes ? 'pendientes ' : ''}en el proyecto "${proyecto.nombre}"` +
+        (texto(args.hito) ? ` que coincidan con "${texto(args.hito)}".` : '.')
+    };
+  }
+  if (hitos.length > MAX_HITOS_POR_PROPUESTA) {
+    return {
+      error:
+        `El filtro alcanza ${hitos.length} hitos y el máximo por operación es ` +
+        `${MAX_HITOS_POR_PROPUESTA}. Pídele al usuario que acote el hito o el proyecto.`
+    };
+  }
+
+  /* Sin fecha guardada no hay «fecha actual» a la que sumarle nada: se toma
+     hoy como origen para que un hito sin fecha también quede programado. */
+  const cambios = hitos.map(h => {
+    const anterior = aFechaISO(h.fecha_vencimiento) ?? aFechaISO(h.fecha_texto);
+    const nueva = nuevaFecha ?? sumarDias(anterior ?? hoyISO(), dias);
+    return { id: texto(h.id), titulo: texto(h.titulo), fecha_anterior: anterior, fecha_nueva: nueva };
+  });
+
+  const descripcionCambio = nuevaFecha
+    ? `fijar la fecha límite en ${fechaLegible(nuevaFecha)}`
+    : `${dias > 0 ? 'atrasar' : 'adelantar'} ${Math.abs(dias)} día${Math.abs(dias) === 1 ? '' : 's'}`;
+
+  return {
+    propuesta: {
+      herramienta: 'modificar_fechas_checklist',
+      titulo: 'Modificar fechas del checklist',
+      resumen:
+        `${cambios.length === 1 ? 'Mover 1 hito' : `Mover ${cambios.length} hitos`} ` +
+        `${soloPendientes ? 'pendientes ' : ''}del proyecto "${proyecto.nombre}": ${descripcionCambio}.`,
+      detalle: [
+        { etiqueta: 'Proyecto', valor: texto(proyecto.nombre) },
+        { etiqueta: 'Cambio', valor: descripcionCambio },
+        ...cambios.map(c => ({
+          etiqueta: c.titulo || 'Hito sin título',
+          valor: `${c.fecha_anterior ? fechaLegible(c.fecha_anterior) : 'sin fecha'} → ${fechaLegible(c.fecha_nueva)}`
+        }))
+      ],
+      // Los ids ya resueltos viajan en la propuesta: al confirmar no se vuelve
+      // a filtrar nada, se escriben exactamente las filas que se enseñaron.
+      args: { proyecto_id: proyecto.id, proyecto: proyecto.nombre, cambios }
+    }
+  };
+}
+
+async function ejecutarModificarFechasChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const proyectoId = texto(args.proyecto_id);
+  if (!proyectoId) return { error: 'La propuesta no identifica el proyecto.' };
+
+  const brutos = Array.isArray(args.cambios) ? args.cambios as Array<Record<string, unknown>> : [];
+
+  /* La lista se vuelve a sanear aunque venga de la propuesta: solo se aceptan
+     ids con fecha ISO válida, y como mucho el mismo tope que se enseñó. */
+  const cambios = brutos
+    .map(c => ({ id: texto(c.id), fecha: aFechaISO(c.fecha_nueva) }))
+    .filter((c): c is { id: string; fecha: string } => Boolean(c.id && c.fecha));
+
+  if (cambios.length === 0) return { error: 'La propuesta no contiene ningún cambio de fecha válido.' };
+  if (cambios.length > MAX_HITOS_POR_PROPUESTA) {
+    return { error: `La propuesta excede el máximo de ${MAX_HITOS_POR_PROPUESTA} hitos.` };
+  }
+
+  const actualizados: Array<{ titulo: string; fecha: string }> = [];
+
+  for (const cambio of cambios) {
+    /* `proyecto_id` va en el WHERE además del id: si la propuesta llegara
+       manipulada, no se puede mover un hito de otro proyecto. `fecha_texto` se
+       escribe en paralelo porque es la columna que pinta la app. */
+    const { data, error } = await supabase
+      .from('checklist_hitos')
+      .update({ fecha_vencimiento: cambio.fecha, fecha_texto: fechaLegible(cambio.fecha) })
+      .eq('id', cambio.id)
+      .eq('proyecto_id', proyectoId)
+      .select('id, titulo, fecha_vencimiento')
+      .maybeSingle();
+
+    if (error) {
+      return {
+        error:
+          `No se pudieron actualizar las fechas: ${error.message}. Es posible que solo el ` +
+          'Administrador tenga permiso para modificar el checklist.'
+      };
+    }
+    if (data) actualizados.push({ titulo: texto(data.titulo), fecha: fechaLegible(cambio.fecha) });
+  }
+
+  if (actualizados.length === 0) {
+    return { error: 'No se modificó ningún hito: ya no existen o no tienes permiso de escritura.' };
+  }
+
+  return {
+    ok: true,
+    mensaje:
+      actualizados.length === 1
+        ? `Fecha del hito "${actualizados[0].titulo}" movida al ${actualizados[0].fecha}.`
+        : `Se actualizaron las fechas de ${actualizados.length} hitos.`,
+    hitos: actualizados
+  };
+}
+
 type Herramienta = (s: SupabaseClient, a: Record<string, unknown>) => Promise<unknown>;
 
 /** Lo que el modelo puede disparar por su cuenta: solo lectura y propuestas. */
@@ -853,7 +1135,9 @@ const HERRAMIENTAS_DEL_MODELO: Record<string, Herramienta> = {
   registrar_gasto: proponerGasto,
   actualizar_proyecto: proponerActualizarProyecto,
   eliminar_proyecto: proponerEliminarProyecto,
-  eliminar_gasto: proponerEliminarGasto
+  eliminar_gasto: proponerEliminarGasto,
+  consultar_checklist: consultarChecklist,
+  modificar_fechas_checklist: proponerModificarFechasChecklist
 };
 
 /** Lo que escribe de verdad. Solo se alcanza por la ruta `confirmar`. */
@@ -862,7 +1146,8 @@ const ESCRITURAS_CONFIRMADAS: Record<string, Herramienta> = {
   registrar_gasto: ejecutarGasto,
   actualizar_proyecto: ejecutarActualizarProyecto,
   eliminar_proyecto: ejecutarEliminarProyecto,
-  eliminar_gasto: ejecutarEliminarGasto
+  eliminar_gasto: ejecutarEliminarGasto,
+  modificar_fechas_checklist: ejecutarModificarFechasChecklist
 };
 
 async function ejecutarHerramienta(supabase: SupabaseClient, nombre: string, args: Record<string, unknown>) {

@@ -406,7 +406,13 @@ function AIChatView({ onBack }) {
             </div>
           )}
 
-          <form onSubmit={handleSend} className="flex items-end gap-3">
+          {/* Un solo contenedor redondeado y translúcido con el clip, el texto y
+              el envío dentro: es lo que hace que el compositor se lea como una
+              pieza y no como tres cajas sueltas pegadas. */}
+          <form
+            onSubmit={handleSend}
+            className="flex items-end gap-2 rounded-3xl border border-slate-900/10 dark:border-white/10 bg-slate-500/5 dark:bg-white/5 backdrop-blur-sm p-2 transition-colors focus-within:border-slate-900/20 dark:focus-within:border-mm-oro/40"
+          >
             {/* Clip: imágenes o documentos, se envían como Base64 inline */}
             <input
               type="file"
@@ -420,7 +426,7 @@ function AIChatView({ onBack }) {
               type="button"
               onClick={() => clipRef.current?.click()}
               title={t('ia.adjuntar')}
-              className="w-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 text-slate-400 dark:text-zinc-300 hover:text-mm-oro hover:border-mm-oro/40 transition-colors flex-shrink-0 active:scale-95"
+              className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 dark:text-zinc-300 hover:text-mm-oro hover:bg-slate-900/5 dark:hover:bg-white/10 transition-colors flex-shrink-0 active:scale-95"
             >
               <Paperclip size={18} />
             </button>
@@ -436,12 +442,12 @@ function AIChatView({ onBack }) {
               placeholder={t('ia.placeholder')}
               enterKeyHint="enter"
               autoComplete="off"
-              className="flex-1 min-w-0 resize-none max-h-[140px] bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm leading-snug text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:border-slate-400 dark:focus:border-mm-oro/50 focus:bg-white dark:focus:bg-zinc-900 transition-colors"
+              className="flex-1 min-w-0 resize-none max-h-[140px] bg-transparent border-0 px-2 py-2 text-sm leading-relaxed text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:ring-0"
             />
             <button
               type="submit"
               disabled={pensando || (!inputMsg.trim() && adjuntos.length === 0)}
-              className="bg-mm-navy text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors flex items-center gap-2 disabled:opacity-40 flex-shrink-0"
+              className="bg-mm-navy text-white px-5 py-2.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-colors flex items-center gap-2 disabled:opacity-40 flex-shrink-0"
             >
               {pensando
                 ? <Loader2 size={14} className="animate-spin text-mm-3" />

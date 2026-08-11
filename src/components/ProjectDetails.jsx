@@ -112,7 +112,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   const { programar } = useTemporizadores();
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   // Nombres para la firma "Subido por" de documentos, álbumes y fotos
-  const { nombreDe } = useDirectorioUsuarios();
+  const { nombreDe, esAdminPrincipal } = useDirectorioUsuarios();
   const [activeTab, setActiveTab] = useState('summary');
   const [openAccordion, setOpenAccordion] = useState(null);
   const [showExpenses, setShowExpenses] = useState(false);
@@ -192,6 +192,11 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
      a la 014 no tiene autor guardado y firma «Admin». */
   const puedeGestionarSubida = (fila) => puedeGestionar(fila, { userId, esAdmin: isAdmin });
   const autorDe = (fila) => nombreDe(fila?.subido_por) || t('fb.autorDesconocido');
+  /* En la Galería el administrador principal firma siempre «Admin», nunca con
+     su nombre propio: lo que subió la administración se lee como institucional
+     y no como material personal de alguien. */
+  const autorGaleria = (fila) =>
+    (esAdminPrincipal(fila?.subido_por) ? t('fb.autorDesconocido') : autorDe(fila));
   const [checklist, setChecklist] = useState([]);
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true);
   // true = lo que se ve son datos reales de Supabase; false = semilla aún sin guardar
@@ -2822,7 +2827,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
                       <p className="text-xs text-slate-400 dark:text-zinc-200 mt-1 font-medium">{album.date}</p>
                       {/* Quién creó el álbum: es quien puede editarlo o borrarlo */}
                       <p className="text-[11px] text-slate-400 dark:text-zinc-300 mt-1">
-                        {t('fb.subidoPor')} <span className="font-bold text-slate-500 dark:text-zinc-200">{autorDe(album)}</span>
+                        {t('fb.subidoPor')} <span className="font-bold text-slate-500 dark:text-zinc-200">{autorGaleria(album)}</span>
                       </p>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
@@ -2949,7 +2954,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
                   {/* Firma de la foto, sobre la propia miniatura: en una
                       cuadrícula cuadrada no cabe debajo sin romper la retícula. */}
                   <p className="absolute inset-x-0 bottom-0 z-10 px-2 py-1 bg-gradient-to-t from-black/75 to-transparent text-[10px] font-semibold text-white/90 truncate pointer-events-none">
-                    {t('fb.subidoPor')} {autorDe(foto)}
+                    {t('fb.subidoPor')} {autorGaleria(foto)}
                   </p>
                 </div>
                 );

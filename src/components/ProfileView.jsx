@@ -872,6 +872,11 @@ function ProfileView({ user, onLogout, onBack, isAdmin, puedeUsarIA = false, onN
         </div>
       )}
 
+      {/* Firma de autoría al pie de la pantalla: discreta, sin competir con nada */}
+      <p className="text-center text-xs text-gray-500 dark:text-zinc-500 opacity-50 mt-10 mb-2">
+        Diseñado y desarrollado por Luis Panameño
+      </p>
+
       {dialogoConfirmacion}
 
       {/* Recorte antes de subir: nada viaja a Storage hasta confirmar */}

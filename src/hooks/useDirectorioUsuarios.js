@@ -28,12 +28,17 @@ function pedirDirectorio() {
   if (!cachePromesa) {
     // Paginado con conteo exacto: pasadas las 1,000 fichas, PostgREST recorta
     // sin avisar y los archivos de quien quedara fuera saldrían sin firma.
-    cachePromesa = leerTablaCompleta('usuarios', 'id, nombre_completo, email')
+    // `rol` viaja con el nombre: la Galería firma «Admin» al administrador
+    // principal en lugar de su nombre propio.
+    cachePromesa = leerTablaCompleta('usuarios', 'id, nombre_completo, email, rol')
       .then(({ filas }) => {
         const mapa = {};
         for (const u of filas) {
           if (!u?.id) continue;
-          mapa[String(u.id)] = tituloCase(u.nombre_completo) || (u.email || '').split('@')[0] || '';
+          mapa[String(u.id)] = {
+            nombre: tituloCase(u.nombre_completo) || (u.email || '').split('@')[0] || '',
+            rol: String(u.rol || '')
+          };
         }
         cacheDirectorio = mapa;
         return mapa;
@@ -49,7 +54,11 @@ function pedirDirectorio() {
 }
 
 /**
- * @returns {{ nombreDe: (id: string|null) => string|null, directorio: object }}
+ * @returns {{
+ *   nombreDe: (id: string|null) => string|null,
+ *   esAdminPrincipal: (id: string|null) => boolean,
+ *   directorio: object
+ * }}
  *   `nombreDe` devuelve null cuando no hay autor conocido: la vista decide qué
  *   poner en su lugar (los archivos anteriores a la 014 no tienen firma).
  */
@@ -62,7 +71,11 @@ export function useDirectorioUsuarios() {
     return () => { vivo = false; };
   }, []);
 
-  const nombreDe = (id) => (id ? directorio[String(id)] || null : null);
+  const nombreDe = (id) => (id ? directorio[String(id)]?.nombre || null : null);
 
-  return { nombreDe, directorio };
+  /* El administrador principal es el único con `rol = 'admin'` (los demás son
+     socios). Es la misma comprobación que hace `public.es_admin()` en la base. */
+  const esAdminPrincipal = (id) => (id ? directorio[String(id)]?.rol === 'admin' : false);
+
+  return { nombreDe, esAdminPrincipal, directorio };
 }
