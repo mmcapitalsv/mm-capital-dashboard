@@ -1,8 +1,8 @@
 import { supabase } from '../supabaseClient';
 
 /**
- * Acciones de cuenta del perfil: credenciales de Auth, datos bancarios y
- * reportes de soporte ejecutivo.
+ * Acciones de cuenta del perfil: credenciales de Auth y reportes de
+ * soporte ejecutivo.
  */
 
 const TABLA_REPORTES = 'reportes_soporte';
@@ -101,40 +101,6 @@ export async function cambiarPassword(nueva, repetida, passwordActual) {
   const { error } = await supabase.auth.updateUser({ password: pass });
   if (error) return { success: false, error: error.message };
 
-  return { success: true };
-}
-
-/* ───────────────────────────── Datos bancarios ───────────────────────────── */
-
-/** Lee los datos bancarios guardados en user_metadata. */
-export function leerDatosBancarios(user) {
-  const d = user?.user_metadata?.datos_bancarios;
-  return {
-    banco: d?.banco || '',
-    numeroCuenta: d?.numero_cuenta || '',
-    tipoCuenta: d?.tipo_cuenta || 'ahorro'
-  };
-}
-
-/** Guarda los datos bancarios en user_metadata. */
-export async function guardarDatosBancarios({ banco, numeroCuenta, tipoCuenta }) {
-  const b = String(banco || '').trim();
-  const n = String(numeroCuenta || '').trim();
-  if (!b) return { success: false, error: 'Indica el nombre del banco.' };
-  if (!n) return { success: false, error: 'Indica el número de cuenta.' };
-
-  const { error } = await supabase.auth.updateUser({
-    data: {
-      datos_bancarios: {
-        banco: b,
-        numero_cuenta: n,
-        tipo_cuenta: tipoCuenta || 'ahorro',
-        actualizado_en: new Date().toISOString()
-      }
-    }
-  });
-
-  if (error) return { success: false, error: error.message };
   return { success: true };
 }
 
