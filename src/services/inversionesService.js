@@ -12,7 +12,7 @@ import { tituloCase } from '../lib/formato';
 
 const TABLA = 'aportaciones';
 
-export const AVISO_MIGRACION_003 =
+const AVISO_MIGRACION_003 =
   'Falta la tabla `aportaciones`. Ejecuta supabase/migrations/003_inversiones.sql ' +
   'en el SQL Editor de Supabase.';
 

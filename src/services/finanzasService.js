@@ -61,12 +61,12 @@ export function aAjuste(valor) {
    corrupta a 0: prefieren abortar el guardado con un mensaje entendible. */
 
 /** Importe contable no negativo. Lanza `MontoInvalidoError` si no es cifra. */
-export function aMontoContable(valor, campo) {
+function aMontoContable(valor, campo) {
   return parsearMontoEstricto(valor, { campo });
 }
 
 /** Igual, pero admite el signo (el ajuste manual puede ser negativo). */
-export function aAjusteContable(valor, campo) {
+function aAjusteContable(valor, campo) {
   return parsearMontoEstricto(valor, { campo, permitirNegativo: true });
 }
 
@@ -84,7 +84,7 @@ function conMontosValidados(construir) {
 }
 
 /** Mensaje único del choque de guardados simultáneos (P2-17). */
-export const AVISO_CONFLICTO_CONCURRENCIA =
+const AVISO_CONFLICTO_CONCURRENCIA =
   'Otro administrador guardó cambios en este proyecto mientras editabas. ' +
   'Para no sobrescribir sus cifras, tus cambios NO se guardaron: recarga el ' +
   'proyecto, revisa los valores actuales y vuelve a aplicarlos.';
@@ -109,7 +109,7 @@ export function componerCostoEjecutado({ facturas = 0 } = {}) {
  * Meses del año tal como se guardan en `proyectos.ejecucion_mensual`.
  * La clave es fija (es) y la UI la traduce; así el JSON no depende del idioma.
  */
-export const MESES_EJECUCION = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const MESES_EJECUCION = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 /**
  * Normaliza la ejecución mensual que viene de Supabase a los 12 meses.
@@ -117,7 +117,7 @@ export const MESES_EJECUCION = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul',
  *
  * @returns {Array<{name: string, value: number}>}
  */
-export function normalizarEjecucionMensual(bruto) {
+function normalizarEjecucionMensual(bruto) {
   const previos = new Map();
 
   if (Array.isArray(bruto)) {
@@ -542,17 +542,6 @@ export function agruparGastosPorMes(facturas, idioma = 'es') {
  */
 export function sumarGastos(facturas) {
   return sumarDinero(facturas, (f) => f?.monto);
-}
-
-/**
- * Consulta `gastos` por `proyecto_id` y devuelve el total ejecutado junto con
- * las filas, para que la vista arme la gráfica sin una segunda consulta.
- *
- * @returns {Promise<{total: number, facturas: Array, error: string|null}>}
- */
-export async function getTotalEjecutado(proyectoId) {
-  const { facturas, error, truncado } = await getFacturas(proyectoId);
-  return { total: sumarGastos(facturas), facturas, error, truncado };
 }
 
 /**

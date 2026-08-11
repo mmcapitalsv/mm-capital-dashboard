@@ -28,7 +28,18 @@ export default defineConfig({
       registerType: 'prompt',
       workbox: {
         clientsClaim: true,
-        cleanupOutdatedCaches: true
+        cleanupOutdatedCaches: true,
+
+        /* `tubes1.min` (la animación WebGL del login) y el three.js que
+           arrastra pesan cientos de KB y se cargan de forma diferida, solo si
+           el navegador soporta WebGL y solo en la pantalla de acceso. Que el
+           service worker los PREcargue significa bajarlos en cada instalación
+           y en cada actualización —con datos móviles— para una decoración que
+           la mayoría de las sesiones ni llega a pedir.
+
+           Fuera del precache siguen estando disponibles: se descargan por red
+           en el momento en que el login los importa. */
+        globIgnores: ['**/tubes1.min-*.js']
       },
       manifest: {
         name: 'MM Capital Dashboard',

@@ -9,9 +9,9 @@ import { supabase } from '../supabaseClient';
  */
 
 const TABLA = 'configuracion';
-export const CLAVE_CAPITAL = 'capital_total';
+const CLAVE_CAPITAL = 'capital_total';
 
-export const AVISO_MIGRACION_005 =
+const AVISO_MIGRACION_005 =
   'Falta la tabla `configuracion`. Ejecuta ' +
   'supabase/migrations/005_storage_avatares_y_configuracion.sql en el SQL Editor de Supabase.';
 
@@ -23,7 +23,7 @@ function faltaTabla(error) {
 }
 
 /** Lee un valor de configuración. Devuelve `null` si no existe. */
-export async function getConfiguracion(clave) {
+async function getConfiguracion(clave) {
   const { data, error } = await supabase
     .from(TABLA)
     .select('clave, valor')
@@ -37,7 +37,7 @@ export async function getConfiguracion(clave) {
 }
 
 /** Escribe (o crea) un valor de configuración. Solo administradores por RLS. */
-export async function guardarConfiguracion(clave, valor) {
+async function guardarConfiguracion(clave, valor) {
   const { error } = await supabase
     .from(TABLA)
     .upsert(

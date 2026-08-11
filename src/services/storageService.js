@@ -10,7 +10,7 @@ import {
 const TIPOS_COMPRIMIBLES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /** ¿Supabase rechazó el archivo por tamaño (413 / payload too large)? */
-export function esErrorDeTamano(error) {
+function esErrorDeTamano(error) {
   if (!error) return false;
   const status = Number(error.statusCode ?? error.status ?? 0);
   if (status === 413) return true;
@@ -53,7 +53,7 @@ export function esIdValidoDeSupabase(id) {
    solo el Administrador las gobierna. */
 
 /** ¿La fila (archivo, foto o álbum) la subió este usuario? */
-export function esMio(fila, userId) {
+function esMio(fila, userId) {
   const autor = fila?.subido_por ?? fila?.raw?.subido_por ?? null;
   if (!autor || !userId) return false;
   return String(autor) === String(userId);
@@ -84,7 +84,7 @@ export const AVISO_SIN_PERMISO = 'fb.soloAutor';
  * PostgREST no responde 403 cuando una política filtra: devuelve cero filas.
  * Con `.single()` eso llega como PGRST116; en Storage, como un 403 explícito.
  */
-export function esFalloDePermiso(error) {
+function esFalloDePermiso(error) {
   if (!error) return false;
   const code = String(error.code || error.statusCode || error.status || '');
   const msg = String(error.message || '').toLowerCase();
@@ -354,7 +354,7 @@ export async function getArchivosProyecto(proyectoId) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /** Tipos y tamaño aceptados para imágenes subidas desde el dispositivo. */
-export const IMAGEN_MAX_MB = 5;
+const IMAGEN_MAX_MB = 5;
 const TIPOS_IMAGEN = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
 
 /** Valida una imagen antes de gastar red. Devuelve null si está bien. */
@@ -489,7 +489,7 @@ export async function getAvatarUsuario(usuarioId) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /** Un comprobante puede ser foto o PDF, y pesa más que un avatar. */
-export const COMPROBANTE_MAX_MB = 15;
+const COMPROBANTE_MAX_MB = 15;
 const TIPOS_COMPROBANTE = [...TIPOS_IMAGEN, 'application/pdf'];
 
 /** Valida el comprobante antes de gastar red. Devuelve null si está bien. */
@@ -505,9 +505,9 @@ export function validarComprobante(file) {
 }
 
 /** Mensajes de rechazo de la subida de comprobantes (P1-6). */
-export const AVISO_COMPROBANTE_SOLO_ADMIN =
+const AVISO_COMPROBANTE_SOLO_ADMIN =
   'Solo el Administrador puede adjuntar comprobantes de facturas.';
-export const AVISO_COMPROBANTE_SIN_PROYECTO =
+const AVISO_COMPROBANTE_SIN_PROYECTO =
   'El comprobante debe pertenecer a un proyecto existente en Supabase.';
 
 /** Sufijo aleatorio para que dos subidas del mismo milisegundo no colisionen. */
@@ -628,14 +628,14 @@ export async function descargarArchivo(url, nombreSugerido = 'archivo') {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /** Un adjunto de chat puede ser una foto, un PDF o un documento de oficina. */
-export const ADJUNTO_CHAT_MAX_MB = 15;
+const ADJUNTO_CHAT_MAX_MB = 15;
 
 /** Lo que acepta el selector del clip. Mismo criterio que la bóveda. */
 export const ACEPTA_ADJUNTO_CHAT =
   'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
 
 /** Valida el adjunto antes de gastar red. Devuelve null si está bien. */
-export function validarAdjuntoChat(file) {
+function validarAdjuntoChat(file) {
   if (!file) return 'No se seleccionó ningún archivo.';
   if (file.size > ADJUNTO_CHAT_MAX_MB * 1024 * 1024) {
     return `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el máximo es ${ADJUNTO_CHAT_MAX_MB} MB.`;

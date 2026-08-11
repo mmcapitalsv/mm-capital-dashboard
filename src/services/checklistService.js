@@ -36,7 +36,7 @@ function sinAcentos(str) {
 }
 
 /** "15 de junio 2025" | "2025-06-15" | Date -> "2025-06-15" (o null si no se puede). */
-export function toISODate(value) {
+function toISODate(value) {
   if (!value) return null;
   const raw = String(value).trim();
   if (!raw) return null;
@@ -58,7 +58,7 @@ export function toISODate(value) {
 }
 
 /** "2025-06-15" -> "15 de junio 2025" para mostrar en la interfaz. */
-export function fromISODate(value) {
+function fromISODate(value) {
   if (!value) return '';
   const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return String(value);
@@ -166,7 +166,7 @@ export function esIdValidoDeSupabase(id) {
   return typeof id === 'string' && RE_UUID.test(id.trim());
 }
 
-export const ERROR_ID_DEMO =
+const ERROR_ID_DEMO =
   'Este proyecto es de demostración (no existe en Supabase), por eso su ID no es un UUID. ' +
   'Ejecuta supabase/migrations/001_esquema_mmcapital.sql para crear los proyectos reales y vuelve a entrar.';
 
@@ -308,7 +308,7 @@ export async function fetchChecklist(proyectoId) {
 /* ───────────────────────────────── Escritura ──────────────────────────────── */
 
 /** Guarda el porcentaje de avance físico en la tabla `proyectos` (best-effort). */
-export async function guardarAvanceProyecto(proyectoId, porcentaje, extra = {}) {
+async function guardarAvanceProyecto(proyectoId, porcentaje, extra = {}) {
   if (!esIdValidoDeSupabase(proyectoId)) return { error: null };
 
   const payload = { porcentaje_avance: porcentaje, ...extra };
@@ -448,31 +448,4 @@ export async function saveChecklist(proyectoId, items) {
     error: null,
     source: refrescado.source
   };
-}
-
-/** Elimina permanentemente un hito de Supabase por su id. */
-export async function deleteHito(hitoId) {
-  if (hitoId === null || hitoId === undefined) return { success: true, error: null };
-  try {
-    const { error } = await supabase.from(TABLE).delete().eq('id', hitoId);
-    if (error) return { success: false, error: error.message };
-    return { success: true, error: null };
-  } catch (err) {
-    return { success: false, error: String(err?.message || err) };
-  }
-}
-
-/** Actualiza permanentemente un hito existente en Supabase. */
-export async function updateHito(hitoId, item, orden = 0, proyectoId = null) {
-  if (hitoId === null || hitoId === undefined) return { success: true, error: null };
-  try {
-    const { proyecto_id: _omit, ...patch } = toRow(item, orden, proyectoId);
-    const { error } = await runTolerant(patch, (body) =>
-      supabase.from(TABLE).update(body).eq('id', hitoId)
-    );
-    if (error) return { success: false, error: error.message };
-    return { success: true, error: null };
-  } catch (err) {
-    return { success: false, error: String(err?.message || err) };
-  }
 }

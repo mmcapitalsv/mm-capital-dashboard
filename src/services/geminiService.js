@@ -22,20 +22,14 @@ const FUNCION = 'chat-gemini';
  * Los alias `-latest` los resuelve el propio servidor de Google, así que la app
  * no se rompe cuando retiran una versión concreta (404 "model not found").
  */
-export const MODELOS = [
+const MODELOS = [
   'gemini-flash-latest',
   'gemini-2.0-flash',
   'gemini-pro-latest'
 ];
 
-export const MODELO_PRIMARIO = MODELOS[0];
-export const MODELO_RESPALDO = MODELOS[1];
-
-export const AVISO_SIN_CLAVE =
-  'La IA no está disponible: falta configurar la función chat-gemini en Supabase.';
-
 /** Tamaño máximo por adjunto: por encima, la petición inline no es viable. */
-export const ADJUNTO_MAX_MB = 15;
+const ADJUNTO_MAX_MB = 15;
 
 /**
  * ¿Está la IA disponible? Ya no depende de ninguna clave en el cliente, solo de
@@ -115,7 +109,7 @@ export async function confirmarPropuesta(propuesta) {
  * Convierte un File del navegador en la parte `inlineData` que espera Gemini.
  * `FileReader` entrega un data URL: se recorta la cabecera y queda el Base64.
  */
-export function archivoAParteInline(file) {
+function archivoAParteInline(file) {
   return new Promise((resolve, reject) => {
     if (!file) { reject(new Error('No se seleccionó ningún archivo.')); return; }
     if (file.size > ADJUNTO_MAX_MB * 1024 * 1024) {

@@ -7,7 +7,7 @@ import { supabase } from '../supabaseClient';
 
 const TABLA_REPORTES = 'reportes_soporte';
 
-export const AVISO_MIGRACION_004 =
+const AVISO_MIGRACION_004 =
   'Falta la tabla `reportes_soporte`. Ejecuta ' +
   'supabase/migrations/004_reportes_soporte.sql en el SQL Editor de Supabase.';
 
@@ -31,7 +31,7 @@ function faltaRelacionHilo(error) {
 
 /* ─────────────────────────── Credenciales (Auth) ─────────────────────────── */
 
-export const ERROR_REAUTENTICACION = 'La contraseña actual no es correcta.';
+const ERROR_REAUTENTICACION = 'La contraseña actual no es correcta.';
 
 /**
  * Re-autenticación (P0-3): ninguna credencial de Auth se toca sin demostrar
@@ -232,7 +232,7 @@ export async function eliminarReporte(id) {
 
 const TABLA_RESPUESTAS = 'reportes_respuestas';
 
-export const AVISO_MIGRACION_HILO =
+const AVISO_MIGRACION_HILO =
   'Falta la tabla `reportes_respuestas` (o `reportes_soporte`). Ejecuta ' +
   'supabase/migrations/004_reportes_soporte.sql y ' +
   'supabase/migrations/007_finanzas_reales_y_hilo_reportes.sql en el SQL Editor de Supabase.';
@@ -259,12 +259,4 @@ export async function responderReporte(reporteId, usuarioId, mensaje, esAdmin = 
   }
 
   return { success: true, respuesta: data };
-}
-
-/** Elimina una respuesta concreta del hilo (autor o administrador). */
-export async function eliminarRespuesta(id) {
-  if (!id) return { success: false, error: 'La respuesta no tiene identificador.' };
-  const { error } = await supabase.from(TABLA_RESPUESTAS).delete().eq('id', id);
-  if (error) return { success: false, error: error.message };
-  return { success: true };
 }

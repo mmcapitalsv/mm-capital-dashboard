@@ -47,16 +47,51 @@ const CUERPO_MAX_BYTES = 25 * 1024 * 1024;
 /** Vueltas máximas del ciclo modelo -> herramienta -> modelo, para no colgar la función. */
 const MAX_VUELTAS_HERRAMIENTAS = 5;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
-};
+/* ── CORS con lista blanca ──────────────────────────────────────────────────
+   `Access-Control-Allow-Origin: '*'` dejaba que cualquier página del mundo
+   llamara a la función desde el navegador de un Administrador con sesión
+   abierta. Ahora el origen se refleja SOLO si está en la lista blanca, que se
+   configura como secreto:
 
-function json(cuerpo: unknown, status = 200) {
+     npx supabase secrets set APP_ORIGINS="https://mi-app.com,https://www.mi-app.com"
+
+   Los `localhost` de desarrollo van siempre incluidos (Vite y `vite preview`).
+   Un origen no reconocido no recibe cabecera CORS: el navegador bloquea la
+   respuesta antes de que el JS ajeno pueda leerla. */
+const ORIGENES_DESARROLLO = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173'
+];
+
+const ORIGENES_PERMITIDOS = new Set([
+  ...ORIGENES_DESARROLLO,
+  ...(Deno.env.get('APP_ORIGINS') ?? '')
+    .split(',')
+    .map(o => o.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+]);
+
+function cabecerasCors(req: Request): Record<string, string> {
+  const base: Record<string, string> = {
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin'
+  };
+
+  const origen = (req.headers.get('Origin') ?? '').replace(/\/$/, '');
+  if (origen && ORIGENES_PERMITIDOS.has(origen)) {
+    base['Access-Control-Allow-Origin'] = origen;
+  }
+  return base;
+}
+
+function json(req: Request, cuerpo: unknown, status = 200) {
   return new Response(JSON.stringify(cuerpo), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    headers: { ...cabecerasCors(req), 'Content-Type': 'application/json' }
   });
 }
 
@@ -867,13 +902,25 @@ async function esAdministrador(supabase: SupabaseClient) {
 // ── Handler ────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return json({ error: 'Método no permitido.' }, 405);
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cabecerasCors(req) });
+  if (req.method !== 'POST') return json(req, { error: 'Método no permitido.' }, 405);
+
+  /* 0. Tamaño declarado, ANTES de leer nada. `await req.text()` materializa el
+        cuerpo entero en memoria: con `Content-Length` de 500 MB la función se
+        queda sin RAM antes de poder rechazar la petición. Aquí basta con leer
+        una cabecera. Un cliente puede mentir u omitirla, así que el corte de
+        verdad (sobre los bytes ya leídos) sigue estando más abajo; esto es el
+        filtro barato que evita el caso masivo y honesto. */
+  const largoDeclarado = Number(req.headers.get('content-length') ?? '');
+  if (Number.isFinite(largoDeclarado) && largoDeclarado > CUERPO_MAX_BYTES) {
+    console.warn(`[chat-gemini] 413 · content-length ${largoDeclarado} > ${CUERPO_MAX_BYTES}`);
+    return json(req, { error: 'La petición es demasiado grande.' }, 413);
+  }
 
   // 1. Autenticación: sin JWT válido no se gasta ni una llamada a Google
   const authHeader = req.headers.get('Authorization') || '';
   if (!authHeader.startsWith('Bearer ')) {
-    return json({ error: 'No autorizado.' }, 401);
+    return json(req, { error: 'No autorizado.' }, 401);
   }
 
   // El JWT del usuario viaja en cada consulta: la IA nunca escapa de su RLS.
@@ -884,7 +931,7 @@ Deno.serve(async (req: Request) => {
   );
 
   const { data: { user }, error: errorAuth } = await supabase.auth.getUser();
-  if (errorAuth || !user) return json({ error: 'No autorizado.' }, 401);
+  if (errorAuth || !user) return json(req, { error: 'No autorizado.' }, 401);
 
   /* 2. Autorización (P0.2): la IA es del Administrador y de nadie más.
         El rol NO viene del cliente: sale de `public.es_admin()`, que lo
@@ -892,13 +939,13 @@ Deno.serve(async (req: Request) => {
         Esconder el botón en la interfaz no sirve de nada frente a un curl. */
   if (!await esAdministrador(supabase)) {
     console.warn(`[chat-gemini] 403 · usuario ${user.id} sin rol de administrador`);
-    return json({ error: 'Solo el Administrador puede usar el Asistente de IA.' }, 403);
+    return json(req, { error: 'Solo el Administrador puede usar el Asistente de IA.' }, 403);
   }
 
   // 3. Cuerpo de la petición
   const bruto = await req.text();
   if (bruto.length > CUERPO_MAX_BYTES) {
-    return json({ error: 'La petición es demasiado grande.' }, 413);
+    return json(req, { error: 'La petición es demasiado grande.' }, 413);
   }
 
   let cuerpo: {
@@ -912,7 +959,7 @@ Deno.serve(async (req: Request) => {
   try {
     cuerpo = JSON.parse(bruto);
   } catch {
-    return json({ error: 'Cuerpo inválido.' }, 400);
+    return json(req, { error: 'Cuerpo inválido.' }, 400);
   }
 
   /* 4. Ruta de CONFIRMACIÓN (P0.3): aquí, y solo aquí, se escribe en la base.
@@ -923,7 +970,7 @@ Deno.serve(async (req: Request) => {
     const herramienta = texto(peticion.herramienta);
     const escritura = ESCRITURAS_CONFIRMADAS[herramienta];
 
-    if (!escritura) return json({ error: `Acción "${herramienta}" no reconocida.` }, 400);
+    if (!escritura) return json(req, { error: `Acción "${herramienta}" no reconocida.` }, 400);
 
     const args = (peticion.args && typeof peticion.args === 'object')
       ? peticion.args as Record<string, unknown>
@@ -933,20 +980,20 @@ Deno.serve(async (req: Request) => {
 
     try {
       const resultado = await escritura(supabase, args) as Record<string, unknown>;
-      if (resultado?.error) return json({ error: String(resultado.error) }, 400);
-      return json({ ok: true, mensaje: String(resultado?.mensaje ?? 'Hecho.'), resultado });
+      if (resultado?.error) return json(req, { error: String(resultado.error) }, 400);
+      return json(req, { ok: true, mensaje: String(resultado?.mensaje ?? 'Hecho.'), resultado });
     } catch (err) {
-      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      return json(req, { error: err instanceof Error ? err.message : String(err) }, 500);
     }
   }
 
   // 5. Clave de Google: solo existe en los secretos de la función
   const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) return json({ error: 'La IA no está configurada en el servidor.' }, 500);
+  if (!apiKey) return json(req, { error: 'La IA no está configurada en el servidor.' }, 500);
 
   const contents = cuerpo.contents;
   if (!Array.isArray(contents) || contents.length === 0) {
-    return json({ error: 'Falta el contenido de la conversación.' }, 400);
+    return json(req, { error: 'Falta el contenido de la conversación.' }, 400);
   }
 
   // Solo se aceptan modelos de la lista blanca: el cliente no elige rutas libres
@@ -1017,7 +1064,7 @@ Deno.serve(async (req: Request) => {
             break;
           }
 
-          return json({ texto: textoFinal, modeloUsado: nombre, herramientasUsadas, propuestas });
+          return json(req, { texto: textoFinal, modeloUsado: nombre, herramientasUsadas, propuestas });
         }
 
         // 4b. Hay functionCall: se ejecuta contra Supabase con el JWT del usuario
@@ -1072,5 +1119,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return json({ error: `La IA no respondió con ninguno de los modelos disponibles: ${ultimoError}` }, 502);
+  return json(req, { error: `La IA no respondió con ninguno de los modelos disponibles: ${ultimoError}` }, 502);
 });

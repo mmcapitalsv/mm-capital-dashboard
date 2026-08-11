@@ -17,11 +17,11 @@ export const MIEMBROS_SOCIOS = 3;
 /** Roles con acceso de lectura y escritura al canal (espejo de la RLS). */
 const ROLES_CON_ACCESO = ['admin', 'socio_administrador', 'socio_director'];
 
-export const AVISO_MIGRACION_006 =
+const AVISO_MIGRACION_006 =
   'Falta la tabla `mensajes`. Ejecuta ' +
   'supabase/migrations/006_chat_socios.sql en el SQL Editor de Supabase.';
 
-export const AVISO_MIGRACION_009 =
+const AVISO_MIGRACION_009 =
   'Falta la columna `receptor_id`. Ejecuta ' +
   'supabase/migrations/009_mensajes_directos.sql en el SQL Editor de Supabase.';
 
@@ -30,7 +30,7 @@ export const AVISO_MIGRACION_010 =
   'Ejecuta supabase/migrations/010_valor_hitos_y_chat_editable.sql en el ' +
   'SQL Editor de Supabase.';
 
-export const AVISO_MIGRACION_012 =
+const AVISO_MIGRACION_012 =
   'No se pudo enviar el archivo: faltan las columnas de adjuntos. ' +
   'Ejecuta supabase/migrations/012_adjuntos_chat.sql en el ' +
   'SQL Editor de Supabase.';
@@ -144,7 +144,7 @@ export function puedeUsarChat(rol) {
 }
 
 /** Fila de Supabase -> mensaje que pinta la interfaz. */
-export function normalizarMensaje(fila, uid) {
+function normalizarMensaje(fila, uid) {
   const fecha = new Date(fila?.created_at || Date.now());
   return {
     id: fila?.id,
@@ -179,7 +179,7 @@ export function normalizarMensaje(fila, uid) {
    Los mensajes sin adjunto —la inmensa mayoría— no cuestan ni una petición. */
 
 /** Re-firma el adjunto de UN mensaje ya normalizado. */
-export async function firmarAdjunto(mensaje) {
+async function firmarAdjunto(mensaje) {
   if (!mensaje?.adjunto?.url) return mensaje;
   const url = await firmarUrl(mensaje.adjunto.url, { bucket: BUCKET_ARCHIVOS });
   return { ...mensaje, adjunto: { ...mensaje.adjunto, url: url || mensaje.adjunto.url } };
@@ -388,7 +388,7 @@ export async function vaciarCanalSocios() {
    RLS de la migración 009 hace que solo lo vean su autor y su destinatario.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export const CANAL_DIRECTO = 'directo';
+const CANAL_DIRECTO = 'directo';
 
 /** Conversación privada completa entre `uid` y `otroId`. */
 export async function listarMensajesDirectos(uid, otroId) {
