@@ -216,11 +216,52 @@ export function useProyectos(user) {
       temporizador = setTimeout(() => { if (montado.current) fetchData(); }, 400);
     });
 
-    canal.subscribe();
+    /* ── Resincronización al (re)conectar ─────────────────────────────────
+       Realtime NO reenvía lo que ocurrió mientras el canal estuvo caído: si el
+       socket se cae —suspensión del equipo, cambio de red, pestaña en segundo
+       plano— los INSERT/UPDATE/DELETE de ese rato se pierden PARA SIEMPRE y la
+       lista en memoria se queda corta. Sobre `aportaciones` eso es exactamente
+       lo que se veía en el panel: una aportación registrada en la base que el
+       Dashboard nunca sumaba, con una cifra estancada por debajo del total real
+       hasta recargar la página a mano.
+
+       Cada vez que el canal vuelve a quedar SUBSCRIBED se releen las tablas
+       enteras. La primera alta no cuenta: ahí `fetchData()` acaba de correr. */
+    let primeraAlta = true;
+    canal.subscribe((estado) => {
+      if (estado !== 'SUBSCRIBED') return;
+      if (primeraAlta) { primeraAlta = false; return; }
+      if (montado.current) fetchData();
+    });
 
     return () => {
       clearTimeout(temporizador);
       supabase.removeChannel(canal);
+    };
+  }, [user?.id, fetchData]);
+
+  /* ── Vuelta al primer plano ────────────────────────────────────────────────
+     Misma razón que la resincronización del canal, por el otro flanco: el
+     navegador congela las pestañas de fondo y corta el socket, y al volver el
+     usuario mira cifras de dinero de hace una hora sin ninguna señal de que lo
+     son. Al recuperar visibilidad o red se releen los datos.
+
+     Es una lectura completa, no un parche: barata comparada con una suma de
+     capital equivocada. */
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const resincronizar = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (montado.current) fetchData();
+    };
+
+    document.addEventListener('visibilitychange', resincronizar);
+    window.addEventListener('online', resincronizar);
+
+    return () => {
+      document.removeEventListener('visibilitychange', resincronizar);
+      window.removeEventListener('online', resincronizar);
     };
   }, [user?.id, fetchData]);
 
