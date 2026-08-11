@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AlertTriangle, Camera, CheckCircle2, ChevronLeft, ChevronRight, Edit3, Headset,
-  Landmark, Loader2, LogOut, MessageSquare, Send, Settings, Sparkles, Trash2,
+  Loader2, LogOut, MessageSquare, Send, Settings, Sparkles, Trash2,
   Upload, UserCheck, X
 } from 'lucide-react';
 import { usePrefs } from '../context/PreferenciasContext';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useTemporizadores } from '../hooks/useTemporizadores';
 import {
-  cambiarCorreo, cambiarPassword, leerDatosBancarios, guardarDatosBancarios,
+  cambiarCorreo, cambiarPassword,
   enviarReporte, getReportes, actualizarEstadoReporte, responderReporte, eliminarReporte
 } from '../services/perfilService';
 import { subirAvatar, getAvatarUsuario, validarImagen } from '../services/storageService';
@@ -17,8 +17,8 @@ import NombreAjustado from './ui/NombreAjustado';
 import RecorteAvatar from './RecorteAvatar';
 
 /**
- * Perfil del usuario: identidad, credenciales de Auth, datos bancarios,
- * soporte y —si es Administrador— los accesos de configuración.
+ * Perfil del usuario: identidad, credenciales de Auth, soporte y
+ * —si es Administrador— los accesos de configuración.
  *
  * Vivía dentro de Dashboard.jsx y era el bloque más grande que quedaba tras
  * sacar la Bóveda. Sale entero —estados, avatar, sus seis modales y el hilo de
@@ -38,8 +38,6 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
   const [formSeguridad, setFormSeguridad] = useState({ email: '', pass: '', pass2: '', passActual: '' });
   // Doble check obligatorio antes de tocar las credenciales de Auth
   const [confirmarSeguridad, setConfirmarSeguridad] = useState(null); // 'email' | 'password' | null
-  const [modalBanco, setModalBanco] = useState(false);
-  const [formBanco, setFormBanco] = useState({ banco: '', numeroCuenta: '', tipoCuenta: 'ahorro' });
   const [modalSoporte, setModalSoporte] = useState(false);
   const [mensajeSoporte, setMensajeSoporte] = useState('');
   const [modalReportes, setModalReportes] = useState(false);
@@ -94,18 +92,6 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
       setFormSeguridad(prev => ({ ...prev, passActual: '' }));
       notificar('error', r.error);
     }
-  };
-
-  const handleGuardarBanco = async (e) => {
-    e.preventDefault();
-    setOcupadoPerfil(true);
-    setAvisoPerfil(null);
-
-    const { success, error } = await guardarDatosBancarios(formBanco);
-    setOcupadoPerfil(false);
-
-    if (success) { setModalBanco(false); notificar('exito', t('perfil.datosActualizados')); }
-    else notificar('error', error);
   };
 
   const handleEnviarReporte = async (e) => {
@@ -333,23 +319,6 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                 </div>
               </div>
               <ChevronRight size={18} className="text-slate-300 dark:text-zinc-200" />
-            </button>
-
-            {/* Datos Bancarios */}
-            <button
-              onClick={() => { setFormBanco(leerDatosBancarios(user)); setModalBanco(true); }}
-              className="w-full flex items-center justify-between px-6 md:px-8 py-5 border-b border-gray-50 dark:border-zinc-700/60 hover:bg-gray-50 dark:hover:bg-zinc-700/40 transition-colors"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 dark:bg-sky-500/10 flex items-center justify-center">
-                  <Landmark size={18} className="text-sky-500 dark:text-sky-300" />
-                </div>
-                <div className="text-left">
-                  <p className="text-base font-semibold text-slate-800 dark:text-zinc-100">{t('perfil.datosBancarios')}</p>
-                  <p className="text-xs text-slate-400 dark:text-zinc-200">{t('perfil.datosBancariosDesc')}</p>
-                </div>
-              </div>
-              <ChevronRight size={18} className="text-slate-300 dark:text-zinc-300 flex-shrink-0" />
             </button>
 
             {/* Soporte Ejecutivo */}
@@ -678,58 +647,6 @@ function ProfileView({ user, onLogout, onBack, isAdmin, onNavigate, avatarUrl, s
                 {t('perfil.confirmarSi')}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal: datos bancarios (user_metadata) ── */}
-      {modalBanco && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-700">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-zinc-700">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Landmark size={18} className="text-mm-2" /> {t('perfil.datosBancarios')}
-              </h3>
-              <button onClick={() => setModalBanco(false)} className="text-slate-400 dark:text-zinc-200 hover:text-slate-700 dark:hover:text-white"><X size={18} /></button>
-            </div>
-
-            <form onSubmit={handleGuardarBanco} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.banco')}</label>
-                <input
-                  type="text" required placeholder={t('perfil.bancoPh')} value={formBanco.banco}
-                  onChange={(e) => setFormBanco({ ...formBanco, banco: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.numeroCuenta')}</label>
-                <input
-                  type="text" required inputMode="numeric" value={formBanco.numeroCuenta}
-                  onChange={(e) => setFormBanco({ ...formBanco, numeroCuenta: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase">{t('perfil.tipoCuenta')}</label>
-                <select
-                  value={formBanco.tipoCuenta}
-                  onChange={(e) => setFormBanco({ ...formBanco, tipoCuenta: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-zinc-100 focus:outline-none focus:border-mm-oro cursor-pointer"
-                >
-                  <option value="ahorro">{t('perfil.cuentaAhorro')}</option>
-                  <option value="corriente">{t('perfil.cuentaCorriente')}</option>
-                </select>
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setModalBanco(false)} className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl">{t('comun.cancelar')}</button>
-                <button type="submit" disabled={ocupadoPerfil} className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm disabled:opacity-50">
-                  {ocupadoPerfil && <Loader2 size={14} className="animate-spin text-mm-3" />}
-                  {t('comun.guardar')}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
