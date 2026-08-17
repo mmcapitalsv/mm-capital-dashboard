@@ -254,6 +254,99 @@ const DECLARACIONES_HERRAMIENTAS = [
       },
       required: ['proyecto']
     }
+  },
+  {
+    name: 'editar_checklist',
+    description:
+      'PREPARA cambios en el checklist de obra de un proyecto: agregar hitos nuevos, renombrarlos, ' +
+      'cambiar su detalle, su fecha límite o su valor en dólares, marcarlos como hechos o como ' +
+      'pendientes, moverlos de posición y eliminarlos. Admite varias operaciones en una sola ' +
+      'llamada y se aplican en el orden en que las mandes. No modifica nada por sí sola: devuelve ' +
+      'una propuesta que el usuario tiene que confirmar con un botón en la app. Nunca afirmes que ' +
+      'el checklist quedó cambiado después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto.' },
+        operaciones: {
+          type: 'ARRAY',
+          description: 'Lista de cambios a aplicar sobre el checklist.',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              accion: {
+                type: 'STRING',
+                description:
+                  'Qué hacer: "agregar" (hito nuevo), "actualizar" (cambiar título, detalle, fecha o ' +
+                  'valor), "eliminar", "completar" (marcarlo hecho), "pendiente" (desmarcarlo) o ' +
+                  '"mover" (cambiar su posición en la lista).'
+              },
+              hito: {
+                type: 'STRING',
+                description:
+                  'Título (o parte del título) del hito existente sobre el que actúa la operación. ' +
+                  'También admite su número de posición. No se usa con "agregar".'
+              },
+              titulo: {
+                type: 'STRING',
+                description:
+                  'Título del hito nuevo (con "agregar") o título nuevo del hito (con "actualizar").'
+              },
+              detalle: { type: 'STRING', description: 'Descripción o nota del hito.' },
+              fecha: { type: 'STRING', description: 'Fecha límite del hito en formato AAAA-MM-DD.' },
+              valor: {
+                type: 'NUMBER',
+                description: 'Dinero en dólares (USD) que este hito aporta al costo ejecutado al marcarse hecho.'
+              },
+              posicion: {
+                type: 'NUMBER',
+                description: 'Posición del hito en la lista, empezando en 1. Con "agregar" indica dónde insertarlo.'
+              }
+            },
+            required: ['accion']
+          }
+        }
+      },
+      required: ['proyecto', 'operaciones']
+    }
+  },
+  {
+    name: 'reemplazar_checklist',
+    description:
+      'PREPARA la reestructuración COMPLETA del checklist de obra de un proyecto: la lista que ' +
+      'mandes pasa a ser el checklist entero, en ese orden. Los hitos actuales que no aparezcan en ' +
+      'la lista se ELIMINAN. Úsala cuando el usuario te dé un cronograma nuevo completo (por ' +
+      'ejemplo por fases); para retoques sueltos usa "editar_checklist". No modifica nada por sí ' +
+      'sola: devuelve una propuesta que el usuario tiene que confirmar con un botón en la app. ' +
+      'Nunca afirmes que el checklist quedó cambiado después de llamarla.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        proyecto: { type: 'STRING', description: 'Nombre (o parte del nombre) del proyecto.' },
+        hitos: {
+          type: 'ARRAY',
+          description: 'Checklist completo y definitivo, en el orden en que debe quedar.',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              titulo: { type: 'STRING', description: 'Título del hito.' },
+              detalle: { type: 'STRING', description: 'Descripción o nota del hito.' },
+              fecha: { type: 'STRING', description: 'Fecha límite en formato AAAA-MM-DD.' },
+              valor: { type: 'NUMBER', description: 'Dinero en dólares (USD) asociado al hito.' },
+              completado: { type: 'BOOLEAN', description: 'Verdadero si el hito ya está hecho.' }
+            },
+            required: ['titulo']
+          }
+        },
+        conservar_estado: {
+          type: 'BOOLEAN',
+          description:
+            'Si es verdadero (por defecto), los hitos cuyo título coincida con uno actual conservan ' +
+            'si estaban marcados como hechos y su fecha, en vez de reiniciarse.'
+        }
+      },
+      required: ['proyecto', 'hitos']
+    }
   }
 ];
 
@@ -1126,6 +1219,511 @@ async function ejecutarModificarFechasChecklist(supabase: SupabaseClient, args: 
   };
 }
 
+/* ── Checklist: crear, editar, reordenar y eliminar hitos ─────────────────────
+   Mismo contrato que el resto de escrituras: la mitad de arriba arma un PLAN
+   cerrado (qué filas se crean, cuáles cambian y cuáles se borran) y la de abajo
+   lo aplica cuando el Administrador pulsa Confirmar. El plan viaja entero en la
+   propuesta: al confirmar no se vuelve a buscar ningún hito «por parecido», se
+   escriben exactamente las filas que se le enseñaron al usuario. */
+
+/** Columnas que un esquema viejo puede no tener todavía: si la base las
+    rechaza, se reintenta sin ellas en vez de perder el guardado entero. */
+const COLUMNAS_OPCIONALES_HITO = ['descripcion', 'fecha_texto', 'valor_asociado', 'fecha_vencimiento', 'orden'];
+
+type ResultadoEscritura = { error: { message: string } | null };
+
+async function escribirHitoTolerante(
+  fila: Record<string, unknown>,
+  ejecutar: (cuerpo: Record<string, unknown>) => Promise<ResultadoEscritura>
+): Promise<ResultadoEscritura> {
+  let cuerpo = { ...fila };
+
+  for (let intento = 0; intento <= COLUMNAS_OPCIONALES_HITO.length; intento++) {
+    const resultado = await ejecutar(cuerpo);
+    if (!resultado.error) return resultado;
+
+    const mensaje = resultado.error.message ?? '';
+    if (!/column|schema cache/i.test(mensaje)) return resultado;
+
+    const mala = COLUMNAS_OPCIONALES_HITO.find(c => c in cuerpo && mensaje.includes(c));
+    if (!mala) return resultado;
+
+    console.warn(`[chat-gemini] la columna "${mala}" no existe en checklist_hitos; se omite.`);
+    const { [mala]: _fuera, ...resto } = cuerpo;
+    cuerpo = resto;
+  }
+
+  return { error: { message: 'No se pudo escribir el hito con el esquema actual.' } };
+}
+
+function normalizarTexto(valor: unknown): string {
+  // Rango de tildes combinantes en escapes explícitos: "Cimentación" y
+  // "cimentacion" tienen que casar aunque el usuario escriba sin acentos.
+  return texto(valor).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+type HitoTrabajo = {
+  id: string | null;
+  titulo: string;
+  descripcion: string;
+  completado: boolean;
+  fechaISO: string | null;
+  valor: number;
+  orden: number;
+};
+
+/** Lee el checklist completo como lista de trabajo en memoria. */
+async function cargarHitosDeTrabajo(
+  supabase: SupabaseClient,
+  proyectoId: string
+): Promise<{ error?: string; lista?: HitoTrabajo[] }> {
+  const { data, error } = await supabase
+    .from('checklist_hitos')
+    .select('*')
+    .eq('proyecto_id', proyectoId);
+
+  if (error) return { error: `No se pudo leer el checklist: ${error.message}` };
+
+  const filas = (data ?? []) as Array<Record<string, unknown>>;
+  const lista = filas
+    .map((fila, i) => ({
+      id: texto(fila.id),
+      titulo: texto(fila.titulo) || 'Hito sin título',
+      descripcion: texto(fila.descripcion),
+      completado: fila.completado === true,
+      fechaISO: aFechaISO(fila.fecha_vencimiento) ?? aFechaISO(fila.fecha_texto),
+      valor: aNumero(fila.valor_asociado),
+      orden: Number.isFinite(Number(fila.orden)) ? Number(fila.orden) : i
+    }))
+    .sort((a, b) => a.orden - b.orden)
+    .map((h, i) => ({ ...h, orden: i }));
+
+  return { lista };
+}
+
+/**
+ * Encuentra el hito al que se refiere una operación.
+ * La ambigüedad NUNCA se resuelve sola: si el texto encaja con varios, se le
+ * devuelve el problema a la IA para que pregunte, igual que con los proyectos.
+ */
+function localizarHito(lista: HitoTrabajo[], filtro: string): { indice?: number; error?: string } {
+  const buscado = normalizarTexto(filtro);
+  if (!buscado) return { error: 'La operación no indica sobre qué hito actuar.' };
+
+  // Referencia por número de posición ("el 3"), tal como los ve el usuario.
+  if (/^\d+$/.test(buscado)) {
+    const pos = Number(buscado) - 1;
+    if (pos >= 0 && pos < lista.length) return { indice: pos };
+  }
+
+  const exactos = lista
+    .map((h, i) => ({ h, i }))
+    .filter(({ h }) => normalizarTexto(h.titulo) === buscado);
+  if (exactos.length === 1) return { indice: exactos[0].i };
+  if (exactos.length > 1) return { error: `Hay varios hitos titulados "${filtro}"; usa su número de posición.` };
+
+  const parciales = lista
+    .map((h, i) => ({ h, i }))
+    .filter(({ h }) => normalizarTexto(h.titulo).includes(buscado));
+
+  if (parciales.length === 0) return { error: `No hay ningún hito que coincida con "${filtro}".` };
+  if (parciales.length > 1) {
+    return {
+      error:
+        `Hay ${parciales.length} hitos que coinciden con "${filtro}" ` +
+        `(${parciales.map(p => `"${p.h.titulo}"`).join(', ')}); pídele al usuario que concrete cuál.`
+    };
+  }
+  return { indice: parciales[0].i };
+}
+
+/** Inserta en la posición pedida (1 = primero); sin posición, al final. */
+function insertarEn(lista: HitoTrabajo[], hito: HitoTrabajo, posicion: unknown) {
+  const pedida = aNumero(posicion);
+  if (pedida >= 1) {
+    lista.splice(Math.min(Math.round(pedida) - 1, lista.length), 0, hito);
+  } else {
+    lista.push(hito);
+  }
+}
+
+function hitoNuevo(datos: Record<string, unknown>): { error?: string; hito?: HitoTrabajo } {
+  const titulo = texto(datos.titulo) || texto(datos.hito);
+  if (!titulo) return { error: 'Un hito nuevo necesita título.' };
+
+  return {
+    hito: {
+      id: null,
+      titulo,
+      descripcion: texto(datos.detalle ?? datos.descripcion),
+      completado: datos.completado === true,
+      fechaISO: aFechaISO(datos.fecha),
+      valor: Math.max(0, aNumero(datos.valor)),
+      orden: 0
+    }
+  };
+}
+
+/** Aplica las operaciones de la IA sobre la lista en memoria. */
+function aplicarOperaciones(
+  lista: HitoTrabajo[],
+  operaciones: Array<Record<string, unknown>>
+): { error?: string } {
+  for (const op of operaciones) {
+    const accion = normalizarTexto(op.accion);
+
+    if (accion === 'agregar' || accion === 'crear' || accion === 'nuevo') {
+      const nuevo = hitoNuevo(op);
+      if (nuevo.error) return { error: nuevo.error };
+      insertarEn(lista, nuevo.hito!, op.posicion);
+      continue;
+    }
+
+    const encontrado = localizarHito(lista, texto(op.hito) || texto(op.titulo));
+    if (encontrado.error) return { error: encontrado.error };
+    const indice = encontrado.indice!;
+
+    if (accion === 'eliminar' || accion === 'borrar' || accion === 'quitar') {
+      lista.splice(indice, 1);
+      continue;
+    }
+
+    if (accion === 'completar' || accion === 'marcar' || accion === 'hecho') {
+      lista[indice] = { ...lista[indice], completado: true };
+      continue;
+    }
+
+    if (accion === 'pendiente' || accion === 'desmarcar') {
+      lista[indice] = { ...lista[indice], completado: false };
+      continue;
+    }
+
+    if (accion === 'mover' || accion === 'reordenar') {
+      const destino = aNumero(op.posicion);
+      if (destino < 1) return { error: 'Para mover un hito hay que indicar su nueva posición (1 = primero).' };
+      const [hito] = lista.splice(indice, 1);
+      lista.splice(Math.min(Math.round(destino) - 1, lista.length), 0, hito);
+      continue;
+    }
+
+    if (accion === 'actualizar' || accion === 'renombrar' || accion === 'modificar' || accion === 'editar') {
+      const actual = lista[indice];
+      const nuevoTitulo = texto(op.titulo ?? op.nuevo_titulo);
+      const cambiado: HitoTrabajo = {
+        ...actual,
+        titulo: nuevoTitulo || actual.titulo,
+        descripcion: op.detalle !== undefined ? texto(op.detalle) : actual.descripcion,
+        fechaISO: op.fecha !== undefined ? aFechaISO(op.fecha) : actual.fechaISO,
+        valor: op.valor !== undefined ? Math.max(0, aNumero(op.valor)) : actual.valor,
+        completado: typeof op.completado === 'boolean' ? op.completado : actual.completado
+      };
+
+      if (
+        cambiado.titulo === actual.titulo && cambiado.descripcion === actual.descripcion &&
+        cambiado.fechaISO === actual.fechaISO && cambiado.valor === actual.valor &&
+        cambiado.completado === actual.completado && aNumero(op.posicion) < 1
+      ) {
+        return { error: `La operación sobre "${actual.titulo}" no indica ningún cambio.` };
+      }
+
+      lista[indice] = cambiado;
+
+      const destino = aNumero(op.posicion);
+      if (destino >= 1) {
+        const [hito] = lista.splice(indice, 1);
+        lista.splice(Math.min(Math.round(destino) - 1, lista.length), 0, hito);
+      }
+      continue;
+    }
+
+    return {
+      error:
+        `Acción "${texto(op.accion)}" no reconocida. Usa: agregar, actualizar, eliminar, ` +
+        'completar, pendiente o mover.'
+    };
+  }
+
+  return {};
+}
+
+type PlanChecklist = {
+  crear: Array<Record<string, unknown>>;
+  actualizar: Array<Record<string, unknown>>;
+  eliminar: Array<{ id: string; titulo: string }>;
+};
+
+/** Fila lista para la base a partir de un hito de trabajo. */
+function filaDeHito(hito: HitoTrabajo, orden: number): Record<string, unknown> {
+  return {
+    titulo: hito.titulo,
+    descripcion: hito.descripcion,
+    completado: hito.completado,
+    fecha_vencimiento: hito.fechaISO,
+    fecha_texto: hito.fechaISO ? fechaLegible(hito.fechaISO) : '',
+    valor_asociado: hito.valor,
+    orden
+  };
+}
+
+/** Compara la lista final con la original y arma el plan + el detalle legible. */
+function planYDetalle(originales: HitoTrabajo[], finales: HitoTrabajo[]) {
+  const porId = new Map(originales.map(h => [h.id as string, h]));
+  const plan: PlanChecklist = { crear: [], actualizar: [], eliminar: [] };
+  const detalle: Array<{ etiqueta: string; valor: string }> = [];
+
+  const vivos = new Set<string>();
+
+  finales.forEach((hito, orden) => {
+    if (!hito.id) {
+      plan.crear.push(filaDeHito(hito, orden));
+      detalle.push({
+        etiqueta: `Nuevo · ${orden + 1}`,
+        valor: hito.titulo + (hito.fechaISO ? ` · ${fechaLegible(hito.fechaISO)}` : '') +
+          (hito.valor > 0 ? ` · ${formatoUSD(hito.valor)}` : '')
+      });
+      return;
+    }
+
+    vivos.add(hito.id);
+    const antes = porId.get(hito.id);
+    if (!antes) return;
+
+    const cambios: string[] = [];
+    if (antes.titulo !== hito.titulo) cambios.push(`título → "${hito.titulo}"`);
+    if (antes.descripcion !== hito.descripcion) cambios.push('detalle actualizado');
+    if (antes.completado !== hito.completado) cambios.push(hito.completado ? 'marcado como hecho' : 'marcado como pendiente');
+    if (antes.fechaISO !== hito.fechaISO) {
+      cambios.push(`fecha → ${hito.fechaISO ? fechaLegible(hito.fechaISO) : 'sin fecha'}`);
+    }
+    if (antes.valor !== hito.valor) cambios.push(`valor → ${formatoUSD(hito.valor)}`);
+    if (antes.orden !== orden) cambios.push(`posición → ${orden + 1}`);
+
+    if (cambios.length === 0) return;
+
+    plan.actualizar.push({ id: hito.id, ...filaDeHito(hito, orden) });
+    detalle.push({ etiqueta: `Cambia · ${antes.titulo}`, valor: cambios.join(', ') });
+  });
+
+  for (const antes of originales) {
+    if (antes.id && !vivos.has(antes.id)) {
+      plan.eliminar.push({ id: antes.id, titulo: antes.titulo });
+      detalle.push({ etiqueta: 'Elimina', valor: antes.titulo });
+    }
+  }
+
+  return { plan, detalle };
+}
+
+async function proponerCambioChecklist(
+  supabase: SupabaseClient,
+  args: Record<string, unknown>,
+  construir: (lista: HitoTrabajo[]) => { error?: string; finales?: HitoTrabajo[] }
+) {
+  const resuelto = await resolverProyectoUnico(supabase, texto(args.proyecto));
+  if (resuelto.error) return resuelto;
+  const proyecto = resuelto.proyecto!;
+
+  const carga = await cargarHitosDeTrabajo(supabase, proyecto.id);
+  if (carga.error) return { error: carga.error };
+  const originales = carga.lista!;
+
+  const construido = construir(originales.map(h => ({ ...h })));
+  if (construido.error) return { error: construido.error };
+  const finales = construido.finales!;
+
+  if (finales.length > MAX_HITOS_POR_PROPUESTA) {
+    return {
+      error:
+        `El checklist quedaría con ${finales.length} hitos y el máximo por operación es ` +
+        `${MAX_HITOS_POR_PROPUESTA}. Pídele al usuario que lo divida en dos tandas.`
+    };
+  }
+
+  const { plan, detalle } = planYDetalle(originales, finales);
+  const total = plan.crear.length + plan.actualizar.length + plan.eliminar.length;
+  if (total === 0) return { error: 'El checklist ya está tal como lo pides: no hay nada que cambiar.' };
+  if (total > MAX_HITOS_POR_PROPUESTA) {
+    return { error: `La propuesta toca ${total} hitos y el máximo por operación es ${MAX_HITOS_POR_PROPUESTA}.` };
+  }
+
+  const partes = [
+    plan.crear.length ? `${plan.crear.length} nuevo${plan.crear.length === 1 ? '' : 's'}` : '',
+    plan.actualizar.length ? `${plan.actualizar.length} modificado${plan.actualizar.length === 1 ? '' : 's'}` : '',
+    plan.eliminar.length ? `${plan.eliminar.length} eliminado${plan.eliminar.length === 1 ? '' : 's'}` : ''
+  ].filter(Boolean);
+
+  const hechos = finales.filter(h => h.completado).length;
+  const avance = finales.length > 0 ? Math.round((hechos / finales.length) * 100) : 0;
+
+  return {
+    propuesta: {
+      herramienta: 'editar_checklist',
+      titulo: 'Modificar checklist de obra',
+      // Borrar hitos sí es irreversible: la tarjeta se pinta en rojo.
+      peligro: plan.eliminar.length > 0,
+      resumen:
+        `Actualizar el checklist de "${proyecto.nombre}": ${partes.join(', ')}. ` +
+        `La lista quedará con ${finales.length} hito${finales.length === 1 ? '' : 's'} y un avance del ${avance}%.`,
+      detalle: [
+        { etiqueta: 'Proyecto', valor: texto(proyecto.nombre) },
+        ...detalle
+      ],
+      args: { proyecto_id: proyecto.id, proyecto: proyecto.nombre, plan, avance }
+    }
+  };
+}
+
+async function proponerEditarChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const operaciones = Array.isArray(args.operaciones)
+    ? (args.operaciones as Array<Record<string, unknown>>).filter(o => o && typeof o === 'object')
+    : [];
+
+  if (operaciones.length === 0) {
+    return { error: 'No se indicó ninguna operación sobre el checklist.' };
+  }
+  if (operaciones.length > MAX_HITOS_POR_PROPUESTA) {
+    return { error: `Son ${operaciones.length} operaciones y el máximo por propuesta es ${MAX_HITOS_POR_PROPUESTA}.` };
+  }
+
+  return await proponerCambioChecklist(supabase, args, (lista) => {
+    const aplicado = aplicarOperaciones(lista, operaciones);
+    if (aplicado.error) return { error: aplicado.error };
+    return { finales: lista };
+  });
+}
+
+async function proponerReemplazarChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const entrada = Array.isArray(args.hitos)
+    ? (args.hitos as Array<Record<string, unknown>>).filter(h => h && typeof h === 'object')
+    : [];
+
+  if (entrada.length === 0) return { error: 'La lista de hitos viene vacía: no se propuso nada.' };
+
+  const conservar = args.conservar_estado !== false;
+
+  return await proponerCambioChecklist(supabase, args, (lista) => {
+    /* Cada título de la lista nueva se intenta casar con un hito existente:
+       así renombrar el cronograma no borra el historial de lo ya ejecutado ni
+       reinicia el avance. Un título solo se reutiliza una vez. */
+    const disponibles = lista.map((h, i) => ({ h, i, usado: false }));
+    const finales: HitoTrabajo[] = [];
+
+    for (const bruto of entrada) {
+      const nuevo = hitoNuevo(bruto);
+      if (nuevo.error) return { error: nuevo.error };
+      const hito = nuevo.hito!;
+
+      const clave = normalizarTexto(hito.titulo);
+      const gemelo = disponibles.find(d => !d.usado && normalizarTexto(d.h.titulo) === clave);
+
+      if (gemelo) {
+        gemelo.usado = true;
+        finales.push({
+          ...hito,
+          id: gemelo.h.id,
+          completado: conservar && typeof bruto.completado !== 'boolean' ? gemelo.h.completado : hito.completado,
+          fechaISO: hito.fechaISO ?? (conservar ? gemelo.h.fechaISO : null),
+          valor: hito.valor > 0 ? hito.valor : (conservar ? gemelo.h.valor : 0),
+          descripcion: hito.descripcion || (conservar ? gemelo.h.descripcion : '')
+        });
+      } else {
+        finales.push(hito);
+      }
+    }
+
+    return { finales };
+  });
+}
+
+async function ejecutarEditarChecklist(supabase: SupabaseClient, args: Record<string, unknown>) {
+  const proyectoId = texto(args.proyecto_id);
+  if (!proyectoId) return { error: 'La propuesta no identifica el proyecto.' };
+
+  const bruto = (args.plan && typeof args.plan === 'object') ? args.plan as Record<string, unknown> : {};
+  const listaDe = (v: unknown) =>
+    (Array.isArray(v) ? v : []).filter(x => x && typeof x === 'object') as Array<Record<string, unknown>>;
+
+  /* Todo se vuelve a sanear aunque venga de la propuesta: solo columnas
+     conocidas, y el `proyecto_id` lo pone el servidor, nunca el cuerpo. */
+  const saneada = (fila: Record<string, unknown>) => ({
+    titulo: texto(fila.titulo) || 'Hito sin título',
+    descripcion: texto(fila.descripcion),
+    completado: fila.completado === true,
+    fecha_vencimiento: aFechaISO(fila.fecha_vencimiento),
+    fecha_texto: texto(fila.fecha_texto),
+    valor_asociado: Math.max(0, aNumero(fila.valor_asociado)),
+    orden: Math.max(0, Math.round(aNumero(fila.orden)))
+  });
+
+  const crear = listaDe(bruto.crear).map(saneada);
+  const actualizar = listaDe(bruto.actualizar)
+    .map(f => ({ id: texto(f.id), campos: saneada(f) }))
+    .filter(f => Boolean(f.id));
+  const eliminar = listaDe(bruto.eliminar).map(f => texto(f.id)).filter(Boolean);
+
+  const total = crear.length + actualizar.length + eliminar.length;
+  if (total === 0) return { error: 'La propuesta no contiene ningún cambio válido.' };
+  if (total > MAX_HITOS_POR_PROPUESTA) {
+    return { error: `La propuesta excede el máximo de ${MAX_HITOS_POR_PROPUESTA} hitos.` };
+  }
+
+  // `proyecto_id` va SIEMPRE en el WHERE: una propuesta manipulada no puede
+  // tocar hitos de otro proyecto.
+  for (const id of eliminar) {
+    const { error } = await supabase
+      .from('checklist_hitos').delete().eq('id', id).eq('proyecto_id', proyectoId);
+    if (error) return { error: `No se pudieron eliminar los hitos: ${error.message}` };
+  }
+
+  for (const fila of actualizar) {
+    const { error } = await escribirHitoTolerante(fila.campos, async (cuerpo) =>
+      await supabase.from('checklist_hitos').update(cuerpo).eq('id', fila.id).eq('proyecto_id', proyectoId)
+    );
+    if (error) {
+      return {
+        error:
+          `No se pudo actualizar el checklist: ${error.message}. Es posible que solo el ` +
+          'Administrador tenga permiso para modificarlo.'
+      };
+    }
+  }
+
+  for (const fila of crear) {
+    const { error } = await escribirHitoTolerante(fila, async (cuerpo) =>
+      await supabase.from('checklist_hitos').insert([{ ...cuerpo, proyecto_id: proyectoId }])
+    );
+    if (error) {
+      return {
+        error:
+          `No se pudieron agregar los hitos: ${error.message}. Es posible que solo el ` +
+          'Administrador tenga permiso para modificar el checklist.'
+      };
+    }
+  }
+
+  /* El avance del proyecto se recalcula desde lo que quedó guardado, no desde
+     el número que traía la propuesta: es la misma cifra que pinta la app. */
+  const { data: quedaron } = await supabase
+    .from('checklist_hitos').select('completado').eq('proyecto_id', proyectoId);
+
+  const filas = quedaron ?? [];
+  const hechos = filas.filter(f => f.completado === true).length;
+  const avance = filas.length > 0 ? Math.round((hechos / filas.length) * 100) : 0;
+
+  const { error: errorAvance } = await supabase
+    .from('proyectos').update({ porcentaje_avance: avance }).eq('id', proyectoId);
+  if (errorAvance) console.warn('[chat-gemini] no se pudo actualizar el avance:', errorAvance.message);
+
+  return {
+    ok: true,
+    mensaje:
+      `Checklist actualizado: ${crear.length} hito(s) nuevo(s), ${actualizar.length} modificado(s) ` +
+      `y ${eliminar.length} eliminado(s). El proyecto queda con ${filas.length} hitos y un ${avance}% de avance.`,
+    avance,
+    hitos_totales: filas.length
+  };
+}
+
 type Herramienta = (s: SupabaseClient, a: Record<string, unknown>) => Promise<unknown>;
 
 /** Lo que el modelo puede disparar por su cuenta: solo lectura y propuestas. */
@@ -1137,7 +1735,9 @@ const HERRAMIENTAS_DEL_MODELO: Record<string, Herramienta> = {
   eliminar_proyecto: proponerEliminarProyecto,
   eliminar_gasto: proponerEliminarGasto,
   consultar_checklist: consultarChecklist,
-  modificar_fechas_checklist: proponerModificarFechasChecklist
+  modificar_fechas_checklist: proponerModificarFechasChecklist,
+  editar_checklist: proponerEditarChecklist,
+  reemplazar_checklist: proponerReemplazarChecklist
 };
 
 /** Lo que escribe de verdad. Solo se alcanza por la ruta `confirmar`. */
@@ -1147,7 +1747,11 @@ const ESCRITURAS_CONFIRMADAS: Record<string, Herramienta> = {
   actualizar_proyecto: ejecutarActualizarProyecto,
   eliminar_proyecto: ejecutarEliminarProyecto,
   eliminar_gasto: ejecutarEliminarGasto,
-  modificar_fechas_checklist: ejecutarModificarFechasChecklist
+  modificar_fechas_checklist: ejecutarModificarFechasChecklist,
+  // Las dos herramientas de checklist proponen el MISMO plan cerrado, así que
+  // comparten ejecutor: reemplazar es editar con la lista entera de golpe.
+  editar_checklist: ejecutarEditarChecklist,
+  reemplazar_checklist: ejecutarEditarChecklist
 };
 
 async function ejecutarHerramienta(supabase: SupabaseClient, nombre: string, args: Record<string, unknown>) {

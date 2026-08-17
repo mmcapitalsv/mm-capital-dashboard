@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  AlertTriangle, Check, ChevronLeft, Download, FileText, Loader2, Lock,
+  AlertTriangle, Check, ChevronLeft, Copy, Download, FileText, Loader2, Lock,
   MessageSquare, Paperclip, Pencil, Send, Trash2, User, Users, X
 } from 'lucide-react';
 import { usePrefs } from '../context/usePrefs';
@@ -61,6 +61,23 @@ export default function ChatModule({ onBack, isEditMode }) {
   const finRef = useRef(null);
   const composerRef = useRef(null);
   const clipRef = useRef(null);
+
+  /* Copiar al portapapeles: se marca el mensaje copiado dos segundos para que
+     el toque tenga respuesta visible (en el teléfono no hay cursor que lo
+     confirme). El temporizador se guarda para poder cancelarlo. */
+  const [copiadoId, setCopiadoId] = useState(null);
+  const copiaTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(copiaTimerRef.current), []);
+
+  const copiarMensaje = async (m) => {
+    try {
+      await navigator.clipboard.writeText(String(m?.texto || m?.adjunto?.url || ''));
+      setCopiadoId(m?.id ?? null);
+      clearTimeout(copiaTimerRef.current);
+      copiaTimerRef.current = setTimeout(() => setCopiadoId(null), 2000);
+    } catch { /* portapapeles bloqueado por el navegador: no hay nada que hacer */ }
+  };
 
   const enDirectos = pestana === 'directos';
 
@@ -499,15 +516,29 @@ export default function ChatModule({ onBack, isEditMode }) {
                         />
                       )}
 
-                      {/* Lápiz: SOLO en las burbujas propias (nadie reescribe lo
-                          que dijo otro). Basurero: el dueño O el Administrador,
-                          que modera el canal. Discretos (aparecen al pasar el
+                      {/* Copiar: en CUALQUIER burbuja, propia o ajena. Lápiz:
+                          SOLO en las propias (nadie reescribe lo que dijo
+                          otro). Basurero: el dueño O el Administrador, que
+                          modera el canal. Discretos (aparecen al pasar el
                           cursor) pero siempre visibles en táctil, donde no
                           existe el hover. */}
-                      {(m.propio || esAdmin) && !enEdicion && (
+                      {!enEdicion && (
                         <div className={`flex items-center gap-1 mb-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ${
                           m.propio ? '' : 'order-last'
                         }`}>
+                          {(m.texto || m.adjunto) && (
+                            <button
+                              type="button"
+                              onClick={() => copiarMensaje(m)}
+                              title={t('comun.copiar')}
+                              aria-label={t('comun.copiar')}
+                              className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-mm-oro hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors active:scale-90"
+                            >
+                              {String(copiadoId) === String(m.id)
+                                ? <Check size={14} className="text-emerald-500" />
+                                : <Copy size={14} />}
+                            </button>
+                          )}
                           {m.propio && (
                             <button
                               type="button"
@@ -519,15 +550,17 @@ export default function ChatModule({ onBack, isEditMode }) {
                               <Pencil size={14} />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => borrarMensaje(m)}
-                            title={t('chat.eliminarMensaje')}
-                            aria-label={t('chat.eliminarMensaje')}
-                            className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors active:scale-90"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {(m.propio || esAdmin) && (
+                            <button
+                              type="button"
+                              onClick={() => borrarMensaje(m)}
+                              title={t('chat.eliminarMensaje')}
+                              aria-label={t('chat.eliminarMensaje')}
+                              className="p-1.5 rounded-full text-slate-400 dark:text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors active:scale-90"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       )}
 

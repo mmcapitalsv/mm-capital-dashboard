@@ -331,7 +331,11 @@ function AIChatView({ onBack }) {
                 type="button"
                 onClick={() => copiarMensaje(textoMsg, idx)}
                 title={t('comun.copiar')}
-                className={`absolute top-2.5 right-2.5 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all active:scale-95 ${
+                aria-label={t('comun.copiar')}
+                /* Visible SIEMPRE en táctil (`opacity-100`) y discreto solo a
+                   partir de `md`, donde sí existe el cursor: en el teléfono no
+                   hay hover, así que el icono oculto era un icono inexistente. */
+                className={`absolute top-2.5 right-2.5 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-all active:scale-95 ${
                   m.sender === 'user'
                     ? 'text-white/60 hover:text-white hover:bg-white/15'
                     : 'text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-700'
