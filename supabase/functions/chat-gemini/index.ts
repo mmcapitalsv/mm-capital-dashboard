@@ -1931,6 +1931,10 @@ Deno.serve(async (req: Request) => {
 
         if (!respuesta.ok) {
           const detalle = await respuesta.text();
+          /* 429 = cuota o ritmo excedido. Aquí NO se sigue con el resto de la
+             cascada: reintentar con otro modelo en el mismo segundo dispara
+             otra petición con los mismos adjuntos a cuestas y agota más cuota
+             para acabar en el mismo 429. Se corta y se avisa. */
           if (respuesta.status === 429) cuotaAgotada = true;
           ultimoError = `${nombre}: ${respuesta.status} ${detalle.slice(0, 300)}`;
           console.warn(`[chat-gemini] ${ultimoError}`);
@@ -2004,6 +2008,7 @@ Deno.serve(async (req: Request) => {
         historial.push({ role: 'user', parts: respuestasHerramientas });
       }
 
+      if (cuotaAgotada) break;
       if (falloModelo) continue;
 
       ultimoError = `${nombre}: se agotaron las ${MAX_VUELTAS_HERRAMIENTAS} vueltas de herramientas sin respuesta final`;

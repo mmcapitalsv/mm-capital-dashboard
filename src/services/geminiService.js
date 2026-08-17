@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { miniaturaDeImagen } from '../lib/archivos';
 
 /**
  * Integración con Gemini a través de la Edge Function `chat-gemini`.
@@ -109,10 +110,20 @@ export async function confirmarPropuesta(propuesta) {
 }
 
 /**
+ * Lado máximo (px) de una imagen antes de mandarla al modelo.
+ *
+ * Una captura de pantalla de un teléfono son varios MB de PNG, y esos MB se
+ * traducen en tokens de entrada: la cuota gratuita de la API se agota en unos
+ * pocos mensajes con foto. A 1280 px el texto de una captura se sigue leyendo
+ * perfectamente y la petición pesa una fracción.
+ */
+const LADO_MAX_IMAGEN = 1280;
+
+/**
  * Convierte un File del navegador en la parte `inlineData` que espera Gemini.
  * `FileReader` entrega un data URL: se recorta la cabecera y queda el Base64.
  */
-function archivoAParteInline(file) {
+function leerArchivoInline(file) {
   return new Promise((resolve, reject) => {
     if (!file) { reject(new Error('No se seleccionó ningún archivo.')); return; }
     if (file.size > ADJUNTO_MAX_MB * 1024 * 1024) {
@@ -133,6 +144,29 @@ function archivoAParteInline(file) {
     };
     lector.readAsDataURL(file);
   });
+}
+
+/**
+ * Parte `inlineData` de un adjunto, reescalando las imágenes por el camino.
+ *
+ * Solo se queda con la versión reducida si de verdad pesa menos que el
+ * original (una imagen ya pequeña puede engordar al reencodificarse), y si el
+ * navegador no puede decodificarla se manda tal cual: reducir es una
+ * optimización, nunca un motivo para que el adjunto no llegue.
+ */
+async function archivoAParteInline(file) {
+  if (!file) throw new Error('No se seleccionó ningún archivo.');
+
+  if (/^image\//i.test(file.type || '')) {
+    const reducida = await miniaturaDeImagen(file, LADO_MAX_IMAGEN);
+    const base64 = String(reducida || '').split(',')[1] || '';
+    // Base64 pesa 4/3 de los bytes reales: así se comparan magnitudes iguales.
+    if (base64 && base64.length < (file.size * 4) / 3) {
+      return { inlineData: { data: base64, mimeType: 'image/jpeg' } };
+    }
+  }
+
+  return await leerArchivoInline(file);
 }
 
 /** Extrae el primer objeto JSON de una respuesta, venga o no con ```json. */
