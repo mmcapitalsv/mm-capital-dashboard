@@ -578,7 +578,18 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
       const listaAGuardar = safeChecklist.map((item, i) => ({
         ...item, text: sinNumeracion(item.text), orden: i
       }));
-      const { success, items, porcentaje, error } = await saveChecklist(project.id, listaAGuardar);
+      const { success, items, porcentaje, error, updatedAt: versionTrasChecklist } =
+        await saveChecklist(project.id, listaAGuardar);
+
+      /* Guardar el checklist TAMBIÉN escribe en `proyectos` (el porcentaje de
+         avance), así que el testigo de versión que traía esta pantalla ya
+         quedó viejo. Sin adoptar el nuevo, el guardado de finanzas que sigue
+         dos líneas más abajo choca contra el cambio que acaba de hacer este
+         mismo usuario y acusa a "otro administrador" que no existe. */
+      if (versionTrasChecklist) {
+        versionProyecto.current = versionTrasChecklist;
+        if (project) project.updated_at = versionTrasChecklist;
+      }
 
       if (!success) {
         setSaveErrorMsg(t('msg.errorGuardarCambios', { error: t(error) || t('msg.errorDesconocido') }));

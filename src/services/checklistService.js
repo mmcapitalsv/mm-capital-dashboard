@@ -307,9 +307,13 @@ export async function fetchChecklist(proyectoId) {
 
 /* ───────────────────────────────── Escritura ──────────────────────────────── */
 
-/** Guarda el porcentaje de avance físico en la tabla `proyectos` (best-effort). */
+/** Guarda el porcentaje de avance físico en la tabla `proyectos` (best-effort).
+ *  Devuelve además el `updated_at` que quedó en la fila: este UPDATE toca la
+ *  MISMA fila que vigila el bloqueo optimista de finanzas (P2-17), así que sin
+ *  devolver el testigo nuevo el guardado siguiente de la misma pantalla se
+ *  denunciaba a sí mismo como "otro administrador guardó cambios". */
 async function guardarAvanceProyecto(proyectoId, porcentaje, extra = {}) {
-  if (!esIdValidoDeSupabase(proyectoId)) return { error: null };
+  if (!esIdValidoDeSupabase(proyectoId)) return { error: null, updatedAt: null };
 
   const payload = { porcentaje_avance: porcentaje, ...extra };
 
@@ -318,7 +322,14 @@ async function guardarAvanceProyecto(proyectoId, porcentaje, extra = {}) {
   );
 
   if (error) console.warn('[checklist] No se pudo actualizar el avance en proyectos:', error.message);
-  return { error: error ? error.message : null };
+
+  /* El testigo se relee en una consulta aparte y no con un `.select()` pegado
+     al UPDATE: si la migración 016 no está aplicada, `updated_at` no existe y
+     pedirla dentro del UPDATE tumbaría también el guardado del avance. */
+  const { data: fila } = await supabase
+    .from(PROYECTOS_TABLE).select('updated_at').eq('id', proyectoId).maybeSingle();
+
+  return { error: error ? error.message : null, updatedAt: fila?.updated_at ?? null };
 }
 
 /** Respaldo completo del checklist como JSON dentro de `proyectos.checklist`. */
@@ -427,16 +438,18 @@ export async function saveChecklist(proyectoId, items) {
   }
 
   // ── 5. Porcentaje de avance en la tabla de proyectos ──
-  await guardarAvanceProyecto(proyectoId, porcentaje);
+  // `updatedAt` viaja de vuelta: quien llame debe refrescar su testigo de
+  // versión antes de guardar finanzas en el mismo clic (ver P2-17).
+  const { updatedAt } = await guardarAvanceProyecto(proyectoId, porcentaje);
 
   if (primerError) {
-    return { success: false, items: null, porcentaje, error: primerError, source: TABLE };
+    return { success: false, items: null, porcentaje, updatedAt, error: primerError, source: TABLE };
   }
 
   // Se guardó, pero faltan columnas imprescindibles en la tabla
   const aviso = avisoMigracion([...columnasOmitidas]);
   if (aviso) {
-    return { success: false, items: null, porcentaje, error: aviso, source: TABLE, requiereMigracion: true };
+    return { success: false, items: null, porcentaje, updatedAt, error: aviso, source: TABLE, requiereMigracion: true };
   }
 
   // ── 6. Releer desde la base para devolver los ids reales ──
@@ -445,6 +458,7 @@ export async function saveChecklist(proyectoId, items) {
     success: true,
     items: refrescado.items || [],
     porcentaje,
+    updatedAt,
     error: null,
     source: refrescado.source
   };
