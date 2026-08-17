@@ -1943,6 +1943,22 @@ Deno.serve(async (req: Request) => {
         }
 
         const datos = await respuesta.json();
+
+        /* Consumo REAL de cada llamada, en los logs de la función. Sin esto, un
+           429 solo se puede explicar a base de suposiciones: no se sabe si la
+           cuota se fue en la entrada (adjuntos grandes) o en la salida (el
+           "pensamiento" del modelo, que se factura aunque no se muestre). */
+        const uso = datos?.usageMetadata;
+        if (uso) {
+          console.log(
+            `[chat-gemini] tokens · modelo ${nombre} · vuelta ${vuelta + 1}` +
+            ` · entrada ${uso.promptTokenCount ?? 0}` +
+            ` · pensamiento ${uso.thoughtsTokenCount ?? 0}` +
+            ` · respuesta ${uso.candidatesTokenCount ?? 0}` +
+            ` · total ${uso.totalTokenCount ?? 0} · usuario ${user.id}`
+          );
+        }
+
         const contenido = datos?.candidates?.[0]?.content;
         const partes: Array<Record<string, unknown>> = contenido?.parts ?? [];
 
