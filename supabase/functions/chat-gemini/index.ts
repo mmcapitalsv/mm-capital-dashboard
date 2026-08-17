@@ -1931,10 +1931,12 @@ Deno.serve(async (req: Request) => {
 
         if (!respuesta.ok) {
           const detalle = await respuesta.text();
-          /* 429 = cuota o ritmo excedido. Aquí NO se sigue con el resto de la
-             cascada: reintentar con otro modelo en el mismo segundo dispara
-             otra petición con los mismos adjuntos a cuestas y agota más cuota
-             para acabar en el mismo 429. Se corta y se avisa. */
+          /* 429 = cuota o ritmo excedido. SÍ se sigue con la cascada: Google
+             rechaza estas peticiones ANTES de generar, así que no cuestan
+             tokens, y la cuota gratuita se cuenta por modelo. Que flash esté
+             agotado no dice nada de los demás: este es justo el caso para el
+             que existe el respaldo. Solo se recuerda que hubo 429 para poder
+             explicar el fallo si acaban agotados todos. */
           if (respuesta.status === 429) cuotaAgotada = true;
           ultimoError = `${nombre}: ${respuesta.status} ${detalle.slice(0, 300)}`;
           console.warn(`[chat-gemini] ${ultimoError}`);
@@ -2024,7 +2026,6 @@ Deno.serve(async (req: Request) => {
         historial.push({ role: 'user', parts: respuestasHerramientas });
       }
 
-      if (cuotaAgotada) break;
       if (falloModelo) continue;
 
       ultimoError = `${nombre}: se agotaron las ${MAX_VUELTAS_HERRAMIENTAS} vueltas de herramientas sin respuesta final`;
