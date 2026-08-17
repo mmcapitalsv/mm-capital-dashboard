@@ -56,6 +56,44 @@ export function esImagenAdjunta(adjunto) {
   return esImagen(adjunto.nombre, adjunto.url);
 }
 
+/**
+ * Miniatura cuadrada de una imagen local, como data URL lista para un `<img>`.
+ *
+ * Se reescala en un canvas antes de guardarla: el chat de la IA persiste su
+ * historial en `localStorage` (5 MB), así que meter ahí la foto original de un
+ * teléfono (varios MB en Base64) reventaría la cuota y dejaría el chat sin
+ * historial. 320 px y JPEG 0.7 pesan unas decenas de KB.
+ *
+ * Devuelve `null` si el archivo no es una imagen o si el navegador no puede
+ * decodificarla: quien llame debe seguir mostrando el nombre como respaldo.
+ */
+export function miniaturaDeImagen(file, lado = 320) {
+  return new Promise((resolve) => {
+    if (!file || !/^image\//i.test(file.type || '')) { resolve(null); return; }
+
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      try {
+        const escala = Math.min(1, lado / Math.max(img.width, img.height));
+        const lienzo = document.createElement('canvas');
+        lienzo.width = Math.max(1, Math.round(img.width * escala));
+        lienzo.height = Math.max(1, Math.round(img.height * escala));
+        lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
+        resolve(lienzo.toDataURL('image/jpeg', 0.7));
+      } catch {
+        resolve(null);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
 /** Clave de traducción de la etiqueta del formato. */
 export function claveFormato(formato) {
   if (formato === 'imagen') return 'vault.formatoImagen';

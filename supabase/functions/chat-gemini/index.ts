@@ -1904,6 +1904,10 @@ Deno.serve(async (req: Request) => {
 
   // 6. Cascada de modelos: se prueban en orden hasta que uno responda
   let ultimoError = 'Error desconocido';
+  /* Un 429 no es «la IA falló»: es la cuota de Google agotada. Se marca aparte
+     para poder decírselo al usuario en una frase que signifique algo, en vez de
+     escupirle el JSON de error de la API. */
+  let cuotaAgotada = false;
 
   for (const nombre of modelos) {
     try {
@@ -1927,6 +1931,7 @@ Deno.serve(async (req: Request) => {
 
         if (!respuesta.ok) {
           const detalle = await respuesta.text();
+          if (respuesta.status === 429) cuotaAgotada = true;
           ultimoError = `${nombre}: ${respuesta.status} ${detalle.slice(0, 300)}`;
           console.warn(`[chat-gemini] ${ultimoError}`);
           falloModelo = true;
@@ -2007,6 +2012,18 @@ Deno.serve(async (req: Request) => {
       ultimoError = `${nombre}: ${err instanceof Error ? err.message : String(err)}`;
       console.warn(`[chat-gemini] ${ultimoError}`);
     }
+  }
+
+  console.warn(`[chat-gemini] sin respuesta · ${ultimoError}`);
+
+  if (cuotaAgotada) {
+    return json(req, {
+      error:
+        'Se agotó la cuota de la API de Gemini (error 429 de Google). No es un fallo de la app: ' +
+        'espera unos minutos y vuelve a intentarlo. Las imágenes y los PDF consumen mucha cuota, ' +
+        'así que si el mensaje llevaba adjuntos, prueba primero sin ellos. Si se repite a diario, ' +
+        'hay que subir el plan de la API de Google (ai.dev/rate-limit).'
+    }, 429);
   }
 
   return json(req, { error: `La IA no respondió con ninguno de los modelos disponibles: ${ultimoError}` }, 502);

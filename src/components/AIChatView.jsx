@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePrefs } from '../context/usePrefs';
 import { conversarConIA, confirmarPropuesta, hayClaveGemini } from '../services/geminiService';
 import {
-  AlertTriangle, Check, ChevronLeft, Copy, Loader2, Paperclip, Send, ShieldAlert,
-  Sparkles, Trash2, X
+  AlertTriangle, Check, ChevronLeft, Copy, FileText, Loader2, Paperclip, Send,
+  ShieldAlert, Sparkles, Trash2, X
 } from 'lucide-react';
+import { miniaturaDeImagen } from '../lib/archivos';
 
 const CLAVE_HISTORIAL = 'mmcapital_ai_chat';
 const SALUDO_INICIAL = [{ sender: 'ai', clave: 'ia.saludo' }];
@@ -140,11 +141,32 @@ function AIChatView({ onBack }) {
     peticionRef.current = null;
   }, []);
 
+  /* Las vistas previas pendientes se liberan al salir del chat: son blobs que
+     el navegador retiene hasta que se revocan a mano. `adjuntosRef` evita
+     rehacer este efecto en cada archivo que se añade. */
+  const adjuntosRef = useRef([]);
+  adjuntosRef.current = adjuntos;
+  useEffect(() => () => {
+    adjuntosRef.current.forEach(a => { if (a?.previa) URL.revokeObjectURL(a.previa); });
+  }, []);
+
   // Persiste el historial en cada cambio
   useEffect(() => {
     try {
       localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(messages));
-    } catch { /* cuota llena o modo privado: el chat sigue funcionando en memoria */ }
+    } catch {
+      /* Cuota llena: casi siempre por las miniaturas de las imágenes. Antes de
+         rendirse se reintenta sin ellas, que perder la vista previa de una foto
+         vieja es mucho menos grave que perder la conversación entera. */
+      try {
+        const sinImagenes = messages.map(m => (
+          Array.isArray(m.adjuntos)
+            ? { ...m, adjuntos: m.adjuntos.map(a => (typeof a === 'string' ? a : { nombre: a?.nombre || '' })) }
+            : m
+        ));
+        localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(sinImagenes));
+      } catch { /* modo privado o sin espacio: el chat sigue vivo en memoria */ }
+    }
   }, [messages]);
 
   /** Borra el historial en pantalla y en localStorage */
@@ -189,14 +211,26 @@ function AIChatView({ onBack }) {
     caja.style.overflowY = alto > 120 ? 'auto' : 'hidden';
   }, [inputMsg]);
 
+  /* Cada adjunto viaja como { file, previa }: `previa` es una URL de objeto
+     para pintar la imagen ANTES de enviarla. Se libera al quitar el adjunto y
+     al enviar, que si no el navegador se queda con el blob en memoria. */
   const agregarAdjuntos = (lista) => {
     const nuevos = Array.from(lista || []);
     if (nuevos.length === 0) return;
-    setAdjuntos(prev => [...prev, ...nuevos]);
+    setAdjuntos(prev => [
+      ...prev,
+      ...nuevos.map(file => ({
+        file,
+        previa: /^image\//i.test(file.type || '') ? URL.createObjectURL(file) : null
+      }))
+    ]);
     setErrorIA(null);
   };
 
-  const quitarAdjunto = (idx) => setAdjuntos(prev => prev.filter((_, i) => i !== idx));
+  const quitarAdjunto = (idx) => setAdjuntos(prev => {
+    if (prev[idx]?.previa) URL.revokeObjectURL(prev[idx].previa);
+    return prev.filter((_, i) => i !== idx);
+  });
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -204,18 +238,26 @@ function AIChatView({ onBack }) {
     if (!inputMsg.trim() && adjuntos.length === 0) return;
 
     const texto = inputMsg;
-    const archivos = adjuntos;
+    const archivos = adjuntos.map(a => a.file);
     const historial = messages.map(m => ({
       sender: m.sender,
       text: m.clave ? t(m.clave) : m.text
     }));
 
+    /* La burbuja del usuario guarda una MINIATURA de cada imagen, no el nombre
+       a secas: al mandar una foto lo que se reconoce es la foto. Va reescalada
+       porque el historial vive en `localStorage`. */
+    const adjuntosDelMensaje = await Promise.all(
+      archivos.map(async (f) => ({ nombre: f.name, miniatura: await miniaturaDeImagen(f) }))
+    );
+
     setMessages(prev => [...prev, {
       sender: 'user',
       text: texto,
-      adjuntos: archivos.map(f => f.name)
+      adjuntos: adjuntosDelMensaje
     }]);
     setInputMsg('');
+    adjuntos.forEach(a => { if (a.previa) URL.revokeObjectURL(a.previa); });
     setAdjuntos([]);
     if (clipRef.current) clipRef.current.value = '';
     setPensando(true);
@@ -359,14 +401,32 @@ function AIChatView({ onBack }) {
                   onDescartar={() => marcarPropuesta(idx, j, 'descartada')}
                 />
               ))}
-              {/* Nombres de los archivos que acompañaron al mensaje */}
+              {/* Archivos que acompañaron al mensaje: la imagen se ve, el
+                  documento se nombra. Los historiales antiguos guardaban solo
+                  el nombre como texto, así que ese formato se sigue leyendo. */}
               {Array.isArray(m.adjuntos) && m.adjuntos.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {m.adjuntos.map((nombre, i) => (
-                    <span key={i} className="flex items-center gap-1 text-[11px] font-semibold bg-white/15 px-2 py-0.5 rounded-full">
-                      <Paperclip size={10} /> {nombre}
-                    </span>
-                  ))}
+                  {m.adjuntos.map((adj, i) => {
+                    const nombre = typeof adj === 'string' ? adj : (adj?.nombre || '');
+                    const miniatura = typeof adj === 'string' ? null : adj?.miniatura;
+
+                    return miniatura ? (
+                      <a
+                        key={i}
+                        href={miniatura}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={nombre}
+                        className="block rounded-xl overflow-hidden border border-white/25"
+                      >
+                        <img src={miniatura} alt={nombre} className="max-h-44 w-auto max-w-full object-cover" />
+                      </a>
+                    ) : (
+                      <span key={i} className="flex items-center gap-1 text-[11px] font-semibold bg-white/15 px-2 py-0.5 rounded-full">
+                        <Paperclip size={10} /> {nombre}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -396,18 +456,35 @@ function AIChatView({ onBack }) {
       <div className="bg-white dark:bg-zinc-800 border-t border-gray-200 dark:border-zinc-700 w-full">
         <div className="max-w-4xl mx-auto w-full p-4 space-y-2">
 
+          {/* Vista previa antes de enviar: de una foto se ve la foto, no su
+              nombre de archivo (que en el móvil es "Screenshot_2026…jpg" y no
+              dice nada de lo que hay dentro). */}
           {adjuntos.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {adjuntos.map((f, i) => (
-                <span key={`${f.name}-${i}`} className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 pl-2.5 pr-1.5 py-1 rounded-full">
-                  <Paperclip size={11} className="text-mm-3" />
-                  <span className="max-w-[180px] truncate">{f.name}</span>
+              {adjuntos.map((a, i) => (
+                <span
+                  key={`${a.file.name}-${i}`}
+                  className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 pl-1.5 pr-1.5 py-1 rounded-2xl"
+                >
+                  {a.previa ? (
+                    <img
+                      src={a.previa}
+                      alt={a.file.name}
+                      className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-zinc-700"
+                    />
+                  ) : (
+                    <span className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 flex items-center justify-center">
+                      <FileText size={16} className="text-mm-oro" />
+                    </span>
+                  )}
+                  <span className="max-w-[180px] truncate">{a.file.name}</span>
                   <button
                     type="button"
                     onClick={() => quitarAdjunto(i)}
-                    className="w-4 h-4 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500"
+                    title={t('chat.quitarAdjunto')}
+                    className="w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
                   >
-                    <X size={11} />
+                    <X size={12} />
                   </button>
                 </span>
               ))}
