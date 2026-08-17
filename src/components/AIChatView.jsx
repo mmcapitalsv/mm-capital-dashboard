@@ -185,8 +185,8 @@ function AIChatView({ onBack }) {
        el campo vacío. */
     const borde = caja.offsetHeight - caja.clientHeight;
     const alto = caja.scrollHeight + borde;
-    caja.style.height = `${Math.min(alto, 140)}px`;
-    caja.style.overflowY = alto > 140 ? 'auto' : 'hidden';
+    caja.style.height = `${Math.min(alto, 120)}px`;
+    caja.style.overflowY = alto > 120 ? 'auto' : 'hidden';
   }, [inputMsg]);
 
   const agregarAdjuntos = (lista) => {
@@ -325,21 +325,25 @@ function AIChatView({ onBack }) {
                   <Sparkles size={12} /> IA MM Capital
                 </div>
               )}
-              {m.sender === 'ai' && (
-                <button
-                  type="button"
-                  onClick={() => copiarMensaje(textoMsg, idx)}
-                  title={t('comun.copiar')}
-                  className="absolute top-2.5 right-2.5 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all active:scale-95"
-                >
-                  {copiadoIdx === idx
-                    ? <><Check size={12} className="text-emerald-500" /> {t('comun.copiado')}</>
-                    : <Copy size={12} />}
-                </button>
-              )}
+              {/* Copiar disponible en ambos lados: el usuario también reutiliza
+                  lo que escribió (prompts largos, cifras que vuelve a pegar). */}
+              <button
+                type="button"
+                onClick={() => copiarMensaje(textoMsg, idx)}
+                title={t('comun.copiar')}
+                className={`absolute top-2.5 right-2.5 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all active:scale-95 ${
+                  m.sender === 'user'
+                    ? 'text-white/60 hover:text-white hover:bg-white/15'
+                    : 'text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-700'
+                }`}
+              >
+                {copiadoIdx === idx
+                  ? <><Check size={12} className="text-emerald-500" /> {t('comun.copiado')}</>
+                  : <Copy size={12} />}
+              </button>
               {/* `clave` = texto de la app (se traduce); `text` = lo que
                   escribió el usuario (se muestra tal cual) */}
-              <p className="whitespace-pre-wrap break-words">{textoMsg}</p>
+              <p className={`whitespace-pre-wrap break-words ${m.sender === 'user' ? 'pr-7' : ''}`}>{textoMsg}</p>
               {/* Escrituras propuestas: no pasa nada hasta que se confirmen */}
               {Array.isArray(m.propuestas) && m.propuestas.map((p, j) => (
                 <PropuestaAccion
@@ -406,12 +410,12 @@ function AIChatView({ onBack }) {
             </div>
           )}
 
-          {/* Un solo contenedor redondeado y translúcido con el clip, el texto y
-              el envío dentro: es lo que hace que el compositor se lea como una
-              pieza y no como tres cajas sueltas pegadas. */}
+          {/* Mismo compositor que el chat de socios (ChatModule): idéntica
+              estructura y clases para que ambos chats se vean y se comporten
+              igual. */}
           <form
             onSubmit={handleSend}
-            className="flex items-end gap-2 rounded-3xl border border-slate-900/10 dark:border-white/10 bg-slate-500/5 dark:bg-white/5 backdrop-blur-sm p-2 transition-colors focus-within:border-slate-900/20 dark:focus-within:border-mm-oro/40"
+            className="flex items-end gap-2"
           >
             {/* Clip: imágenes o documentos, se envían como Base64 inline */}
             <input
@@ -426,9 +430,9 @@ function AIChatView({ onBack }) {
               type="button"
               onClick={() => clipRef.current?.click()}
               title={t('ia.adjuntar')}
-              className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 dark:text-zinc-300 hover:text-mm-oro hover:bg-slate-900/5 dark:hover:bg-white/10 transition-colors flex-shrink-0 active:scale-95"
+              className="w-10 h-10 flex items-center justify-center text-slate-400 dark:text-zinc-300 hover:text-mm-oro rounded-full hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors flex-shrink-0 active:scale-90"
             >
-              <Paperclip size={18} />
+              <Paperclip size={19} />
             </button>
 
             {/* Textarea, no input: Enter inserta un salto de línea y el mensaje
@@ -442,16 +446,17 @@ function AIChatView({ onBack }) {
               placeholder={t('ia.placeholder')}
               enterKeyHint="enter"
               autoComplete="off"
-              className="flex-1 min-w-0 resize-none max-h-[140px] bg-transparent border-0 px-2 py-2 text-sm leading-relaxed text-gray-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 caret-mm-oro focus:outline-none focus:ring-0"
+              className="flex-1 min-w-0 resize-none bg-slate-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-3xl px-4 py-3 text-[16px] leading-snug text-slate-800 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-400 focus:outline-none focus:border-mm-oro max-h-[120px]"
             />
             <button
               type="submit"
               disabled={pensando || (!inputMsg.trim() && adjuntos.length === 0)}
-              className="bg-mm-navy text-white px-5 py-2.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-colors flex items-center gap-2 disabled:opacity-40 flex-shrink-0"
+              title={t('comun.enviar')}
+              className="w-11 h-11 flex items-center justify-center bg-mm-oro text-white rounded-full shadow-sm hover:bg-mm-oro-hondo transition-all disabled:opacity-30 disabled:hover:bg-mm-oro flex-shrink-0 active:scale-90"
             >
               {pensando
-                ? <Loader2 size={14} className="animate-spin text-mm-3" />
-                : <>{t('comun.enviar')} <Send size={14} /></>}
+                ? <Loader2 size={18} className="animate-spin" />
+                : <Send size={18} />}
             </button>
           </form>
         </div>
