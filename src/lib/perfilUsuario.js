@@ -110,7 +110,44 @@ export function cargoUsuario(rol, perfil, user) {
   return { texto: null, clave: CARGO_POR_ROL[rol] || 'cargo.socioInversionista' };
 }
 
-/** Solo el Administrador puede tocar los checks de avance de los proyectos. */
+/**
+ * ¿Manda este rol? Administrador y Socio Administrador pesan lo MISMO.
+ *
+ * Los dos eran ya idénticos para la base —`es_admin()` mira el padrón de
+ * `administradores`, donde entran ambos—, pero en la interfaz quedaban tres
+ * botones colgando de `rol === 'admin'`: el Chat IA, los checks de avance y
+ * vaciar el chat. Una diferencia que solo existía en el navegador y que
+ * ningún candado del servidor respaldaba.
+ */
+export function esRolAdministrativo(rol) {
+  return ROLES_ADMINISTRATIVOS.includes(String(rol || ''));
+}
+
+/** Los checks de avance de la obra: Administrador y Socio Administrador. */
 export function puedeEditarHitos(rol) {
-  return rol === 'admin';
+  return esRolAdministrativo(rol);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   El vocabulario de roles, en UN solo sitio
+   ═══════════════════════════════════════════════════════════════════════════
+   La interfaz ofrecía cuatro roles y la base aceptaba menos (su CHECK venía de
+   un esquema anterior), así que el desplegable enseñaba opciones condenadas a
+   ser rechazadas con un error en inglés de Postgres. La migración 019 fija
+   estos cuatro valores en la base; esta lista es la misma de este lado, y de
+   ella se construye el desplegable para que las dos no puedan separarse. */
+/** Los dos roles que mandan. `isAdmin`, el Chat IA, los hitos y la
+    escritura protegida por RLS van todos por esta misma lista. */
+export const ROLES_ADMINISTRATIVOS = Object.freeze(['admin', 'socio_administrador']);
+
+export const ROLES_VALIDOS = Object.freeze([
+  'admin',
+  'socio_administrador',
+  'socio_director',
+  'inversionista'
+]);
+
+/** ¿Es uno de los cuatro roles que la base acepta? */
+export function esRolValido(rol) {
+  return ROLES_VALIDOS.includes(String(rol || ''));
 }

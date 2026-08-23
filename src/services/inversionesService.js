@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { esIdValidoDeSupabase } from './storageService';
 import { tituloCase } from '../lib/formato';
+import { esRolValido } from '../lib/perfilUsuario';
 
 /**
  * Aportaciones de capital: relación usuario_id ↔ proyecto_id ↔ monto.
@@ -11,6 +12,36 @@ import { tituloCase } from '../lib/formato';
  */
 
 const TABLA = 'aportaciones';
+
+const AVISO_MIGRACION_019 =
+  'La base de datos todavía no admite ese rol. Ejecuta ' +
+  'supabase/migrations/019_roles_canonicos_y_acceso_chat.sql en el SQL Editor ' +
+  'de Supabase.';
+
+/**
+ * Error de Postgres -> frase que le sirva a quien está delante.
+ *
+ * `violates check constraint "usuarios_rol_check"` no le dice nada a nadie, y
+ * era justo lo que aparecía en pantalla al cambiar un rol: el CHECK de la
+ * base venía de un esquema anterior y no conocía los cuatro roles del panel.
+ */
+function mensajeDeError(error) {
+  const codigo = String(error?.code || '');
+  const texto = String(error?.message || '');
+
+  // 23514: check_violation. Hoy solo puede venir del vocabulario de roles.
+  if (codigo === '23514' || /usuarios_rol_check/i.test(texto)) return AVISO_MIGRACION_019;
+  // 42501: lo levanta `bloquear_autoascenso_rol` (migración 016)
+  if (codigo === '42501' || /solo lo puede cambiar un administrador/i.test(texto)) {
+    /* Se arrastra el motivo original de Postgres. El 42501 lo levantan TRES
+       sitios distintos —los dos triggers de rol y las políticas RLS— y sin su
+       texto no hay manera de saber cuál fue: la frase amable, sola, obligaba
+       a adivinar. */
+    return 'Solo un administrador puede cambiar el rol.' + (texto ? ' [base: ' + texto + ']' : '');
+  }
+  if (codigo === '23505') return 'Ya existe otro usuario con ese correo.';
+  return texto || 'La base de datos rechazó el cambio.';
+}
 
 const AVISO_MIGRACION_003 =
   'Falta la tabla `aportaciones`. Ejecuta supabase/migrations/003_inversiones.sql ' +
@@ -206,7 +237,7 @@ export async function crearUsuario({ nombre, email, rol }) {
     if (String(error.code) === '23505') {
       return { success: false, error: 'Ya existe un usuario con ese correo.' };
     }
-    return { success: false, error: error.message };
+    return { success: false, error: mensajeDeError(error) };
   }
   return { success: true, usuario: data };
 }
@@ -230,15 +261,49 @@ export async function actualizarUsuario(id, { nombre, email, rol }) {
   }
   if (rol !== undefined) cambios.rol = rol;
 
-  const { error } = await supabase.from('usuarios').update(cambios).eq('id', id);
-
-  if (error) {
-    if (String(error.code) === '23505') {
-      return { success: false, error: 'Ya existe otro usuario con ese correo.' };
-    }
-    return { success: false, error: error.message };
+  if (cambios.rol !== undefined && !esRolValido(cambios.rol)) {
+    return { success: false, error: 'Ese rol no existe en la aplicación.' };
   }
-  return { success: true };
+
+  /* Se pide de vuelta la fila guardada, y no por gusto: hay DOS maneras de
+     que este UPDATE no haga nada y aun así parezca que fue bien.
+
+       · RLS no deja tocar la fila -> respuesta sin error y sin filas.
+       · El trigger `usuarios_bloquea_escalada` (migración 005) reescribe
+         `new.rol := old.rol` EN SILENCIO cuando quien edita no está en el
+         padrón de administradores. La fila se escribe —hasta dispara un
+         evento de Realtime— pero con el rol de antes.
+
+     El segundo caso era el que se veía en pantalla: el aviso cantaba «ahora
+     es Administrador» y el desplegable volvía solo a «Socio Administrador»
+     un instante después, cuando Realtime recargaba la lista con el valor
+     real. Comparar lo pedido con lo guardado convierte ese fantasma en un
+     mensaje que explica qué pasó. */
+  const { data, error } = await supabase
+    .from('usuarios')
+    .update(cambios)
+    .eq('id', id)
+    .select('id, rol, email, nombre_completo');
+
+  if (error) return { success: false, error: mensajeDeError(error) };
+  if (!Array.isArray(data) || data.length === 0) {
+    return { success: false, error: 'La base no aplicó el cambio: te falta permiso para editar esta ficha.' };
+  }
+
+  const guardado = data[0];
+
+  if (cambios.rol !== undefined && guardado?.rol !== cambios.rol) {
+    return {
+      success: false,
+      usuario: guardado,
+      error:
+        'La base guardó la ficha pero dejó el rol como estaba. Cambiar un rol ' +
+        'exige estar dado de alta en la tabla `administradores` (migración 016), ' +
+        'y `es_admin()` dice que no lo estás. Revisa ahí tu UUID.'
+    };
+  }
+
+  return { success: true, usuario: guardado };
 }
 
 /** Elimina la ficha de un usuario (sus aportaciones caen por ON DELETE CASCADE). */

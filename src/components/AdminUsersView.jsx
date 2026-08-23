@@ -4,6 +4,7 @@ import { useConfirmacion } from '../hooks/useConfirmacion';
 import { useTemporizadores } from '../hooks/useTemporizadores';
 import { supabase } from '../supabaseClient';
 import { crearUsuario, actualizarUsuario } from '../services/inversionesService';
+import { ROLES_VALIDOS } from '../lib/perfilUsuario';
 import AvatarUsuario from './ui/AvatarUsuario';
 import {
   Activity, AlertTriangle, CheckCircle2, ChevronLeft, Edit2, Loader2,
@@ -12,12 +13,19 @@ import {
 
 // El `valor` es lo que se guarda en Supabase y NUNCA se traduce.
 // La etiqueta visible sí se traduce con la clave correspondiente.
-const ROLES = [
-  { valor: 'admin',               clave: 'rol.admin' },
-  { valor: 'socio_administrador', clave: 'rol.socioAdmin' },
-  { valor: 'socio_director',      clave: 'rol.socioDirector' },
-  { valor: 'inversionista',       clave: 'rol.inversionista' }
-];
+//
+// La lista de valores NO se escribe aquí: sale de `lib/perfilUsuario`, que es
+// la misma que valida el servicio y la que fija la migración 019 en la base.
+// Cuando estaban escritas por separado, el desplegable acabó ofreciendo un rol
+// que la base rechazaba con un error en inglés de Postgres.
+const CLAVE_POR_ROL = {
+  admin: 'rol.admin',
+  socio_administrador: 'rol.socioAdmin',
+  socio_director: 'rol.socioDirector',
+  inversionista: 'rol.inversionista'
+};
+
+const ROLES = ROLES_VALIDOS.map(valor => ({ valor, clave: CLAVE_POR_ROL[valor] }));
 
 function etiquetaRol(rol, t) {
   const encontrado = ROLES.find(r => r.valor === rol);
@@ -126,13 +134,19 @@ function AdminUsersView({ onBack, currentUserId, isEditMode, isAdmin }) {
     // Actualización optimista: la UI responde de inmediato
     setUsuarios(prev => prev.map(u => u.id === usuario.id ? { ...u, rol: nuevoRol } : u));
 
-    const { error } = await supabase.from('usuarios').update({ rol: nuevoRol }).eq('id', usuario.id);
+    /* Por el servicio, no contra Supabase a pelo: ahí viven la validación del
+       rol y la traducción del error de la base a algo legible. */
+    const { success, error } = await actualizarUsuario(usuario.id, { rol: nuevoRol });
 
-    if (error) {
-      setMensaje({ tipo: 'error', texto: t('msg.cambiarRol', { error: error.message }) });
+    if (!success) {
+      setMensaje({ tipo: 'error', texto: t('msg.cambiarRol', { error }) });
       await cargarUsuarios();
     } else {
       setMensaje({ tipo: 'exito', texto: t('msg.rolCambiado', { email: usuario.email, rol: etiquetaRol(nuevoRol, t) }) });
+      /* También se relee al ACERTAR. La pintada optimista de arriba es una
+         promesa, no un hecho: quien manda es la fila que quedó guardada, y
+         releerla evita que el aviso diga una cosa y el desplegable otra. */
+      await cargarUsuarios();
       programar(() => setMensaje(null), 5000);
     }
     setGuardandoId(null);
