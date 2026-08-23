@@ -52,6 +52,17 @@ export default defineConfig({
       },
     }),
   ],
+  /* El puerto sale de PORT cuando viene dado, y si no del 5173 de siempre.
+
+     Vite no mira `PORT` por su cuenta: sin esto, arrancar con otro puerto
+     asignado se ignoraba en silencio y el servidor intentaba levantar el
+     5173 igualmente. Ojo con cambiarlo a la ligera: la lista blanca CORS de
+     la Edge Function `chat-gemini` solo trae localhost 5173 y 4173, así que
+     el Chat IA únicamente responde en dev si se sirve en uno de esos dos. */
+  server: {
+    port: Number(process.env.PORT) || 5173,
+  },
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
