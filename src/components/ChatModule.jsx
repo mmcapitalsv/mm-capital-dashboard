@@ -32,6 +32,7 @@ export default function ChatModule({ onBack, isEditMode }) {
   const { confirmar, dialogoConfirmacion } = useConfirmacion();
   const {
     mensajes, enviarMensaje, marcarLeido, cargando, error, tieneAcceso, miembros,
+    perfilCargando, perfilError, reintentarPerfil,
     uid, nombreAutor, avatarDe, esAdmin,
     editarMensajePropio, eliminarMensajePropio, limpiarHistorial
   } = useChat();
@@ -353,8 +354,15 @@ export default function ChatModule({ onBack, isEditMode }) {
     </div>
   );
 
-  // El General exige ser socio; una conversación privada la tiene cualquiera
+  /* El General exige ser socio; una conversación privada la tiene cualquiera.
+
+     `bloqueado` NO es lo mismo que "no tienes permiso": mientras la ficha
+     viaja no se sabe el rol, y si su lectura falló tampoco. Antes los tres
+     casos se pintaban con el mismo candado, así que un fallo de red se leía
+     como una decisión de negocio y no había nada que hacer salvo recargar. */
   const bloqueado = !enDirectos && !tieneAcceso;
+  const verificandoAcceso = bloqueado && perfilCargando;
+  const accesoIndeterminado = bloqueado && !perfilCargando && !!perfilError;
   const faltaDestinatario = enDirectos && !destinatario;
 
   return (
@@ -473,7 +481,27 @@ export default function ChatModule({ onBack, isEditMode }) {
             )}
           </div>
 
-          {bloqueado ? (
+          {verificandoAcceso ? (
+            /* Todavía no se sabe el rol: se dice eso, no que no haya permiso */
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <Loader2 size={26} className="animate-spin text-mm-oro mb-3" />
+              <p className="text-sm font-bold text-slate-500 dark:text-zinc-300">{t('chat.verificandoAcceso')}</p>
+            </div>
+          ) : accesoIndeterminado ? (
+            /* La ficha no se pudo leer: se enseña el motivo real y un botón,
+               en vez de un candado que culpa al usuario de un fallo de red */
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <AlertTriangle size={28} className="text-amber-500 mb-3" />
+              <p className="text-sm font-bold text-slate-600 dark:text-zinc-300">{t('chat.errorPerfil')}</p>
+              <p className="text-xs text-slate-400 dark:text-zinc-300 mt-1 max-w-sm break-words">{perfilError}</p>
+              <button
+                onClick={reintentarPerfil}
+                className="mt-4 px-4 py-2 text-xs font-bold text-white bg-mm-navy hover:bg-slate-800 rounded-xl shadow-sm active:scale-95 transition-all"
+              >
+                {t('chat.reintentar')}
+              </button>
+            </div>
+          ) : bloqueado ? (
             /* Acceso restringido: el canal General es solo de admin y socios */
             <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
               <Lock size={30} className="text-slate-300 dark:text-zinc-600 mb-3" />

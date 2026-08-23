@@ -4,6 +4,7 @@ import React, {
 import { ChatContext } from './useChat';
 import { supabase } from '../supabaseClient';
 import { nombreSimple } from '../lib/perfilUsuario';
+import { leerFichaUsuario } from '../services/perfilService';
 import {
   CANAL_SOCIOS, MIEMBROS_SOCIOS, listarMensajes, enviarMensajeSocios,
   suscribirMensajes, leerMarcaLectura, marcarCanalLeido, puedeUsarChat,
@@ -26,8 +27,14 @@ import {
 
 export function ChatProvider({ children, user }) {
   const uid = user?.id || null;
+  const correo = user?.email || null;
 
   const [perfil, setPerfil] = useState(null);
+  /* La ficha tiene TRES estados, no dos. Mientras no se sepa el rol, la
+     pantalla no puede decir "no tienes permiso": todavía no lo sabe. */
+  const [perfilCargando, setPerfilCargando] = useState(true);
+  const [perfilError, setPerfilError] = useState(null);
+  const [intentoPerfil, setIntentoPerfil] = useState(0);
   const [mensajes, setMensajes] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
@@ -51,19 +58,39 @@ export function ChatProvider({ children, user }) {
   //    vistas (chat, sidebar, header) lo tienen desde el primer render.
   useEffect(() => {
     let vivo = true;
-    if (!uid) { setPerfil(null); setAvatares({}); return; }
+    if (!uid) {
+      setPerfil(null);
+      setPerfilError(null);
+      setPerfilCargando(false);
+      setAvatares({});
+      return;
+    }
 
-    supabase
-      .from('usuarios')
-      .select('id, email, nombre_completo, rol, avatar_url')
-      .eq('id', uid)
-      .maybeSingle()
-      .then(({ data }) => { if (vivo) setPerfil(data || null); });
+    setPerfilCargando(true);
+    leerFichaUsuario(uid, correo).then(({ ficha, error }) => {
+      if (!vivo) return;
+      setPerfil(ficha);
+      setPerfilError(error);
+      setPerfilCargando(false);
+    });
 
     listarAvataresUsuarios().then(mapa => { if (vivo) setAvatares(mapa); });
 
     return () => { vivo = false; };
-  }, [uid]);
+  }, [uid, correo, intentoPerfil]);
+
+  /* Un fallo de lectura se reintenta solo, dos veces y espaciado. La causa
+     habitual es pasajera —el teléfono despierta, el token se está renovando—
+     y sin esto la sesión entera se quedaba con el canal cerrado hasta que
+     alguien recargara la página. */
+  useEffect(() => {
+    if (!perfilError || intentoPerfil >= 2) return;
+    const id = setTimeout(() => setIntentoPerfil(n => n + 1), 3000);
+    return () => clearTimeout(id);
+  }, [perfilError, intentoPerfil]);
+
+  /** Vuelve a pedir la ficha (botón «Reintentar» del chat). */
+  const reintentarPerfil = useCallback(() => setIntentoPerfil(n => n + 1), []);
 
   /** Foto de un usuario por id (null si no tiene o aún no cargó). */
   const avatarDe = useCallback(
@@ -241,6 +268,9 @@ export function ChatProvider({ children, user }) {
     cargando,
     error,
     tieneAcceso,
+    perfilCargando,
+    perfilError,
+    reintentarPerfil,
     esAdmin,
     rol,
     enviarMensaje,
@@ -250,7 +280,7 @@ export function ChatProvider({ children, user }) {
     marcarLeido,
     hayNoLeidos,
     noLeidos
-  }), [uid, nombreAutor, perfil?.avatar_url, avatares, avatarDe, mensajes, cargando, error, tieneAcceso, esAdmin, rol, enviarMensaje, editarMensajePropio, eliminarMensajePropio, limpiarHistorial, marcarLeido, hayNoLeidos, noLeidos]);
+  }), [uid, nombreAutor, perfil?.avatar_url, avatares, avatarDe, mensajes, cargando, error, tieneAcceso, perfilCargando, perfilError, reintentarPerfil, esAdmin, rol, enviarMensaje, editarMensajePropio, eliminarMensajePropio, limpiarHistorial, marcarLeido, hayNoLeidos, noLeidos]);
 
   return <ChatContext.Provider value={valor}>{children}</ChatContext.Provider>;
 }

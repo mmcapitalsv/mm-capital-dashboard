@@ -260,3 +260,55 @@ export async function responderReporte(reporteId, usuarioId, mensaje, esAdmin = 
 
   return { success: true, respuesta: data };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ficha del usuario en sesión
+   ═══════════════════════════════════════════════════════════════════════════
+   De aquí salen el nombre, la foto y —lo que importa— el ROL, que es lo que
+   abre o cierra el canal de Socios.
+
+   Se separó en un servicio porque la lectura que hacía el chat tenía tres
+   agujeros, y los tres se veían igual en pantalla: "Acceso restringido".
+
+     · El error se descartaba (`.then(({ data }) => ...)` sin mirar `error`),
+       así que una lectura fallida —el token renovándose, la red del teléfono
+       yendo y viniendo— era indistinguible de "no tienes permiso", y encima
+       para el resto de la sesión: nadie volvía a preguntar.
+     · `.maybeSingle()` convierte en error cualquier respuesta que no traiga
+       exactamente una fila. `.limit(1)` no se rompe por eso.
+     · Si la ficha se creó a mano antes de que la persona se registrara
+       (migración 003), su `usuarios.id` NO es el de Auth y la búsqueda por id
+       no encuentra nada. El correo es el segundo camino.
+
+   Devuelve `{ ficha, error }`: `ficha` en null con `error` en null significa
+   "no hay ficha", que es distinto de "no se pudo leer".
+*/
+export async function leerFichaUsuario(id, email) {
+  const COLUMNAS = 'id, email, nombre_completo, rol, avatar_url';
+  const correo = String(email || '').trim().toLowerCase();
+
+  if (!id && !correo) return { ficha: null, error: null };
+
+  if (id) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select(COLUMNAS)
+      .eq('id', id)
+      .limit(1);
+
+    if (error) return { ficha: null, error: error.message };
+    const fila = Array.isArray(data) ? data[0] : null;
+    if (fila) return { ficha: fila, error: null };
+  }
+
+  if (!correo) return { ficha: null, error: null };
+
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select(COLUMNAS)
+    .ilike('email', correo)
+    .limit(1);
+
+  if (error) return { ficha: null, error: error.message };
+  return { ficha: (Array.isArray(data) ? data[0] : null) || null, error: null };
+}
