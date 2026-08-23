@@ -1786,7 +1786,8 @@ async function esAdministrador(supabase: SupabaseClient) {
     console.warn('[chat-gemini] no se pudo comprobar el rol:', errorFicha.message);
     return false;
   }
-  return ficha?.rol === 'admin';
+  // Mismo criterio que la interfaz: Administrador y Socio Administrador.
+  return ficha?.rol === 'admin' || ficha?.rol === 'socio_administrador';
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────

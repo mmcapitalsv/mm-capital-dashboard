@@ -32,7 +32,7 @@ import {
   sumarValoresCompletados, aMonto
 } from '../services/checklistService';
 import { getChecklistSeed } from '../data/checklistSeeds';
-import { puedeEditarHitos } from '../lib/perfilUsuario';
+import { puedeEditarHitos, esRolAdministrativo } from '../lib/perfilUsuario';
 import { analizarComprobante } from '../services/geminiService';
 import { useConfirmacion } from '../hooks/useConfirmacion';
 import { aNumeroSeguro, sumarDinero, porcentajeEntero } from '../lib/numeros';
@@ -174,7 +174,7 @@ export default function ProjectDetails({ project, onBack, userRole, userId, isEd
   const [nuevaPortadaFile, setNuevaPortadaFile] = useState(null);
 
   // Checklist State & Admin Controls
-  const isAdmin = ['admin', 'socio_administrador'].includes(userRole);
+  const isAdmin = esRolAdministrativo(userRole);
   /* El checklist es EXCLUSIVO del administrador: socios e inversionistas ven
      el estado real pero no pueden modificarlo. Y ni siquiera el administrador
      lo toca en lectura: hace falta ADEMÁS el Modo Edición encendido. Marcar un

@@ -68,7 +68,7 @@ import {
   getAvatarUsuario, leerAvatarCache, guardarAvatarCache, subirPortadaProyecto
 } from '../services/storageService';
 import {
-  claveSaludo, nombreMostrado, inicialesUsuario, cargoUsuario
+  claveSaludo, nombreMostrado, inicialesUsuario, cargoUsuario, esRolAdministrativo
 } from '../lib/perfilUsuario';
 // ─── Vistas secundarias ───────────────────────────────────────────────────────
 
@@ -379,7 +379,7 @@ export default function Dashboard({ user, onLogout }) {
      Function autoriza con `public.es_admin()`, o sea `rol = 'admin'` y nada
      más. Si la interfaz fuera más generosa que el servidor, el socio
      administrador entraría a una pantalla que solo sabe devolver 403. */
-  const puedeUsarIA = rol === 'admin';
+  const puedeUsarIA = esRolAdministrativo(rol);
 
   // Identidad real del usuario autenticado (nada codificado a mano)
   const nombreUsuario = nombreMostrado(user, perfil);
@@ -463,7 +463,8 @@ export default function Dashboard({ user, onLogout }) {
     noLeidos: noLeidosChat,
     marcarLeido: marcarChatLeido,
     miembros: miembrosSocios,
-    error: chatError
+    error: chatError,
+    perfilCargando: comprobandoAcceso
   } = useChat();
   const [borradorSidebar, setBorradorSidebar] = useState('');
   const [enviandoSidebar, setEnviandoSidebar] = useState(false);
@@ -940,7 +941,13 @@ export default function Dashboard({ user, onLogout }) {
             <div className="text-[11px] text-white/60">{miembrosSocios} {t('chat.miembros')}</div>
           </div>
 
-          {!puedeChatear ? (
+          {!puedeChatear && comprobandoAcceso ? (
+            /* Aún no se sabe el rol: no se puede decir que no hay permiso */
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-2">
+              <Loader2 size={15} className="animate-spin text-white/40 mb-1.5" />
+              <p className="text-[11px] text-white/40 leading-relaxed">{t('chat.verificandoAcceso')}</p>
+            </div>
+          ) : !puedeChatear ? (
             /* Solo admin y socios: para el resto el canal ni siquiera se lee */
             <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-2">
               <Lock size={16} className="text-white/25 mb-1.5" />

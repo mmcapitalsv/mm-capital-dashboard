@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { normalizeHito, calcularAvance, sumarValoresCompletados } from '../services/checklistService';
 import { getCapitalTotal, guardarCapitalTotal } from '../services/configuracionService';
 import { montoCorto } from '../lib/formato';
+import { esRolAdministrativo } from '../lib/perfilUsuario';
 import { aNumeroSeguro, redondearDinero, sumarDinero, porcentajeSeguro } from '../lib/numeros';
 import { parchearLista, afectaFila } from '../lib/realtime';
 import { leerTablaCompleta } from '../lib/supabasePaginado';
@@ -554,7 +555,7 @@ export function useProyectos(user) {
     pctDisponible,
     saludCapital,
     actualizarCapitalTotal,
-    isAdmin: ['admin', 'socio_administrador'].includes(rol),
+    isAdmin: esRolAdministrativo(rol),
     isInvestorOrPartner: ['inversionista', 'socio_director'].includes(rol)
   };
 }

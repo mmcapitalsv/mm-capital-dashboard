@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { BUCKET_ARCHIVOS, firmarUrl, firmarUrls } from '../lib/urlFirmada';
+import { esRolAdministrativo, ROLES_ADMINISTRATIVOS } from '../lib/perfilUsuario';
 
 /**
  * Chat corporativo "Socios" (tabla `mensajes`, migración 006).
@@ -15,7 +16,7 @@ export const CANAL_SOCIOS = 'socios';
 export const MIEMBROS_SOCIOS = 3;
 
 /** Roles con acceso de lectura y escritura al canal (espejo de la RLS). */
-const ROLES_CON_ACCESO = ['admin', 'socio_administrador', 'socio_director'];
+const ROLES_CON_ACCESO = [...ROLES_ADMINISTRATIVOS, 'socio_director'];
 
 const AVISO_MIGRACION_006 =
   'Falta la tabla `mensajes`. Ejecuta ' +
@@ -49,9 +50,9 @@ function esUuid(valor) {
   return RE_UUID.test(String(valor || '').trim());
 }
 
-/** Solo el Administrador puede vaciar el historial del canal General. */
+/** Vaciar el historial del canal General: los dos roles administrativos. */
 export function puedeLimpiarChat(rol) {
-  return String(rol || '') === 'admin';
+  return esRolAdministrativo(rol);
 }
 
 /**
