@@ -464,7 +464,9 @@ export default function Dashboard({ user, onLogout }) {
     marcarLeido: marcarChatLeido,
     miembros: miembrosSocios,
     error: chatError,
-    perfilCargando: comprobandoAcceso
+    perfilCargando: comprobandoAcceso,
+    perfilError,
+    reintentarPerfil
   } = useChat();
   const [borradorSidebar, setBorradorSidebar] = useState('');
   const [enviandoSidebar, setEnviandoSidebar] = useState(false);
@@ -946,6 +948,24 @@ export default function Dashboard({ user, onLogout }) {
             <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-2">
               <Loader2 size={15} className="animate-spin text-white/40 mb-1.5" />
               <p className="text-[11px] text-white/40 leading-relaxed">{t('chat.verificandoAcceso')}</p>
+            </div>
+          ) : !puedeChatear && perfilError ? (
+            /* La ficha no se pudo leer, que NO es lo mismo que no tener
+               permiso. Confundir las dos cosas costó una tarde: un socio vio
+               «Acceso restringido» y lo que pasaba era que la base estaba
+               pausada, así que su rol no se podía leer. Su permiso estaba
+               intacto. La página de Chat ya separaba los dos casos desde el
+               commit 0fedac8; este recuadro se quedó atrás, y es el que más
+               se mira porque vive en el panel de inicio. */
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-2">
+              <AlertTriangle size={16} className="text-amber-400/70 mb-1.5" />
+              <p className="text-[11px] text-white/40 leading-relaxed">{t('chat.errorPerfil')}</p>
+              <button
+                onClick={reintentarPerfil}
+                className="mt-2 px-2.5 py-1 text-[11px] font-bold text-white/80 bg-white/10 hover:bg-white/20 rounded-lg active:scale-95 transition-all"
+              >
+                {t('chat.reintentar')}
+              </button>
             </div>
           ) : !puedeChatear ? (
             /* Solo admin y socios: para el resto el canal ni siquiera se lee */
