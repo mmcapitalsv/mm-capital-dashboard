@@ -1,0 +1,91 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  MM Capital · Mantener la base de Supabase despierta
+#
+#  ── El problema ───────────────────────────────────────────────────────────
+#  El plan Free de Supabase pausa el proyecto tras SIETE DÍAS sin actividad.
+#  Un panel ejecutivo no se usa a diario: basta un puente largo, o una semana
+#  tranquila, para que un socio entre un martes cualquiera y se encuentre el
+#  portal muerto. Reanudarlo tarda unos minutos y solo puede hacerlo quien
+#  tenga acceso al panel de Supabase, así que la caída dura lo que tarde esa
+#  persona en enterarse.
+#
+#  ── Qué hace esto ─────────────────────────────────────────────────────────
+#  Lunes y jueves lanza una consulta REAL contra la base. No es un ping a una
+#  URL: PostgREST ejecuta el SELECT contra Postgres, que es exactamente lo que
+#  Supabase cuenta como actividad. El hueco más largo entre dos ejecuciones es
+#  de cuatro días, con tres de margen sobre el límite.
+#
+#  ── Qué NO hace ───────────────────────────────────────────────────────────
+#  No es un monitor de salud ni un sustituto del plan Pro. Y GitHub desactiva
+#  solo los workflows programados de un repositorio que pasa 60 días sin
+#  commits — avisa por correo antes, pero conviene saberlo.
+#
+#  ── Qué necesita ──────────────────────────────────────────────────────────
+#  Un secreto del repositorio:  SUPABASE_ANON_KEY
+#  (Settings → Secrets and variables → Actions → New repository secret)
+#
+#  La URL va escrita aquí abajo a propósito: no es un secreto. Viaja en cada
+#  bundle que sirve la aplicación, igual que la propia clave anónima; el
+#  secreto es solo higiene, para no dejar algo con pinta de JWT en el árbol de
+#  git y para poder rotarlo sin reescribir la historia.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: Mantener Supabase despierta
+
+on:
+  schedule:
+    # Lunes y jueves a las 09:00 UTC = 03:00 en El Salvador (UTC-6).
+    # GitHub puede retrasar una ejecución programada cuando va cargado; por eso
+    # dos veces por semana y no una justo en el límite.
+    - cron: '0 9 * * 1,4'
+  # Y a mano, desde la pestaña Actions, con el botón "Run workflow".
+  workflow_dispatch:
+
+# Si por lo que sea se solapan dos ejecuciones, basta con la última.
+concurrency:
+  group: mantener-supabase-despierta
+  cancel-in-progress: true
+
+jobs:
+  despertar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Consultar la base
+        env:
+          SUPABASE_URL: https://rngrpajssxebcwtgkpxm.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_ANON_KEY}" ]; then
+            echo "::error::Falta el secreto SUPABASE_ANON_KEY. Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+
+          # Se consulta `usuarios` pidiendo UNA columna y UNA fila. La RLS
+          # responde [] porque el anónimo no lee esa tabla, y da exactamente
+          # igual: la consulta llegó a Postgres y se ejecutó, que es lo único
+          # que cuenta como actividad. Pedir una tabla inexistente NO serviría:
+          # PostgREST lo resolvería contra su caché de esquema sin tocar la base.
+          codigo=$(curl --silent --show-error \
+                        --output respuesta.json \
+                        --write-out '%{http_code}' \
+                        --max-time 30 \
+                        --retry 3 --retry-delay 15 --retry-connrefused \
+                        "${SUPABASE_URL}/rest/v1/usuarios?select=id&limit=1" \
+                        -H "apikey: ${SUPABASE_ANON_KEY}" \
+                        -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+
+          if [ "${codigo}" != "200" ]; then
+            echo "::error::Supabase respondió HTTP ${codigo}."
+            echo "Respuesta: $(head -c 500 respuesta.json)"
+            echo ""
+            echo "Si el código es 503 o la conexión falla, lo más probable es que"
+            echo "el proyecto YA esté pausado: hay que reanudarlo a mano desde"
+            echo "https://supabase.com/dashboard/project/rngrpajssxebcwtgkpxm"
+            exit 1
+          fi
+
+          echo "✔ HTTP 200 — la base respondió y queda marcada como activa."
